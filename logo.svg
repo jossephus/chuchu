@@ -1,0 +1,31 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="logoTitle logoDesc">
+  <title id="logoTitle">Chuchu logo</title>
+  <desc id="logoDesc">A terminal-inspired train mark for the Chuchu Android SSH client.</desc>
+  <rect x="24" y="24" width="464" height="464" rx="112" fill="#11111B"/>
+  <rect x="24" y="24" width="464" height="464" rx="112" stroke="#313244" stroke-width="4"/>
+
+  <path d="M124 136H388" stroke="#313244" stroke-width="4" stroke-linecap="round" opacity="0.8"/>
+  <path d="M124 180H388" stroke="#313244" stroke-width="4" stroke-linecap="round" opacity="0.55"/>
+  <path d="M124 224H388" stroke="#313244" stroke-width="4" stroke-linecap="round" opacity="0.35"/>
+
+  <path d="M176 360L148 432" stroke="#89B4FA" stroke-width="16" stroke-linecap="round"/>
+  <path d="M336 360L364 432" stroke="#89B4FA" stroke-width="16" stroke-linecap="round"/>
+  <path d="M214 360L204 432" stroke="#CDD6F4" stroke-width="10" stroke-linecap="round" opacity="0.9"/>
+  <path d="M298 360L308 432" stroke="#CDD6F4" stroke-width="10" stroke-linecap="round" opacity="0.9"/>
+  <path d="M178 392H334" stroke="#45475A" stroke-width="8" stroke-linecap="round"/>
+  <path d="M166 420H346" stroke="#45475A" stroke-width="8" stroke-linecap="round"/>
+
+  <rect x="112" y="112" width="288" height="248" rx="84" fill="#1E1E2E" stroke="#45475A" stroke-width="8"/>
+  <rect x="152" y="150" width="208" height="108" rx="28" fill="#181825" stroke="#313244" stroke-width="4"/>
+
+  <path d="M214 185L180 204L214 223" stroke="#B4BEFE" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M238 226H294" stroke="#A6E3A1" stroke-width="14" stroke-linecap="round"/>
+
+  <circle cx="188" cy="304" r="18" fill="#FAB387"/>
+  <circle cx="324" cy="304" r="18" fill="#FAB387"/>
+  <circle cx="188" cy="304" r="34" fill="#FAB387" opacity="0.16"/>
+  <circle cx="324" cy="304" r="34" fill="#FAB387" opacity="0.16"/>
+
+  <path d="M176 336H336" stroke="#B4BEFE" stroke-width="12" stroke-linecap="round"/>
+  <path d="M206 112C218 84 240 70 256 70C272 70 294 84 306 112" stroke="#89B4FA" stroke-width="12" stroke-linecap="round" opacity="0.9"/>
+</svg>
