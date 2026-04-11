@@ -13,3 +13,12 @@
 .externalNativeBuild
 .cxx
 local.properties
+.agents/
+.idea/
+.kotlin/
+.npm/
+.plans/
+.zig-cache/
+references/
+app/src/main/jniLibs/
+scripts/
