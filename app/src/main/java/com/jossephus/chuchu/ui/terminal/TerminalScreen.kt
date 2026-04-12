@@ -317,11 +317,12 @@ fun TerminalScreen(
                     if (titleText != null || pwdText != null) {
                         Column(
                             modifier = Modifier
-                                .align(Alignment.TopStart)
+                                .align(Alignment.TopEnd)
                                 .padding(12.dp),
+                            horizontalAlignment = Alignment.End,
                         ) {
                             if (titleText != null) {
-                                ChuText(text = titleText, style = typography.label, color = colors.textPrimary)
+                                // ChuText(text = titleText, style = typography.label, color = colors.textPrimary)
                             }
                             if (pwdText != null) {
                                 ChuText(text = pwdText, style = typography.labelSmall, color = colors.textPrimary.copy(alpha = 0.7f))
