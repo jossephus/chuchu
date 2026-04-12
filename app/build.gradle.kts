@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.chuchu"
+    namespace = "com.jossephus.chuchu"
     compileSdk {
         version = release(36)
     }
@@ -19,7 +19,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.chuchu"
+        applicationId = "com.jossephus.chuchu"
         minSdk = 24
         targetSdk = 36
         versionCode = 1

@@ -1,24 +1,14 @@
 <p align="center">
-  <img src="./logo.svg" alt="Chuchu logo" width="180" />
+  <img src="./assets/logo.png" alt="Chuchu logo" width="180" />
 </p>
 
 # Chuchu
 
-Chuchu is an Android SSH client with a Ghostty-powered terminal, a terminal-first Compose UI, and support for both standard SSH and Tailscale SSH workflows.
+Chuchu is a native Android SSH client powered by libghostty, a terminal-first Compose UI, and support for both standard SSH and Tailscale SSH workflows.
 
 ## Status
 
-Chuchu is in active development. The current branch already includes a usable terminal path, saved host profiles, host key verification, and Android-native UI flows, but some roadmap items are still in progress.
-
-## Current Highlights
-
-- Ghostty-backed terminal rendering through a Zig/JNI bridge
-- Native Android app built with Kotlin and Jetpack Compose
-- Saved host profiles backed by Room
-- Standard SSH and Tailscale SSH transport selection
-- Host key verification prompt with local persistence
-- IME input, hardware keyboard support, accessory modifiers, scrollback, and pinch-to-zoom terminal sizing
-- `xterm-kitty` shell sessions with Kitty image support wired into terminal snapshots
+Chuchu is in active development. I am daily driving it and improving any issues i found in the way. Join the journey and report any bugs you find. And I welcome any contributions.
 
 ## Stack
 
@@ -33,24 +23,30 @@ Chuchu is in active development. The current branch already includes a usable te
 ```text
 .
 |- app/          Android application code, Compose UI, Room, ViewModels
-|- native/       Zig native bridge and SSH/terminal integration
 |- src/          Top-level Zig entrypoints and docs shims
-|- .plans/       Project plan and progress tracking
+|- assets/       Any assets we use for the project.
 ```
 
-## Running It
+### Try It Out
 
-### Prerequisites
+Checkout our releases and download the apk from there. The latest release will have the latest changes.
 
-- Android SDK
-- Android NDK
-- JDK 17+
+I don't have a personal Play Store account right now (and I can't open one because of the payment limitation in my country, feel free to contact me if you want to publish it.)
+
+### Development - Prerequisites
+
+If you have nix installed make build will build the zig native code, and 'make app' will install 
+
+1. nix develop - will set you up with everything you will need.
+2. running 'make build' will build the native code needed 
+3. running 'make app' will build the apk and install it in a connected device. 
+
+If you don't have nix installed, you will need
+
+1. setup tools
+- Android Studio - This will set up the needed Android SDK, Android NDK and Java runtime (JDK 17+).
 - Zig 0.15.2
-- `adb` for installing/running on a device
-
-If you use the included Nix shell, it sets up most of the Android and Zig tooling for you.
-
-### Build The Native Library
+2. build the native library
 
 Set `ANDROID_NDK_HOME` or `ANDROID_NDK_ROOT`, then build the JNI library for Android arm64:
 
@@ -60,17 +56,9 @@ zig build jni -Dtarget=aarch64-linux-android
 
 That copies `libchuchu_jni.so` into `app/src/main/jniLibs/arm64-v8a/`.
 
-### Build The App
-
+3. From android studio run 
 ```sh
 ./gradlew assembleDebug
-```
-
-### Install And Launch
-
-```sh
-./gradlew installDebug
-adb shell am start -n com.example.chuchu/.MainActivity
 ```
 
 ## What Works Today
@@ -82,18 +70,6 @@ adb shell am start -n com.example.chuchu/.MainActivity
 - Terminal resize, scrollback, focus, modifier keys, and paste
 - Native terminal color/title/bell updates
 
-## Known Gaps
-
-- Primary target is currently Android arm64
-- Native SSH currently supports password auth and Tailscale-style `none` auth; key import/storage is still being built out
-- The project is still moving quickly, so the roadmap in `.plans/PLAN.md` remains the best source for upcoming work
-
-## Development Notes
-
-- `build.zig` drives the native build and JNI copy step
-- `app/` owns the Android UI, persistence, and app lifecycle
-- `.plans/progress.txt` tracks feature-level progress over time
-
 ## Inspiration
 
-The project direction is explicitly inspired by VVTerm on iOS, but implemented as a native Android client with a Ghostty-based terminal core.
+The project direction is explicitly inspired by [vvterm](https://github.com/vivy-company/vvterm) on iOS, but implemented as a native Android client with a native Android + libghostty terminal core.

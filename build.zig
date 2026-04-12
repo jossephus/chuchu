@@ -1,5 +1,5 @@
 const std = @import("std");
-const native_build = @import("native/build.zig");
+const native_build = @import("src/build.zig");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -51,6 +51,6 @@ pub fn build(b: *std.Build) void {
     });
     test_step.dependOn(&b.addRunArtifact(exe_tests).step);
 
-    const fmt_check = b.addFmt(.{ .paths = &.{ "src", "native", "build.zig", "native/build.zig", "build.zig.zon" } });
+    const fmt_check = b.addFmt(.{ .paths = &.{ "src", "build.zig", "build.zig.zon" } });
     test_step.dependOn(&fmt_check.step);
 }
