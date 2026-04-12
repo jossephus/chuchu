@@ -7,8 +7,6 @@ import android.view.inputmethod.InputMethodManager
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,7 +18,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -31,24 +28,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jossephus.chuchu.data.db.AppDatabase
 import com.jossephus.chuchu.data.repository.HostRepository
-import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.terminal.SessionStatus
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuDialog
-import com.jossephus.chuchu.ui.components.ChuSegmentedControl
 import com.jossephus.chuchu.ui.components.ChuText
-import com.jossephus.chuchu.ui.components.ChuTextField
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
 
@@ -61,7 +52,6 @@ fun TerminalScreen(
     val sessionState by vm.sessionState.collectAsStateWithLifecycle()
     val connectForm by vm.connectForm.collectAsStateWithLifecycle()
     val hostKeyPrompt by vm.hostKeyPrompt.collectAsStateWithLifecycle()
-    val tailscaleActive by vm.tailscaleActive.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
     val colors = ChuColors.current
@@ -82,6 +72,7 @@ fun TerminalScreen(
         vm.updateKeyPath(host.keyPath)
         vm.updateKeyPassphrase(host.keyPassphrase)
         vm.refreshTailscaleStatus()
+        vm.connect()
     }
 
     LaunchedEffect(sessionState.status, sessionState.error) {
@@ -124,22 +115,23 @@ fun TerminalScreen(
 
     when (sessionState.status) {
         SessionStatus.Disconnected, SessionStatus.Error -> {
-            ConnectScreen(
-                host = connectForm.host,
-                port = connectForm.port,
-                username = connectForm.username,
-                password = connectForm.password,
-                transport = connectForm.transport,
-                tailscaleActive = tailscaleActive,
-                error = sessionState.error,
-                onHostChange = vm::updateHost,
-                onPortChange = vm::updatePort,
-                onUsernameChange = vm::updateUsername,
-                onPasswordChange = vm::updatePassword,
-                onTransportChange = vm::updateTransport,
-                onConnect = vm::connect,
-                modifier = screenInsetsModifier,
-            )
+            Column(
+                modifier = screenInsetsModifier.fillMaxSize().padding(16.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                if (sessionState.error != null) {
+                    ChuText(sessionState.error!!, color = colors.error, style = typography.body)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    ChuButton(
+                        onClick = vm::connect,
+                        modifier = Modifier.fillMaxWidth(),
+                        variant = ChuButtonVariant.Filled,
+                    ) {
+                        ChuText("Retry", style = typography.label, color = colors.onAccent)
+                    }
+                }
+            }
         }
 
         SessionStatus.Connecting -> {
@@ -387,109 +379,6 @@ fun TerminalScreen(
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun ConnectScreen(
-    host: String,
-    port: String,
-    username: String,
-    password: String,
-    transport: Transport,
-    tailscaleActive: Boolean,
-    error: String?,
-    onHostChange: (String) -> Unit,
-    onPortChange: (String) -> Unit,
-    onUsernameChange: (String) -> Unit,
-    onPasswordChange: (String) -> Unit,
-    onTransportChange: (Transport) -> Unit,
-    onConnect: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val colors = ChuColors.current
-    val typography = ChuTypography.current
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(12.dp),
-        verticalArrangement = Arrangement.Center,
-    ) {
-        ChuText("Chuchu SSH", style = typography.headline)
-        Spacer(modifier = Modifier.height(12.dp))
-
-        if (error != null) {
-            ChuText(text = error, color = colors.error)
-            Spacer(modifier = Modifier.height(8.dp))
-        }
-
-        ChuText("Transport", style = typography.label)
-        ChuSegmentedControl(
-            options = listOf(Transport.SSH, Transport.TailscaleSSH),
-            labels = mapOf(Transport.SSH to "SSH", Transport.TailscaleSSH to "Tailscale"),
-            selected = transport,
-            onSelect = onTransportChange,
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-
-        if (transport == Transport.TailscaleSSH && !tailscaleActive) {
-            ChuText(text = "Tailscale VPN is not active", color = colors.error)
-            Spacer(modifier = Modifier.height(8.dp))
-        }
-
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ChuTextField(
-                value = host,
-                onValueChange = onHostChange,
-                label = "Host",
-                singleLine = true,
-                modifier = Modifier.weight(1f),
-            )
-            ChuTextField(
-                value = port,
-                onValueChange = onPortChange,
-                label = "Port",
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.weight(0.3f),
-            )
-        }
-        Spacer(modifier = Modifier.height(8.dp))
-
-        ChuTextField(
-            value = username,
-            onValueChange = onUsernameChange,
-            label = "Username",
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-
-        if (transport == Transport.SSH) {
-            ChuTextField(
-                value = password,
-                onValueChange = onPasswordChange,
-                label = "Password",
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-        } else {
-            Spacer(modifier = Modifier.height(8.dp))
-        }
-
-        val hasCredentials = host.isNotBlank() &&
-            (transport == Transport.TailscaleSSH || username.isNotBlank())
-        val canConnect = hasCredentials && !(transport == Transport.TailscaleSSH && !tailscaleActive)
-        ChuButton(
-            onClick = onConnect,
-            enabled = canConnect,
-            modifier = Modifier.fillMaxWidth(),
-            variant = ChuButtonVariant.Filled,
-        ) {
-            ChuText("Connect", style = typography.label, color = colors.onAccent)
         }
     }
 }

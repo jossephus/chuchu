@@ -56,10 +56,6 @@ fun AppNavigation() {
                 onBack = { navController.popBackStack() },
             )
         }
-        composable("terminal") {
-            val vm: TerminalViewModel = viewModel(factory = TerminalViewModel.factory(application))
-            TerminalScreen(vm = vm, hostId = null)
-        }
         composable(
             route = "terminal/{id}",
             arguments = listOf(navArgument("id") { type = NavType.LongType }),
