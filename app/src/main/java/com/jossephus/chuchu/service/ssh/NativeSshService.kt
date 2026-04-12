@@ -17,6 +17,8 @@ class NativeSshService(
         username: String,
         authMethod: AuthMethod = AuthMethod.Password,
         password: String,
+        keyPath: String = "",
+        keyPassphrase: String = "",
     ) {
         require(bridge.isLoaded()) { "Native SSH unavailable: ${bridge.nativeStatus()}" }
         close()
@@ -48,8 +50,15 @@ class NativeSshService(
                     throw IllegalStateException(bridge.nativeGetLastError(handle) ?: "Native SSH password auth failed")
                 }
             }
-            else -> {
-                throw IllegalArgumentException("Native SSH currently supports only None and Password auth")
+            AuthMethod.Key -> {
+                if (!bridge.nativeAuthenticatePublicKey(handle, keyPath, null)) {
+                    throw IllegalStateException(bridge.nativeGetLastError(handle) ?: "Native SSH public key auth failed")
+                }
+            }
+            AuthMethod.KeyWithPassphrase -> {
+                if (!bridge.nativeAuthenticatePublicKey(handle, keyPath, keyPassphrase)) {
+                    throw IllegalStateException(bridge.nativeGetLastError(handle) ?: "Native SSH public key auth failed")
+                }
             }
         }
     }

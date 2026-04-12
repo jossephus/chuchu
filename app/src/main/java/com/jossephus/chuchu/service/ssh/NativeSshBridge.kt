@@ -26,6 +26,7 @@ class NativeSshBridge {
     external fun nativeGetHostKeyAlgorithm(handle: Long): String?
     external fun nativeAuthenticateNone(handle: Long): Boolean
     external fun nativeAuthenticatePassword(handle: Long, password: String): Boolean
+    external fun nativeAuthenticatePublicKey(handle: Long, keyPath: String, passphrase: String?): Boolean
     external fun nativeOpenShell(handle: Long, cols: Int, rows: Int, widthPx: Int, heightPx: Int, term: String): Boolean
     external fun nativeResize(handle: Long, cols: Int, rows: Int, widthPx: Int, heightPx: Int): Boolean
     external fun nativeWrite(handle: Long, data: ByteArray): Int

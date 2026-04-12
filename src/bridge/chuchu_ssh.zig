@@ -517,6 +517,74 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeAuthentica
     return c.JNI_FALSE;
 }
 
+export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeAuthenticatePublicKey(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, key_path: c.jstring, passphrase: c.jstring) callconv(.c) c.jboolean {
+    _ = thiz;
+    const session = sessionFromHandle(handle) orelse return c.JNI_FALSE;
+    const ssh_session = session.session orelse {
+        setError(session, "Not connected", .{});
+        return c.JNI_FALSE;
+    };
+    const username_slice = session.username orelse {
+        setError(session, "Missing username", .{});
+        return c.JNI_FALSE;
+    };
+    const key_path_slice = jniDupString(env, key_path) orelse {
+        setError(session, "Missing key path", .{});
+        return c.JNI_FALSE;
+    };
+    defer allocator.free(key_path_slice);
+    const key_path_z = dupSentinel(key_path_slice) orelse {
+        setError(session, "Failed to allocate key path", .{});
+        return c.JNI_FALSE;
+    };
+    defer allocator.free(key_path_z);
+
+    const passphrase_slice = jniDupString(env, passphrase);
+    defer if (passphrase_slice) |ps| allocator.free(ps);
+    const passphrase_z = if (passphrase_slice) |ps| dupSentinel(ps) else null;
+    defer if (passphrase_z) |pz| allocator.free(pz);
+    const passphrase_ptr: ?[*:0]const u8 = if (passphrase_z) |pz| pz.ptr else null;
+
+    c.libssh2_session_set_blocking(ssh_session, 1);
+    defer c.libssh2_session_set_blocking(ssh_session, 0);
+
+    logInfo("Public key auth attempt key={s}", .{key_path_slice});
+    const deadline_ms = nowMs() + setup_wait_timeout_ms;
+    while (true) {
+        const rc = c.libssh2_userauth_publickey_fromfile_ex(
+            ssh_session,
+            username_slice.ptr,
+            @intCast(username_slice.len),
+            null,
+            key_path_z.ptr,
+            passphrase_ptr,
+        );
+        if (rc == 0) {
+            logInfo("Public key auth succeeded", .{});
+            return c.JNI_TRUE;
+        }
+        if (rc != c.LIBSSH2_ERROR_EAGAIN) {
+            logError("Public key auth failed rc={} key={s}", .{ rc, key_path_slice });
+            var errmsg_ptr: [*c]const u8 = null;
+            var errmsg_len: c_int = 0;
+            _ = c.libssh2_session_last_error(ssh_session, @ptrCast(&errmsg_ptr), &errmsg_len, 0);
+            if (errmsg_ptr != null and errmsg_len > 0) {
+                setError(session, "Public key auth failed (rc={}): {s}", .{ rc, errmsg_ptr[0..@intCast(errmsg_len)] });
+            } else {
+                setError(session, "Public key auth failed (rc={})", .{rc});
+            }
+            return c.JNI_FALSE;
+        }
+        if (nowMs() >= deadline_ms) {
+            setError(session, "Public key auth timed out", .{});
+            return c.JNI_FALSE;
+        }
+        _ = waitSocket(session, io_wait_timeout_ms);
+    }
+
+    return c.JNI_FALSE;
+}
+
 export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeOpenShell(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, cols: c.jint, rows: c.jint, width_px: c.jint, height_px: c.jint, term: c.jstring) callconv(.c) c.jboolean {
     _ = thiz;
     const session = sessionFromHandle(handle) orelse return c.JNI_FALSE;

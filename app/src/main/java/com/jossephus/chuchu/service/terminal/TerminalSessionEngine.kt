@@ -145,15 +145,14 @@ class TerminalSessionEngine(
                 }
                 val authPassword = if (effectiveAuthMethod == AuthMethod.Password) password else null
                 check(nativeSsh.isAvailable()) { "Native SSH unavailable" }
-                check(effectiveAuthMethod == AuthMethod.Password || effectiveAuthMethod == AuthMethod.None) {
-                    "Native SSH currently supports only password/none auth"
-                }
                 nativeSsh.connect(
                     host = host,
                     port = port,
                     username = effectiveUsername,
                     authMethod = effectiveAuthMethod,
                     password = authPassword.orEmpty(),
+                    keyPath = keyPath,
+                    keyPassphrase = keyPassphrase,
                 )
                 nativeSsh.openShell(cols, rows, screenWidth, screenHeight)
                 _state.value = SessionState(status = SessionStatus.Connected)

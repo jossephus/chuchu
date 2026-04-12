@@ -131,9 +131,6 @@ class AddServerViewModel(
                     } else {
                         current.authMethod
                     }
-                    check(
-                        effectiveAuthMethod == AuthMethod.Password || effectiveAuthMethod == AuthMethod.None,
-                    ) { "Native SSH currently supports only password auth" }
                     val port = current.port.toIntOrNull() ?: 22
                     val policy = HostKeyPolicy { _, _, _, _ -> true }
                     val nativeSsh = NativeSshService(hostKeyPolicy = policy)
@@ -144,6 +141,8 @@ class AddServerViewModel(
                         username = effectiveUsername,
                         authMethod = effectiveAuthMethod,
                         password = if (effectiveAuthMethod == AuthMethod.Password) current.password else "",
+                        keyPath = current.keyPath,
+                        keyPassphrase = current.keyPassphrase,
                     )
                     nativeSsh.close()
                 }
