@@ -6,6 +6,13 @@
 
 Chuchu is a native Android SSH client powered by libghostty, a terminal-first Compose UI, and support for both standard SSH and Tailscale SSH workflows.
 
+<table align="center" cellpadding="10">
+  <tr>
+    <td><img src="./assets/sample-3.jpg" alt="Chuchu sample 3" width="420" /></td>
+    <td><img src="./assets/sample-2.jpg" alt="Chuchu sample 2" width="420" /></td>
+  </tr>
+</table>
+
 ## Status
 
 Chuchu is in active development. I am daily driving it and improving any issues i found in the way. Join the journey and report any bugs you find. And I welcome any contributions.
@@ -72,4 +79,13 @@ That copies `libchuchu_jni.so` into `app/src/main/jniLibs/arm64-v8a/`.
 
 ## Inspiration
 
-The project direction is explicitly inspired by [vvterm](https://github.com/vivy-company/vvterm) on iOS, but implemented as a native Android client with a native Android + libghostty terminal core.
+I have been using [vvterm](https://github.com/vivy-company/vvterm) on iOS for the past few weeks and i really liked it.  This project came from my desire to have native ssh client but for android.
+
+## More Screenshots
+
+<table align="center" cellpadding="10">
+  <tr>
+    <td><img src="./assets/sample-1.jpg" alt="Chuchu sample 1" width="420" /></td>
+    <td><img src="./assets/sample-4.jpg" alt="Chuchu sample 4" width="420" /></td>
+  </tr>
+</table>
