@@ -28,10 +28,10 @@
               zigpkgs = zig.packages.${system};
               android-sdk = android.sdk.${system} (sdkPkgs:
                 with sdkPkgs; [
-                  build-tools-34-0-0
+                  build-tools-35-0-0
                   cmdline-tools-latest
                   platform-tools
-                  platforms-android-35
+                  platforms-android-36
                   ndk-29-0-13113456
                 ]);
             })

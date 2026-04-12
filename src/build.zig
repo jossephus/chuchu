@@ -1,5 +1,23 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const ndk = @import("ndk.zig");
+
+fn ndkPrebuiltTag() []const u8 {
+    const os_part = switch (builtin.os.tag) {
+        .macos => "darwin",
+        .linux => "linux",
+        .windows => "windows",
+        else => @panic("Unsupported host OS for Android NDK prebuilt toolchain"),
+    };
+
+    const arch_part = switch (builtin.cpu.arch) {
+        .x86_64 => "x86_64",
+        .aarch64 => if (builtin.os.tag == .macos) "arm64" else "aarch64",
+        else => @panic("Unsupported host architecture for Android NDK prebuilt toolchain"),
+    };
+
+    return std.fmt.comptimePrint("{s}-{s}", .{ os_part, arch_part });
+}
 
 const mbedtls_src: []const []const u8 = &.{
     "x509_create.c",
@@ -285,14 +303,15 @@ pub fn build(
     const android_target = ndk.getAndroidTriple(target.result) catch {
         std.debug.panic("target must be Android", .{});
     };
-    const android_api_version: u32 = 29;
+    std.debug.assert(target.result.os.tag == .linux);
+    const android_api_version: u32 = target.result.os.version_range.linux.android;
 
     const ndk_sysroot = b.pathJoin(&.{
         ndk_home,
         "toolchains",
         "llvm",
         "prebuilt",
-        "darwin-x86_64",
+        ndkPrebuiltTag(),
         "sysroot",
     });
 
@@ -304,7 +323,7 @@ pub fn build(
     );
 
     const include_dir = b.pathJoin(&.{ ndk_sysroot, "usr", "include" });
-    const target_include_dir = b.pathJoin(&.{ include_dir, "aarch64-linux-android" });
+    const target_include_dir = b.pathJoin(&.{ include_dir, android_target });
     const libssh2 = buildLibssh2(b, target, optimize, libc_config, include_dir, target_include_dir);
     lib.addIncludePath(.{ .cwd_relative = include_dir });
     lib.addIncludePath(.{ .cwd_relative = target_include_dir });

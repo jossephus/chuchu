@@ -1,0 +1,62 @@
+on:
+  push:
+    tags:
+      - "*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Tag to publish (required for manual runs)"
+        required: false
+        type: string
+
+name: Release
+
+jobs:
+  release:
+    permissions:
+      contents: write
+      id-token: write
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: nix shell
+        run: nix develop -L --verbose
+
+      - name: build chuchu_jni
+        run: |
+          nix develop -c bash -c '
+            set -e
+            zig build -Doptimize=ReleaseSmall jni 
+          '
+
+      - name: generate release key
+        run: |
+          cd app/ && echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > key.jks
+
+      - name: build android release
+        env: 
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          nix develop -c bash -c '
+            set -e
+            chmod +x ./gradlew
+            if [ -f local.properties ]; then chmod -w local.properties; fi
+            ./gradlew assembleRelease
+          '
+
+      - name: upload release
+        if: ${{ github.ref_type == 'tag' || inputs.release_tag != '' }}
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release_tag }}
+          target_commitish: ${{ github.sha }}
+          files: |
+            ./app/build/outputs/apk/release/*.apk
+          fail_on_unmatched_files: true
