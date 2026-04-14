@@ -90,7 +90,7 @@ const ChuchuTerminal = struct {
 
 fn chuchuFromHandle(handle: c.jlong) ?*ChuchuTerminal {
     if (handle == 0) return null;
-    return @ptrFromInt(@as(usize, @bitCast(handle)));
+    return @ptrFromInt(@as(usize, @intCast(handle)));
 }
 
 fn clampI32(value: c.jint, minimum: i32, fallback: i32) i32 {
@@ -286,7 +286,7 @@ export fn chuchu_create_terminal(cols: c.jint, rows: c.jint, max_scrollback: c.j
     terminal.stream = ghostty.TerminalStream.initAlloc(allocator, handler);
 
     update_render_state(terminal);
-    return @bitCast(@intFromPtr(terminal));
+    return @intCast(@intFromPtr(terminal));
 }
 
 export fn chuchu_destroy_terminal(handle: c.jlong) callconv(.c) void {
