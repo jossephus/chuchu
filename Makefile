@@ -1,9 +1,9 @@
 .PHONY: build app
 
 build:
-	zig build jni -Dtarget=aarch64-linux-android
+	cd zig-src && zig build -Doptimize=ReleaseSmall jni
 
 app:
-	./gradlew assembleDebug
-	./gradlew installDebug
+	cd android && ./gradlew assembleDebug
+	cd android && ./gradlew installDebug
 	adb shell am start -n com.jossephus.chuchu/.MainActivity

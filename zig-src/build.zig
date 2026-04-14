@@ -154,7 +154,7 @@ pub fn build(b: *std.Build) void {
         native_step.dependOn(&native_lib.step);
 
         const abi_name = ndk.getOutputDir(resolved_target.result) catch unreachable;
-        const jni_lib_dir = b.fmt("app/src/main/jniLibs/{s}", .{abi_name});
+        const jni_lib_dir = b.fmt("../android/app/src/main/jniLibs/{s}", .{abi_name});
 
         const mkdir_jni_libs = b.addSystemCommand(&.{ "mkdir", "-p", jni_lib_dir });
         mkdir_jni_libs.step.dependOn(&native_lib.step);

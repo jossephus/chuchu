@@ -31,12 +31,13 @@ jobs:
         run: |
           nix develop -c bash -c '
             set -e
+            cd zig-src
             zig build -Doptimize=ReleaseSmall jni 
           '
 
       - name: generate release key
         run: |
-          cd app/ && echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > key.jks
+          cd android/app/ && echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > key.jks
 
       - name: build android release
         env: 
@@ -46,6 +47,7 @@ jobs:
         run: |
           nix develop -c bash -c '
             set -e
+            cd android
             chmod +x ./gradlew
             if [ -f local.properties ]; then chmod -w local.properties; fi
             ./gradlew assembleRelease
@@ -58,5 +60,5 @@ jobs:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release_tag }}
           target_commitish: ${{ github.sha }}
           files: |
-            ./app/build/outputs/apk/release/*.apk
+            ./android/app/build/outputs/apk/release/*.apk
           fail_on_unmatched_files: true
