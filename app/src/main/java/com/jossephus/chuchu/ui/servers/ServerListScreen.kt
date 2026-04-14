@@ -161,10 +161,18 @@ private fun HostCard(
             )
             Spacer(modifier = Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                ChuButton(onClick = onEdit, variant = ChuButtonVariant.Outlined) {
+                ChuButton(
+                    onClick = onEdit,
+                    variant = ChuButtonVariant.Outlined,
+                    testTag = "host_edit_${host.id}",
+                ) {
                     ChuText("Edit", style = typography.label)
                 }
-                ChuButton(onClick = onConnect) {
+                ChuButton(
+                    onClick = onConnect,
+                    testTag = "host_connect_${host.id}",
+                    contentDescription = "Connect to ${host.name}",
+                ) {
                     ChuText("Connect", style = typography.label, color = colors.onAccent)
                 }
             }

@@ -19,6 +19,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.unit.dp
 import com.jossephus.chuchu.ui.theme.ChuColors
 
@@ -35,6 +38,8 @@ fun ChuButton(
     enabled: Boolean = true,
     variant: ChuButtonVariant = ChuButtonVariant.Filled,
     contentPadding: PaddingValues = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+    testTag: String? = null,
+    contentDescription: String? = null,
     content: @Composable () -> Unit,
 ) {
     val colors = ChuColors.current
@@ -54,8 +59,18 @@ fun ChuButton(
         else -> null
     }
 
+    val semanticsModifier = Modifier.semantics {
+        if (testTag != null) {
+            this.testTag = testTag
+        }
+        if (contentDescription != null) {
+            this.contentDescription = contentDescription
+        }
+    }
+
     Box(
         modifier = modifier
+            .then(semanticsModifier)
             .clip(shape)
             .background(background)
             .then(if (border != null) Modifier.border(border, shape) else Modifier)
