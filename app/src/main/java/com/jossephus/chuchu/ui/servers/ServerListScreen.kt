@@ -68,6 +68,7 @@ fun ServerListScreen(
                 placeholder = "Search servers",
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
+                autoFocus = false,
             )
 
             ActiveConnectionsSection()

@@ -26,6 +26,43 @@ class TerminalInputView(context: Context) : EditText(context) {
             android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
     }
 
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        when (keyCode) {
+            KeyEvent.KEYCODE_DEL -> {
+                onTerminalText?.invoke("\u007f")
+                return true
+            }
+            KeyEvent.KEYCODE_ENTER -> {
+                onTerminalText?.invoke("\r")
+                return true
+            }
+            KeyEvent.KEYCODE_FORWARD_DEL -> {
+                onTerminalText?.invoke("\u001b[3~")
+                return true
+            }
+            else -> {
+                val unicodeChar = event.unicodeChar
+                if (unicodeChar != 0) {
+                    onTerminalText?.invoke(unicodeChar.toChar().toString())
+                    return true
+                }
+            }
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        // Consume key-ups for keys we handled in onKeyDown to prevent
+        // EditText from processing them and corrupting its internal buffer.
+        when (keyCode) {
+            KeyEvent.KEYCODE_DEL, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_FORWARD_DEL -> return true
+            else -> {
+                if (event.unicodeChar != 0) return true
+            }
+        }
+        return super.onKeyUp(keyCode, event)
+    }
+
     fun showKeyboard(inputMethodManager: InputMethodManager?) {
         if (inputMethodManager == null) return
         if (!hasFocus()) {

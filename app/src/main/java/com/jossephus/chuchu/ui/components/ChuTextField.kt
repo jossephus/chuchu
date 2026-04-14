@@ -13,9 +13,12 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -32,12 +35,21 @@ fun ChuTextField(
     modifier: Modifier = Modifier,
     visualTransformation: VisualTransformation = VisualTransformation.None,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    autoFocus: Boolean = true,
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
     val interactionSource = remember { MutableInteractionSource() }
     val focused by interactionSource.collectIsFocusedAsState()
     val shape = RoundedCornerShape(4.dp)
+    val focusRequester = remember { FocusRequester() }
+
+    // Only request focus if autoFocus is true
+    if (autoFocus) {
+        LaunchedEffect(Unit) {
+            focusRequester.requestFocus()
+        }
+    }
 
     Column(modifier = modifier) {
         ChuText(
@@ -51,6 +63,7 @@ fun ChuTextField(
             onValueChange = onValueChange,
             modifier = Modifier
                 .fillMaxWidth()
+                .focusRequester(focusRequester)
                 .background(colors.surface, shape)
                 .border(BorderStroke(1.dp, if (focused) colors.accent else colors.border), shape)
                 .padding(horizontal = 10.dp, vertical = 9.dp),
