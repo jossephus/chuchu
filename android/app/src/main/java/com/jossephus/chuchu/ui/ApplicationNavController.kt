@@ -1,4 +1,4 @@
-package com.jossephus.chuchu.ui.navigation
+package com.jossephus.chuchu.ui
 
 import android.app.Application
 import androidx.compose.runtime.Composable
@@ -11,15 +11,15 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.jossephus.chuchu.ui.servers.AddServerScreen
-import com.jossephus.chuchu.ui.servers.AddServerViewModel
-import com.jossephus.chuchu.ui.servers.ServerListScreen
-import com.jossephus.chuchu.ui.servers.ServerListViewModel
-import com.jossephus.chuchu.ui.terminal.TerminalScreen
-import com.jossephus.chuchu.ui.terminal.TerminalViewModel
+import com.jossephus.chuchu.ui.screens.AddServer.AddServerScreen
+import com.jossephus.chuchu.ui.screens.AddServer.AddServerViewModel
+import com.jossephus.chuchu.ui.screens.ServerList.ServerListScreen
+import com.jossephus.chuchu.ui.screens.ServerList.ServerListViewModel
+import com.jossephus.chuchu.ui.screens.Terminal.TerminalScreen
+import com.jossephus.chuchu.ui.screens.Terminal.TerminalViewModel
 
 @Composable
-fun AppNavigation() {
+fun ApplicationNavController() {
     val navController = rememberNavController()
     val context = LocalContext.current
     val application = context.applicationContext as Application

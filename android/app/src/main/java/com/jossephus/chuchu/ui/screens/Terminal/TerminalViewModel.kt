@@ -1,4 +1,4 @@
-package com.jossephus.chuchu.ui.terminal
+package com.jossephus.chuchu.ui.screens.Terminal
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
@@ -136,7 +136,7 @@ class TerminalViewModel(
     }
 
     fun onHardwareKey(key: Int, codepoint: Int, mods: Int, action: Int) {
-        val mapped = KeyMapper.map(
+        val mapped = com.jossephus.chuchu.ui.terminal.KeyMapper.map(
             keyCode = key,
             codepoint = codepoint,
             metaState = mods,

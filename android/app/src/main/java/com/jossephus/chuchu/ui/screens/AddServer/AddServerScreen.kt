@@ -1,4 +1,4 @@
-package com.jossephus.chuchu.ui.servers
+package com.jossephus.chuchu.ui.screens.AddServer
 
 import android.content.Context
 import android.provider.OpenableColumns

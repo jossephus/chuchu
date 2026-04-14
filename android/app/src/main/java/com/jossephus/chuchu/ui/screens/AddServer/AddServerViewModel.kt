@@ -1,4 +1,4 @@
-package com.jossephus.chuchu.ui.servers
+package com.jossephus.chuchu.ui.screens.AddServer
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel

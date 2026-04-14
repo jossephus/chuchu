@@ -1,4 +1,4 @@
-package com.jossephus.chuchu.ui.terminal
+package com.jossephus.chuchu.ui.screens.Terminal
 
 import android.content.ClipboardManager
 import android.content.Context
@@ -40,6 +40,11 @@ import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuDialog
 import com.jossephus.chuchu.ui.components.ChuText
+import com.jossephus.chuchu.ui.terminal.KeyMapper
+import com.jossephus.chuchu.ui.terminal.KeyboardAccessoryBar
+import com.jossephus.chuchu.ui.terminal.TerminalCanvas
+import com.jossephus.chuchu.ui.terminal.TerminalInputView
+import com.jossephus.chuchu.ui.terminal.VirtualKey
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
 

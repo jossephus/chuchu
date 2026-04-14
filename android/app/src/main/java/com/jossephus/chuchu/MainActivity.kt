@@ -10,7 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import com.jossephus.chuchu.ui.navigation.AppNavigation
+import com.jossephus.chuchu.ui.ApplicationNavController
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTheme
 
@@ -37,5 +37,5 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun AppRoot() {
-    AppNavigation()
+    ApplicationNavController()
 }

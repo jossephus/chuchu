@@ -1,4 +1,4 @@
-package com.jossephus.chuchu.ui.servers
+package com.jossephus.chuchu.ui.screens.ServerList
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
