@@ -10,17 +10,11 @@
             .url = "git+https://github.com/arrufat/zignal#0c309b0a3f8c9b22a2ff4514dbeea6401bd00587",
             .hash = "zignal-0.5.0-dev-OrZ3s8bMEgCCafyz_uBhoDKlHI58EAJXuyTuVySAnzkz",
         },
-        .libssh2 = .{
-            .url = "git+https://github.com/hamptokr/zig-libssh2.git?ref=libssh2-1.11.1#1f1da4d46cbc7de1a79dff7900f7a73df9dde01e",
-            .hash = "libssh2-1.11.1-JgdeR-YVAABUkWDmU0ogVdQ1niwtw2cu38HHgl6CEZZR",
-        },
-        .libssh2_upstream = .{
-            .url = "https://github.com/libssh2/libssh2/archive/refs/tags/libssh2-1.11.1.tar.gz",
-            .hash = "N-V-__8AAATRLQBu_rNy4X2UK6RtcdYK_yAzkV6OcCqgo5aK",
-        },
         .mbedtls = .{
-            .url = "https://github.com/Mbed-TLS/mbedtls/archive/refs/tags/v3.6.4.tar.gz",
-            .hash = "N-V-__8AADE9jALWhPS2ykOLbf8gUmr9r-SBwyzzpccbtBAv",
+            .path = "src/vendor/mbedtls",
+        },
+        .libssh2 = .{
+            .path = "src/vendor/libssh2",
         },
     },
     .fingerprint = 0xddba11030bd5a50,

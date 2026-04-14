@@ -1,0 +1,15 @@
+.{
+    .name = .mbedtls,
+    .version = "3.6.4",
+    .fingerprint = 0x841b00c2150e61c7,
+    .dependencies = .{
+        .mbedtls_upstream = .{
+            .url = "https://github.com/Mbed-TLS/mbedtls/archive/refs/tags/v3.6.4.tar.gz",
+            .hash = "N-V-__8AADE9jALWhPS2ykOLbf8gUmr9r-SBwyzzpccbtBAv",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+    },
+}
