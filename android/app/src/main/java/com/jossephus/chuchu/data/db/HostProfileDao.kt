@@ -25,4 +25,7 @@ interface HostProfileDao {
 
     @Delete
     suspend fun delete(profile: HostProfile)
+
+    @Query("UPDATE host_profiles SET keyId = NULL, keyPassphrase = '' WHERE keyId = :keyId")
+    suspend fun clearKeyReference(keyId: Long)
 }

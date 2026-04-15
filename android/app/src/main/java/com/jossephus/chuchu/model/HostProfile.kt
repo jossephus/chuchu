@@ -15,7 +15,7 @@ data class HostProfile(
     val port: Int = 22,
     val username: String,
     val password: String = "",
-    val keyPath: String = "",
+    val keyId: Long? = null,
     val keyPassphrase: String = "",
     val transport: Transport = Transport.SSH,
     val authMethod: AuthMethod = AuthMethod.Password,

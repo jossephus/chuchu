@@ -14,4 +14,6 @@ class HostRepository(
     suspend fun upsert(profile: HostProfile): Long = dao.insert(profile)
 
     suspend fun delete(profile: HostProfile) = dao.delete(profile)
+
+    suspend fun clearKeyReference(keyId: Long) = dao.clearKeyReference(keyId)
 }
