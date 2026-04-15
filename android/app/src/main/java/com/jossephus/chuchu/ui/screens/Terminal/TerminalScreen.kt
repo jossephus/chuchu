@@ -35,6 +35,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jossephus.chuchu.data.db.AppDatabase
 import com.jossephus.chuchu.data.repository.HostRepository
+import com.jossephus.chuchu.data.repository.SshKeyRepository
 import com.jossephus.chuchu.service.terminal.SessionStatus
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
@@ -68,13 +69,16 @@ fun TerminalScreen(
         if (hostId == null) return@LaunchedEffect
         val db = AppDatabase.getInstance(context)
         val host = HostRepository(db.hostProfileDao()).getById(hostId) ?: return@LaunchedEffect
+        val key = host.keyId?.let { SshKeyRepository(db.sshKeyDao()).getById(it) }
         vm.updateHost(host.host)
         vm.updatePort(host.port.toString())
         vm.updateUsername(host.username)
         vm.updatePassword(host.password)
         vm.updateTransport(host.transport)
         vm.updateAuthMethod(host.authMethod)
-        vm.updateKeyPath(host.keyPath)
+        if (key != null) {
+            vm.updatePrivateKey(key.privateKeyPem, key.publicKeyOpenSsh)
+        }
         vm.updateKeyPassphrase(host.keyPassphrase)
         vm.refreshTailscaleStatus()
         vm.connect()

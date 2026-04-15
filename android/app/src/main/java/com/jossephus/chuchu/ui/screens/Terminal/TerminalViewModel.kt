@@ -69,7 +69,8 @@ class TerminalViewModel(
                 transport = transport,
                 authMethod = nextAuthMethod,
                 password = "",
-                keyPath = "",
+                privateKeyPem = "",
+                publicKeyOpenSsh = "",
                 keyPassphrase = "",
             )
         } else {
@@ -88,8 +89,11 @@ class TerminalViewModel(
         _connectForm.value = _connectForm.value.copy(authMethod = authMethod)
     }
 
-    fun updateKeyPath(keyPath: String) {
-        _connectForm.value = _connectForm.value.copy(keyPath = keyPath)
+    fun updatePrivateKey(privateKeyPem: String, publicKeyOpenSsh: String = "") {
+        _connectForm.value = _connectForm.value.copy(
+            privateKeyPem = privateKeyPem,
+            publicKeyOpenSsh = publicKeyOpenSsh,
+        )
     }
 
     fun updateKeyPassphrase(keyPassphrase: String) {
@@ -110,7 +114,8 @@ class TerminalViewModel(
             username = form.username,
             password = form.password,
             authMethod = form.authMethod,
-            keyPath = form.keyPath,
+            publicKeyOpenSsh = form.publicKeyOpenSsh,
+            privateKeyPem = form.privateKeyPem,
             keyPassphrase = form.keyPassphrase,
             transport = form.transport,
         )
@@ -202,7 +207,8 @@ data class ConnectForm(
     val username: String = "",
     val password: String = "",
     val authMethod: AuthMethod = AuthMethod.Password,
-    val keyPath: String = "",
+    val privateKeyPem: String = "",
+    val publicKeyOpenSsh: String = "",
     val keyPassphrase: String = "",
     val transport: Transport = Transport.SSH,
 )

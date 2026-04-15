@@ -585,6 +585,95 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeAuthentica
     return c.JNI_FALSE;
 }
 
+export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeAuthenticatePublicKeyMemory(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, public_key_open_ssh: c.jstring, private_key_pem: c.jstring, passphrase: c.jstring) callconv(.c) c.jboolean {
+    _ = thiz;
+    const session = sessionFromHandle(handle) orelse return c.JNI_FALSE;
+    const ssh_session = session.session orelse {
+        setError(session, "Not connected", .{});
+        return c.JNI_FALSE;
+    };
+    const username_slice = session.username orelse {
+        setError(session, "Missing username", .{});
+        return c.JNI_FALSE;
+    };
+    const private_key_slice = jniDupString(env, private_key_pem) orelse {
+        setError(session, "Missing private key", .{});
+        return c.JNI_FALSE;
+    };
+    defer allocator.free(private_key_slice);
+
+    const public_key_slice = jniDupString(env, public_key_open_ssh);
+    defer if (public_key_slice) |pk| allocator.free(pk);
+    const trimmed_public = if (public_key_slice) |pk| std.mem.trim(u8, pk, " \t\r\n") else "";
+    const compact_public: ?[]u8 = blk: {
+        if (trimmed_public.len == 0) break :blk null;
+        var it = std.mem.tokenizeAny(u8, trimmed_public, " \t\r\n");
+        const t0 = it.next() orelse break :blk null;
+        const t1 = it.next() orelse break :blk null;
+        break :blk std.fmt.allocPrint(allocator, "{s} {s}", .{ t0, t1 }) catch null;
+    };
+    defer if (compact_public) |pk| allocator.free(pk);
+
+    const passphrase_slice = jniDupString(env, passphrase);
+    defer if (passphrase_slice) |ps| allocator.free(ps);
+    const passphrase_z = if (passphrase_slice) |ps| dupSentinel(ps) else null;
+    defer if (passphrase_z) |pz| allocator.free(pz);
+    const passphrase_ptr: ?[*:0]const u8 = if (passphrase_z) |pz| pz.ptr else null;
+
+    c.libssh2_session_set_blocking(ssh_session, 1);
+    defer c.libssh2_session_set_blocking(ssh_session, 0);
+
+    const auth_list_ptr = c.libssh2_userauth_list(ssh_session, username_slice.ptr, @intCast(username_slice.len));
+    if (auth_list_ptr != null) {
+        logInfo("Public key memory auth methods user={s} methods={s}", .{ username_slice, std.mem.span(auth_list_ptr) });
+    } else {
+        logInfo("Public key memory auth methods user={s} methods=<none>", .{username_slice});
+    }
+
+    logInfo(
+        "Public key memory auth attempt user={s} publicLen={} privateLen={} passphraseLen={}",
+        .{ username_slice, if (compact_public) |pk| pk.len else @as(usize, 0), private_key_slice.len, if (passphrase_slice) |ps| ps.len else @as(usize, 0) },
+    );
+
+    const deadline_ms = nowMs() + setup_wait_timeout_ms;
+    while (true) {
+        const rc = c.libssh2_userauth_publickey_frommemory(
+            ssh_session,
+            username_slice.ptr,
+            username_slice.len,
+            if (compact_public) |pk| pk.ptr else null,
+            if (compact_public) |pk| pk.len else 0,
+            private_key_slice.ptr,
+            private_key_slice.len,
+            passphrase_ptr,
+        );
+        if (rc == 0) {
+            logInfo("Public key memory auth succeeded user={s}", .{username_slice});
+            return c.JNI_TRUE;
+        }
+        if (rc != c.LIBSSH2_ERROR_EAGAIN) {
+            const last_errno = c.libssh2_session_last_errno(ssh_session);
+            logError("Public key memory auth failed rc={} last_errno={}", .{ rc, last_errno });
+            var errmsg_ptr: [*c]const u8 = null;
+            var errmsg_len: c_int = 0;
+            _ = c.libssh2_session_last_error(ssh_session, @ptrCast(&errmsg_ptr), &errmsg_len, 0);
+            if (errmsg_ptr != null and errmsg_len > 0) {
+                setError(session, "Public key memory auth failed (rc={} last_errno={}): {s}", .{ rc, last_errno, errmsg_ptr[0..@intCast(errmsg_len)] });
+            } else {
+                setError(session, "Public key memory auth failed (rc={} last_errno={})", .{ rc, last_errno });
+            }
+            return c.JNI_FALSE;
+        }
+        if (nowMs() >= deadline_ms) {
+            setError(session, "Public key memory auth timed out", .{});
+            return c.JNI_FALSE;
+        }
+        _ = waitSocket(session, io_wait_timeout_ms);
+    }
+
+    return c.JNI_FALSE;
+}
+
 export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeOpenShell(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, cols: c.jint, rows: c.jint, width_px: c.jint, height_px: c.jint, term: c.jstring) callconv(.c) c.jboolean {
     _ = thiz;
     const session = sessionFromHandle(handle) orelse return c.JNI_FALSE;

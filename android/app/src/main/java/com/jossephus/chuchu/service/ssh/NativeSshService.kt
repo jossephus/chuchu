@@ -17,7 +17,8 @@ class NativeSshService(
         username: String,
         authMethod: AuthMethod = AuthMethod.Password,
         password: String,
-        keyPath: String = "",
+        publicKeyOpenSsh: String = "",
+        privateKeyPem: String = "",
         keyPassphrase: String = "",
     ) {
         require(bridge.isLoaded()) { "Native SSH unavailable: ${bridge.nativeStatus()}" }
@@ -51,12 +52,16 @@ class NativeSshService(
                 }
             }
             AuthMethod.Key -> {
-                if (!bridge.nativeAuthenticatePublicKey(handle, keyPath, null)) {
+                check(privateKeyPem.isNotBlank()) { "Missing in-app private key for key auth" }
+                val ok = bridge.nativeAuthenticatePublicKeyMemory(handle, publicKeyOpenSsh.ifBlank { null }, privateKeyPem, null)
+                if (!ok) {
                     throw IllegalStateException(bridge.nativeGetLastError(handle) ?: "Native SSH public key auth failed")
                 }
             }
             AuthMethod.KeyWithPassphrase -> {
-                if (!bridge.nativeAuthenticatePublicKey(handle, keyPath, keyPassphrase)) {
+                check(privateKeyPem.isNotBlank()) { "Missing in-app private key for key auth" }
+                val ok = bridge.nativeAuthenticatePublicKeyMemory(handle, publicKeyOpenSsh.ifBlank { null }, privateKeyPem, keyPassphrase)
+                if (!ok) {
                     throw IllegalStateException(bridge.nativeGetLastError(handle) ?: "Native SSH public key auth failed")
                 }
             }

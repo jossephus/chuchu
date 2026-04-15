@@ -103,7 +103,8 @@ class TerminalSessionEngine(
         username: String,
         password: String,
         authMethod: AuthMethod,
-        keyPath: String,
+        publicKeyOpenSsh: String,
+        privateKeyPem: String,
         keyPassphrase: String,
         transport: Transport,
     ) {
@@ -151,7 +152,8 @@ class TerminalSessionEngine(
                     username = effectiveUsername,
                     authMethod = effectiveAuthMethod,
                     password = authPassword.orEmpty(),
-                    keyPath = keyPath,
+                    publicKeyOpenSsh = publicKeyOpenSsh,
+                    privateKeyPem = privateKeyPem,
                     keyPassphrase = keyPassphrase,
                 )
                 nativeSsh.openShell(cols, rows, screenWidth, screenHeight)

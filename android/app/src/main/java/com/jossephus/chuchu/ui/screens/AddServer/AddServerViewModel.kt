@@ -7,15 +7,22 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.jossephus.chuchu.data.db.AppDatabase
 import com.jossephus.chuchu.data.repository.HostRepository
+import com.jossephus.chuchu.data.repository.SshKeyRepository
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.HostProfile
+import com.jossephus.chuchu.model.SshKey
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.ssh.HostKeyPolicy
 import com.jossephus.chuchu.service.ssh.NativeSshService
+import com.jossephus.chuchu.service.ssh.RsaKeyGenerator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -23,8 +30,23 @@ class AddServerViewModel(
     application: Application,
     private val hostId: Long?,
 ) : AndroidViewModel(application) {
+    companion object {
+        fun factory(application: Application, hostId: Long?): ViewModelProvider.Factory =
+            object : ViewModelProvider.Factory {
+                override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                    if (modelClass.isAssignableFrom(AddServerViewModel::class.java)) {
+                        @Suppress("UNCHECKED_CAST")
+                        return AddServerViewModel(application, hostId) as T
+                    }
+                    throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
+                }
+            }
+    }
+
     private val db = AppDatabase.getInstance(application)
     private val hostRepository = HostRepository(db.hostProfileDao())
+    private val sshKeyRepository = SshKeyRepository(db.sshKeyDao())
+    private val keyGenerator = RsaKeyGenerator()
 
     private val _form = MutableStateFlow(AddServerForm())
     val form: StateFlow<AddServerForm> = _form.asStateFlow()
@@ -32,10 +54,20 @@ class AddServerViewModel(
     private val _testState = MutableStateFlow(ConnectionTestState())
     val testState: StateFlow<ConnectionTestState> = _testState.asStateFlow()
 
+    private val _allKeys = MutableStateFlow<List<SshKey>>(emptyList())
+    private val pendingDeletedKeyIds = MutableStateFlow<Set<Long>>(emptySet())
+    val keys: StateFlow<List<SshKey>> = combine(_allKeys, pendingDeletedKeyIds) { allKeys, deletedKeyIds ->
+        allKeys.filterNot { it.id in deletedKeyIds }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     init {
+        viewModelScope.launch {
+            sshKeyRepository.observeAll().collect { _allKeys.value = it }
+        }
         if (hostId != null) {
             viewModelScope.launch {
                 val profile = hostRepository.getById(hostId) ?: return@launch
+                val key = profile.keyId?.let { sshKeyRepository.getById(it) }
                 _form.value = AddServerForm(
                     id = profile.id,
                     name = profile.name,
@@ -43,7 +75,9 @@ class AddServerViewModel(
                     port = profile.port.toString(),
                     username = profile.username,
                     password = profile.password,
-                    keyPath = profile.keyPath,
+                    keyId = profile.keyId,
+                    privateKeyPem = key?.privateKeyPem ?: "",
+                    publicKeyOpenSsh = key?.publicKeyOpenSsh ?: "",
                     keyPassphrase = profile.keyPassphrase,
                     transport = profile.transport,
                     authMethod = profile.authMethod,
@@ -72,12 +106,61 @@ class AddServerViewModel(
         _form.value = _form.value.copy(password = password)
     }
 
-    fun updateKeyPath(keyPath: String) {
-        _form.value = _form.value.copy(keyPath = keyPath)
-    }
-
     fun updateKeyPassphrase(passphrase: String) {
         _form.value = _form.value.copy(keyPassphrase = passphrase)
+    }
+
+    fun selectStoredKey(keyId: Long?) {
+        viewModelScope.launch {
+            val selected = keyId?.let { id ->
+                keys.value.firstOrNull { it.id == id } ?: sshKeyRepository.getById(id)
+            }
+            _form.value = _form.value.copy(
+                keyId = keyId,
+                privateKeyPem = selected?.privateKeyPem ?: "",
+                publicKeyOpenSsh = selected?.publicKeyOpenSsh ?: "",
+            )
+        }
+    }
+
+    fun generateRsaKey(nameHint: String = "") {
+        viewModelScope.launch {
+            val current = _form.value
+            val baseName = if (nameHint.isNotBlank()) nameHint else current.name
+            val generatedName = baseName.trim().ifBlank { "android-rsa" }
+            val existingNames = _allKeys.value.map { it.name }.toSet()
+            val uniqueName = if (generatedName in existingNames) {
+                var index = 2
+                var candidate = "$generatedName-$index"
+                while (candidate in existingNames) {
+                    index += 1
+                    candidate = "$generatedName-$index"
+                }
+                candidate
+            } else {
+                generatedName
+            }
+            val key = withContext(Dispatchers.Default) { keyGenerator.generate(uniqueName) }
+            val id = sshKeyRepository.insert(key)
+            _form.value = _form.value.copy(
+                keyId = id,
+                privateKeyPem = key.privateKeyPem,
+                publicKeyOpenSsh = key.publicKeyOpenSsh,
+            )
+        }
+    }
+
+    fun deleteStoredKey(keyId: Long) {
+        pendingDeletedKeyIds.value = pendingDeletedKeyIds.value + keyId
+        val current = _form.value
+        if (current.keyId == keyId) {
+            _form.value = current.copy(
+                keyId = null,
+                privateKeyPem = "",
+                publicKeyOpenSsh = "",
+                keyPassphrase = "",
+            )
+        }
     }
 
     fun updateTransport(transport: Transport) {
@@ -92,7 +175,9 @@ class AddServerViewModel(
                 transport = transport,
                 authMethod = nextAuthMethod,
                 password = "",
-                keyPath = "",
+                keyId = null,
+                privateKeyPem = "",
+                publicKeyOpenSsh = "",
                 keyPassphrase = "",
             )
         } else {
@@ -141,7 +226,8 @@ class AddServerViewModel(
                         username = effectiveUsername,
                         authMethod = effectiveAuthMethod,
                         password = if (effectiveAuthMethod == AuthMethod.Password) current.password else "",
-                        keyPath = current.keyPath,
+                        publicKeyOpenSsh = current.publicKeyOpenSsh,
+                        privateKeyPem = current.privateKeyPem,
                         keyPassphrase = current.keyPassphrase,
                     )
                     nativeSsh.close()
@@ -161,7 +247,7 @@ class AddServerViewModel(
     fun save(onComplete: () -> Unit) {
         val current = _form.value
         val port = current.port.toIntOrNull() ?: 22
-        if (current.name.isBlank() || current.host.isBlank()) return
+        if (!current.canSave()) return
         val effectiveUsername = if (
             current.transport == Transport.TailscaleSSH && current.username.isBlank()
         ) {
@@ -173,6 +259,11 @@ class AddServerViewModel(
 
         viewModelScope.launch {
             val isTailscale = current.transport == Transport.TailscaleSSH
+            val deletedKeyIds = pendingDeletedKeyIds.value
+            deletedKeyIds.forEach { keyId ->
+                hostRepository.clearKeyReference(keyId)
+                sshKeyRepository.deleteById(keyId)
+            }
             val profile = HostProfile(
                 id = current.id ?: 0L,
                 name = current.name.trim(),
@@ -180,27 +271,20 @@ class AddServerViewModel(
                 port = port,
                 username = effectiveUsername,
                 password = if (isTailscale) "" else current.password,
-                keyPath = if (isTailscale) "" else current.keyPath,
+                keyId = if (isTailscale) null else current.keyId,
                 keyPassphrase = if (isTailscale) "" else current.keyPassphrase,
                 transport = current.transport,
                 authMethod = if (isTailscale) AuthMethod.Password else current.authMethod,
             )
             hostRepository.upsert(profile)
+            pendingDeletedKeyIds.value = emptySet()
             onComplete()
         }
     }
 
-    companion object {
-        fun factory(application: Application, hostId: Long?): ViewModelProvider.Factory =
-            object : ViewModelProvider.Factory {
-                override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    if (modelClass.isAssignableFrom(AddServerViewModel::class.java)) {
-                        @Suppress("UNCHECKED_CAST")
-                        return AddServerViewModel(application, hostId) as T
-                    }
-                    throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
-                }
-            }
+
+    private fun effectiveAuthMethodLabel(transport: Transport, authMethod: AuthMethod): String {
+        return if (transport == Transport.TailscaleSSH) AuthMethod.None.name else authMethod.name
     }
 }
 
@@ -211,11 +295,23 @@ data class AddServerForm(
     val port: String = "22",
     val username: String = "",
     val password: String = "",
-    val keyPath: String = "",
+    val keyId: Long? = null,
+    val privateKeyPem: String = "",
+    val publicKeyOpenSsh: String = "",
     val keyPassphrase: String = "",
     val transport: Transport = Transport.SSH,
     val authMethod: AuthMethod = AuthMethod.Password,
 )
+
+fun AddServerForm.canSave(): Boolean {
+    if (name.isBlank() || host.isBlank()) return false
+    if (transport != Transport.TailscaleSSH && username.isBlank()) return false
+    return when (authMethod) {
+        AuthMethod.Key,
+        AuthMethod.KeyWithPassphrase -> keyId != null && privateKeyPem.isNotBlank()
+        else -> true
+    }
+}
 
 enum class ConnectionTestStatus {
     Idle,
