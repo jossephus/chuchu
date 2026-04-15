@@ -4,6 +4,7 @@ import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.util.Log
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -148,6 +149,7 @@ fun TerminalCanvas(
                             dragRemainder -= delta
                             if (delta != 0) {
                                 didScroll = true
+                                Log.d("TerminalCanvas", "onScroll called delta=${-delta}")
                                 onScroll(-delta)
                             }
                         }

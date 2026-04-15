@@ -1039,7 +1039,80 @@ export fn chuchu_resize(handle: c.jlong, cols: c.jint, rows: c.jint, cell_width:
 }
 
 export fn chuchu_scroll(handle: c.jlong, delta: c.jint) callconv(.c) void {
-    const terminal = chuchuFromHandle(handle) orelse return;
-    terminal.terminal.scrollViewport(.{ .delta = @intCast(delta) });
+    const terminal = chuchuFromHandle(handle) orelse {
+        logWarn("scroll: null terminal handle", .{});
+        return;
+    };
+
+    logWarn("scroll: delta={} handle={}", .{ delta, handle });
+
+    // Check if we're in alternate screen mode (used by vim, tmux, less, etc.)
+    const alt_screen = terminal.terminal.modes.get(.alt_screen);
+    const alt_screen_legacy = terminal.terminal.modes.get(.alt_screen_legacy);
+    const alt_screen_1049 = terminal.terminal.modes.get(.alt_screen_save_cursor_clear_enter);
+    const in_alt_screen = alt_screen or alt_screen_legacy or alt_screen_1049;
+
+    // Check if mouse reporting is enabled (any mode other than none)
+    const mouse_captured = terminal.terminal.flags.mouse_event != .none;
+
+    logWarn("scroll: alt_screen={} alt_screen_legacy={} alt_screen_1049={} mouse_event={} mouse_captured={}", .{
+        alt_screen, alt_screen_legacy, alt_screen_1049, terminal.terminal.flags.mouse_event, mouse_captured,
+    });
+
+    if (in_alt_screen or mouse_captured) {
+        logWarn("scroll: sending mouse events (alt_screen={} mouse_captured={})", .{ in_alt_screen, mouse_captured });
+
+        // Send mouse scroll events to the application
+        // Mouse wheel up = button 4, wheel down = button 5
+        const button: u8 = if (delta < 0) 4 else 5;
+
+        // Use center of terminal for scroll position
+        const center_x: f32 = @as(f32, @floatFromInt(terminal.cols / 2)) * @as(f32, @floatFromInt(terminal.cell_width));
+        const center_y: f32 = @as(f32, @floatFromInt(terminal.rows / 2)) * @as(f32, @floatFromInt(terminal.cell_height));
+
+        logWarn("scroll: center=({}, {}) cell={}x{} term={}x{}", .{
+            center_x, center_y, terminal.cell_width, terminal.cell_height, terminal.cols, terminal.rows,
+        });
+
+        var buf: [128]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(&buf);
+        var last_cell: ?ghostty.point.Coordinate = null;
+        const opts = ghosttyMouseEncodeOptions(terminal, false, true, &last_cell);
+
+        // Send press event
+        const press_event: ghostty.input.MouseEncodeEvent = .{
+            .action = .press,
+            .button = @enumFromInt(button),
+            .mods = .{},
+            .pos = .{ .x = center_x, .y = center_y },
+        };
+        ghostty.input.encodeMouse(&writer, press_event, opts) catch |err| {
+            logWarn("scroll: encode press failed err={}", .{err});
+        };
+
+        // Send release event
+        const release_event: ghostty.input.MouseEncodeEvent = .{
+            .action = .release,
+            .button = @enumFromInt(button),
+            .mods = .{},
+            .pos = .{ .x = center_x, .y = center_y },
+        };
+        ghostty.input.encodeMouse(&writer, release_event, opts) catch |err| {
+            logWarn("scroll: encode release failed err={}", .{err});
+        };
+
+        // Send encoded events to PTY
+        const encoded = writer.buffered();
+        logWarn("scroll: encoded {} bytes for PTY", .{encoded.len});
+        if (encoded.len > 0) {
+            appendPtyWrite(terminal, encoded);
+            logWarn("scroll: appended to PTY writes, total_pty_len={}", .{terminal.pty_write_len});
+        }
+    } else {
+        logWarn("scroll: normal viewport scroll delta={}", .{delta});
+        // Normal scrollback scrolling
+        terminal.terminal.scrollViewport(.{ .delta = @intCast(delta) });
+    }
+
     update_render_state(terminal);
 }
