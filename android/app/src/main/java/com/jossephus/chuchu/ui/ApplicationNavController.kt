@@ -36,6 +36,7 @@ fun ApplicationNavController() {
                 onAddServer = { navController.navigate("servers/add") },
                 onEditServer = { id -> navController.navigate("servers/edit/$id") },
                 onConnectServer = { id -> navController.navigate("terminal/$id") },
+                onDeleteServer = vm::deleteServer,
             )
         }
         composable("servers/add") {

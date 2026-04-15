@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 class ServerListViewModel(
     application: Application,
@@ -40,6 +41,13 @@ class ServerListViewModel(
 
     fun updateSearchQuery(value: String) {
         searchQuery.value = value
+    }
+
+    fun deleteServer(id: Long) {
+        viewModelScope.launch {
+            val host = hostRepository.getById(id) ?: return@launch
+            hostRepository.delete(host)
+        }
     }
 
     val search: StateFlow<String> = searchQuery.stateIn(
