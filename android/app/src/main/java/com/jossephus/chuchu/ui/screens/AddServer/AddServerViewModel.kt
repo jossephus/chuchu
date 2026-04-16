@@ -17,12 +17,9 @@ import com.jossephus.chuchu.service.ssh.NativeSshService
 import com.jossephus.chuchu.service.ssh.RsaKeyGenerator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -55,10 +52,7 @@ class AddServerViewModel(
     val testState: StateFlow<ConnectionTestState> = _testState.asStateFlow()
 
     private val _allKeys = MutableStateFlow<List<SshKey>>(emptyList())
-    private val pendingDeletedKeyIds = MutableStateFlow<Set<Long>>(emptySet())
-    val keys: StateFlow<List<SshKey>> = combine(_allKeys, pendingDeletedKeyIds) { allKeys, deletedKeyIds ->
-        allKeys.filterNot { it.id in deletedKeyIds }
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val keys: StateFlow<List<SshKey>> = _allKeys.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -151,7 +145,6 @@ class AddServerViewModel(
     }
 
     fun deleteStoredKey(keyId: Long) {
-        pendingDeletedKeyIds.value = pendingDeletedKeyIds.value + keyId
         val current = _form.value
         if (current.keyId == keyId) {
             _form.value = current.copy(
@@ -160,6 +153,10 @@ class AddServerViewModel(
                 publicKeyOpenSsh = "",
                 keyPassphrase = "",
             )
+        }
+        viewModelScope.launch {
+            hostRepository.clearKeyReference(keyId)
+            sshKeyRepository.deleteById(keyId)
         }
     }
 
@@ -259,11 +256,6 @@ class AddServerViewModel(
 
         viewModelScope.launch {
             val isTailscale = current.transport == Transport.TailscaleSSH
-            val deletedKeyIds = pendingDeletedKeyIds.value
-            deletedKeyIds.forEach { keyId ->
-                hostRepository.clearKeyReference(keyId)
-                sshKeyRepository.deleteById(keyId)
-            }
             val profile = HostProfile(
                 id = current.id ?: 0L,
                 name = current.name.trim(),
@@ -277,7 +269,6 @@ class AddServerViewModel(
                 authMethod = if (isTailscale) AuthMethod.Password else current.authMethod,
             )
             hostRepository.upsert(profile)
-            pendingDeletedKeyIds.value = emptySet()
             onComplete()
         }
     }
