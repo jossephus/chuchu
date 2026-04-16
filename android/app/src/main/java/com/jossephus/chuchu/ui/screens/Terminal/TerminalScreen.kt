@@ -226,6 +226,8 @@ fun TerminalScreen(
 
                 fun sendVirtualKey(key: VirtualKey) {
                     val mod = modifierParam()
+                    // Auto-reset modifiers after sending virtual key
+                    val shouldReset = ctrlEnabled || cmdEnabled || altEnabled || shiftEnabled
                     when (key) {
                         VirtualKey.Escape -> sendEscape("\u001b")
                         VirtualKey.Tab -> {
@@ -255,40 +257,48 @@ fun TerminalScreen(
                         VirtualKey.F11 -> sendEscape(if (mod == 1) "\u001b[23~" else "\u001b[23;${mod}~")
                         VirtualKey.F12 -> sendEscape(if (mod == 1) "\u001b[24~" else "\u001b[24;${mod}~")
                     }
+                    // Auto-reset modifiers after sending virtual key
+                    if (shouldReset) {
+                        ctrlEnabled = false
+                        cmdEnabled = false
+                        altEnabled = false
+                        shiftEnabled = false
+                    }
                 }
 
                 fun applyModifiers(text: String): String {
                     if (!ctrlEnabled && !cmdEnabled) return text
+                    if (text.isEmpty()) return text
 
-                    val ctrlApplied = if (ctrlEnabled) {
-                        val sb = StringBuilder(text.length)
-                        text.forEach { ch ->
-                            val code = when (ch) {
-                                '@' -> 0
-                                '[' -> 27
-                                '\\' -> 28
-                                ']' -> 29
-                                '^' -> 30
-                                '_' -> 31
-                                in 'a'..'z' -> ch.code - 96
-                                in 'A'..'Z' -> ch.code - 64
-                                else -> ch.code
-                            }
-                            sb.append(code.toChar())
+                    // Only apply modifiers to the FIRST character.
+                    // The rest of the text is sent unmodified.
+                    val firstChar = text[0]
+                    val rest = text.substring(1)
+
+                    val ctrlAppliedFirst = if (ctrlEnabled) {
+                        val code = when (firstChar) {
+                            '@' -> 0
+                            '[' -> 27
+                            '\\' -> 28
+                            ']' -> 29
+                            '^' -> 30
+                            '_' -> 31
+                            in 'a'..'z' -> firstChar.code - 96
+                            in 'A'..'Z' -> firstChar.code - 64
+                            else -> firstChar.code
                         }
-                        sb.toString()
+                        code.toChar().toString()
                     } else {
-                        text
+                        firstChar.toString()
                     }
 
-                    if (!cmdEnabled) return ctrlApplied
-
-                    val meta = StringBuilder(ctrlApplied.length * 2)
-                    ctrlApplied.forEach { ch ->
-                        meta.append('\u001b')
-                        meta.append(ch)
+                    val metaAppliedFirst = if (cmdEnabled) {
+                        "\u001b$ctrlAppliedFirst"
+                    } else {
+                        ctrlAppliedFirst
                     }
-                    return meta.toString()
+
+                    return metaAppliedFirst + rest
                 }
 
                 fun pasteClipboard() {
@@ -297,6 +307,11 @@ fun TerminalScreen(
                     val text = clip.getItemAt(0).coerceToText(context).toString()
                     if (text.isNotEmpty()) {
                         vm.onPasteText(applyModifiers(text))
+                        // Auto-reset modifiers after paste
+                        if (ctrlEnabled) ctrlEnabled = false
+                        if (cmdEnabled) cmdEnabled = false
+                        if (altEnabled) altEnabled = false
+                        if (shiftEnabled) shiftEnabled = false
                     }
                 }
 
@@ -348,6 +363,11 @@ fun TerminalScreen(
                             TerminalInputView(viewContext).apply {
                                 onTerminalText = { text ->
                                     vm.onTextInput(applyModifiers(text))
+                                    // Auto-reset modifiers after text input
+                                    if (ctrlEnabled) ctrlEnabled = false
+                                    if (cmdEnabled) cmdEnabled = false
+                                    if (altEnabled) altEnabled = false
+                                    if (shiftEnabled) shiftEnabled = false
                                 }
                                 setOnFocusChangeListener { v, hasFocus ->
                                     vm.onFocusChanged(hasFocus)
