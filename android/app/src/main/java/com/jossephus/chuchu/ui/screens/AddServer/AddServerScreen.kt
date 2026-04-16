@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
@@ -29,8 +28,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.Modifier
@@ -48,6 +49,7 @@ import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
+import com.jossephus.chuchu.ui.components.ChuDialog
 import com.jossephus.chuchu.ui.components.ChuSegmentedControl
 import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.components.ChuTextField
@@ -89,28 +91,29 @@ fun AddServerScreen(
             .background(colors.background)
             .windowInsetsPadding(WindowInsets.safeDrawing)
             .verticalScroll(scrollState)
-            .padding(12.dp),
+            .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         ChuText("Add Server", style = typography.headline)
-        ChuText("Connection details", style = typography.body, color = colors.textSecondary)
 
+        // --- Connection ---
+        SectionHeader("Connection")
         ChuTextField(
             value = form.name,
             onValueChange = vm::updateName,
             label = "Name",
+            placeholder = "My server",
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
-
         ChuTextField(
             value = form.host,
             onValueChange = vm::updateHost,
             label = "Host",
+            placeholder = "192.168.1.10",
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
-
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             ChuTextField(
                 value = form.port,
@@ -118,17 +121,21 @@ fun AddServerScreen(
                 label = "Port",
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.weight(0.4f),
+                modifier = Modifier.weight(0.3f),
             )
             ChuTextField(
                 value = form.username,
                 onValueChange = vm::updateUsername,
                 label = "Username",
+                placeholder = "root",
                 singleLine = true,
-                modifier = Modifier.weight(0.6f),
+                modifier = Modifier.weight(0.7f),
             )
         }
 
+        SectionDivider()
+
+        // --- Transport ---
         SectionHeader("Transport")
         ChuSegmentedControl(
             options = listOf(Transport.SSH, Transport.TailscaleSSH),
@@ -139,11 +146,21 @@ fun AddServerScreen(
             selected = form.transport,
             onSelect = vm::updateTransport,
         )
-
-        SectionHeader("Auth method")
         if (form.transport == Transport.TailscaleSSH) {
             ChuText(
-                "Uses server-side Tailscale SSH policy. No password or SSH key is required.",
+                "Requires the Tailscale VPN to be active.",
+                style = typography.bodySmall,
+                color = colors.textMuted,
+            )
+        }
+
+        SectionDivider()
+
+        // --- Auth ---
+        SectionHeader("Authentication")
+        if (form.transport == Transport.TailscaleSSH) {
+            ChuText(
+                "Handled by Tailscale SSH policy — no credentials needed.",
                 style = typography.bodySmall,
                 color = colors.textSecondary,
             )
@@ -151,14 +168,12 @@ fun AddServerScreen(
             val authOptions = listOf(
                 AuthMethod.Password,
                 AuthMethod.Key,
-                AuthMethod.KeyWithPassphrase,
             )
             ChuSegmentedControl(
                 options = authOptions,
                 labels = mapOf(
                     AuthMethod.Password to "Password",
                     AuthMethod.Key to "SSH Key",
-                    AuthMethod.KeyWithPassphrase to "Key + Pass",
                 ),
                 selected = form.authMethod,
                 onSelect = vm::updateAuthMethod,
@@ -192,53 +207,18 @@ fun AddServerScreen(
                             } else {
                                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                 clipboard.setPrimaryClip(ClipData.newPlainText("SSH Public Key", form.publicKeyOpenSsh))
+                                Toast.makeText(context, "Public key copied", Toast.LENGTH_SHORT).show()
                             }
                         },
                     )
                 }
-                AuthMethod.KeyWithPassphrase -> {
-                    KeyAuthSection(
-                        form = form,
-                        keys = keys,
-                        onGenerate = { vm.generateRsaKey(form.name) },
-                        onSelectStoredKey = vm::selectStoredKey,
-                        onDeleteStoredKey = vm::deleteStoredKey,
-                        onSavePrivateKey = {
-                            val name = form.name.trim().ifBlank { "android-rsa" }
-                            exportKeyLauncher.launch("$name.pem")
-                        },
-                        onCopyPublicKey = {
-                            if (form.publicKeyOpenSsh.isBlank()) {
-                                Toast.makeText(context, "No public key available", Toast.LENGTH_SHORT).show()
-                            } else {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                clipboard.setPrimaryClip(ClipData.newPlainText("SSH Public Key", form.publicKeyOpenSsh))
-                            }
-                        },
-                    )
-                    ChuTextField(
-                        value = form.keyPassphrase,
-                        onValueChange = vm::updateKeyPassphrase,
-                        label = "Key passphrase",
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                AuthMethod.None -> Unit
+                AuthMethod.KeyWithPassphrase, AuthMethod.None -> Unit
             }
         }
 
-        if (form.transport == Transport.TailscaleSSH) {
-            ChuText(
-                "Tailscale SSH requires the Tailscale VPN to be active.",
-                style = typography.bodySmall,
-                color = colors.textSecondary,
-            )
-        }
+        SectionDivider()
 
-        Spacer(modifier = Modifier.height(8.dp))
-
+        // --- Actions ---
         val canTest = form.host.isNotBlank() &&
             (form.transport == Transport.TailscaleSSH || form.username.isNotBlank())
         ChuButton(
@@ -248,8 +228,8 @@ fun AddServerScreen(
             modifier = Modifier.fillMaxWidth(),
         ) {
             val label = when (testState.status) {
-                ConnectionTestStatus.Running -> "Testing..."
-                else -> "Test Connection"
+                ConnectionTestStatus.Running -> "Testing…"
+                else -> "Test connection"
             }
             ChuText(label, style = typography.label)
         }
@@ -257,7 +237,7 @@ fun AddServerScreen(
             ChuText(
                 testState.message ?: "",
                 style = typography.bodySmall,
-                color = if (testState.status == ConnectionTestStatus.Error) colors.error else colors.textSecondary,
+                color = if (testState.status == ConnectionTestStatus.Error) colors.error else colors.success,
             )
         }
 
@@ -268,20 +248,26 @@ fun AddServerScreen(
         ) {
             ChuText("Save", style = typography.label, color = colors.onAccent)
         }
-
-        ChuButton(
-            onClick = onBack,
-            variant = ChuButtonVariant.Outlined,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            ChuText("Cancel", style = typography.label)
-        }
     }
 }
 
 @Composable
+private fun SectionDivider() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(1.dp)
+            .background(ChuColors.current.border.copy(alpha = 0.5f)),
+    )
+}
+
+@Composable
 private fun SectionHeader(label: String) {
-    ChuText(label, style = ChuTypography.current.label, color = ChuColors.current.textSecondary)
+    ChuText(
+        label,
+        style = ChuTypography.current.title,
+        color = ChuColors.current.textPrimary,
+    )
 }
 
 @Composable
@@ -297,35 +283,113 @@ private fun KeyAuthSection(
     val typography = ChuTypography.current
     val colors = ChuColors.current
     val selectedKey = keys.firstOrNull { it.id == form.keyId }
-    ChuText(
-        "Use an app-generated RSA key and add its public key to ~/.ssh/authorized_keys on your laptop.",
-        style = typography.bodySmall,
-        color = colors.textSecondary,
-    )
-    ChuButton(onClick = onGenerate, modifier = Modifier.fillMaxWidth()) {
-        ChuText("Generate RSA", style = typography.label, color = colors.onAccent)
-    }
+    var showKeyPicker by remember { mutableStateOf(false) }
+
     if (selectedKey != null) {
-        ChuText("Selected key: ${selectedKey.name}", style = typography.bodySmall, color = colors.textSecondary)
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ChuButton(onClick = onCopyPublicKey, variant = ChuButtonVariant.Outlined, modifier = Modifier.weight(1f)) {
-                ChuText("Copy Public", style = typography.label)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(4.dp))
+                .background(colors.surface)
+                .padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            ChuText(
+                "Using: ${selectedKey.name}",
+                style = typography.label,
+                color = colors.textPrimary,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                ChuButton(
+                    onClick = onCopyPublicKey,
+                    variant = ChuButtonVariant.Outlined,
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    ChuText("Copy public key", style = typography.labelSmall)
+                }
+                ChuButton(
+                    onClick = onSavePrivateKey,
+                    variant = ChuButtonVariant.Outlined,
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    ChuText("Export private key", style = typography.labelSmall)
+                }
             }
-            ChuButton(onClick = onSavePrivateKey, variant = ChuButtonVariant.Outlined, modifier = Modifier.weight(1f)) {
-                ChuText("Save Private", style = typography.label)
+        }
+    } else {
+        ChuText(
+            "Generate an RSA key, then copy the public key to ~/.ssh/authorized_keys on the remote host.",
+            style = typography.bodySmall,
+            color = colors.textMuted,
+        )
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        ChuButton(
+            onClick = onGenerate,
+            variant = ChuButtonVariant.Outlined,
+            modifier = Modifier.weight(1f),
+        ) {
+            ChuText(if (selectedKey != null) "New key" else "Generate key", style = typography.label)
+        }
+        if (keys.isNotEmpty()) {
+            ChuButton(
+                onClick = { showKeyPicker = true },
+                variant = ChuButtonVariant.Outlined,
+                modifier = Modifier.weight(1f),
+            ) {
+                ChuText(
+                    "Stored (${keys.size})",
+                    style = typography.label,
+                )
             }
         }
     }
-    if (keys.isNotEmpty()) {
-        ChuText("Stored keys", style = typography.label, color = colors.textSecondary)
+
+    if (showKeyPicker) {
+        KeyPickerDialog(
+            keys = keys,
+            selectedKeyId = form.keyId,
+            onSelect = { id ->
+                onSelectStoredKey(id)
+                showKeyPicker = false
+            },
+            onDelete = onDeleteStoredKey,
+            onDismiss = { showKeyPicker = false },
+        )
+    }
+}
+
+@Composable
+private fun KeyPickerDialog(
+    keys: List<com.jossephus.chuchu.model.SshKey>,
+    selectedKeyId: Long?,
+    onSelect: (Long?) -> Unit,
+    onDelete: (Long) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ChuDialog(
+        title = "Stored keys",
+        confirmLabel = "Done",
+        onConfirm = onDismiss,
+        onDismiss = onDismiss,
+    ) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             keys.forEach { key ->
-                val isSelected = form.keyId == key.id
+                val isSelected = selectedKeyId == key.id
                 SwipeToDeleteKeyRow(
                     keyName = key.name,
                     isSelected = isSelected,
-                    onSelect = { onSelectStoredKey(key.id) },
-                    onDelete = { onDeleteStoredKey(key.id) },
+                    onSelect = { onSelect(key.id) },
+                    onDelete = { onDelete(key.id) },
                 )
             }
         }
@@ -393,7 +457,7 @@ private fun SwipeToDeleteKeyRow(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
-                val label = if (isSelected) "Selected - $keyName" else keyName
+                val label = if (isSelected) "✓ $keyName" else keyName
                 ChuText(label, style = typography.labelSmall, color = if (isSelected) colors.onAccent else colors.textPrimary)
             }
         }
