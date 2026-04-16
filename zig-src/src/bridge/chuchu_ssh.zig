@@ -812,10 +812,7 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeRead(env: 
                 session.empty_reads = 0;
                 return jniNewByteArrayOrNull(env, buf[0..total_read]);
             }
-            if (!waitSocket(session, io_wait_timeout_ms)) {
-                return jniNewByteArrayOrNull(env, &.{});
-            }
-            continue;
+            return jniNewByteArrayOrNull(env, &.{});
         }
         if (rc == 0) {
             if (total_read > 0) {

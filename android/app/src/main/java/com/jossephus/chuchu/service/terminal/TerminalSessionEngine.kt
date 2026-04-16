@@ -7,7 +7,6 @@ import com.jossephus.chuchu.service.ssh.NativeSshService
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.delay
@@ -17,10 +16,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.launch
 import java.nio.file.Path
 import java.util.concurrent.Executors
 import android.util.Log
@@ -59,9 +54,6 @@ class TerminalSessionEngine(
     private val dispatcher = Executors.newSingleThreadExecutor { r ->
         Thread(r, "terminal-session").apply { isDaemon = true }
     }.asCoroutineDispatcher()
-
-    // Mutex to serialize libssh2 access (libssh2 is not thread-safe)
-    private val sshMutex = Mutex()
 
     private val bridge = GhosttyBridge()
     private val nativeSsh = NativeSshService(hostKeyPolicy = ::verifyHostKey)
@@ -291,17 +283,12 @@ class TerminalSessionEngine(
     }
 
     fun scroll(delta: Int) {
-        Log.d("TerminalSession", "scroll called delta=$delta handle=$handle")
         scope.launch(dispatcher) {
             if (handle == 0L || delta == 0) {
-                Log.d("TerminalSession", "scroll early return handle=$handle delta=$delta")
                 return@launch
             }
-            Log.d("TerminalSession", "scroll calling nativeScroll delta=$delta")
             bridge.nativeScroll(handle, delta)
-            Log.d("TerminalSession", "scroll nativeScroll done, flushing PTY writes")
             flushPtyWrites()
-            Log.d("TerminalSession", "scroll PTY writes flushed, requesting snapshot")
             requestSnapshot(force = true)
         }
     }
@@ -364,30 +351,29 @@ class TerminalSessionEngine(
     }
 
     private fun startReadLoop() {
-        readJob = scope.launch(Dispatchers.IO) {
+        readJob = scope.launch(dispatcher) {
             val buf = ByteArray(65536)
             try {
                 while (isActive) {
-                    val chunk = sshMutex.withLock { nativeSsh.read(buf.size) }
+                    val chunk = nativeSsh.read(buf.size)
                     if (chunk == null) {
                         break
                     }
                     if (chunk.isEmpty()) {
+                        delay(2)
                         continue
                     }
-                    withContext(dispatcher) {
-                        if (handle == 0L) return@withContext
-                        val wasImageLoading = bridge.nativeIsImageLoading(handle)
-                        flushPtyWrites()
-                        bridge.nativeWriteRemote(handle, chunk)
-                        flushPtyWrites()
-                        val isImageLoading = bridge.nativeIsImageLoading(handle)
-                        when {
-                            wasImageLoading && !isImageLoading -> {
-                                requestSnapshot(force = true)
-                            }
-                            !isImageLoading -> requestSnapshot()
+                    if (handle == 0L) continue
+                    val wasImageLoading = bridge.nativeIsImageLoading(handle)
+                    flushPtyWrites()
+                    bridge.nativeWriteRemote(handle, chunk)
+                    flushPtyWrites()
+                    val isImageLoading = bridge.nativeIsImageLoading(handle)
+                    when {
+                        wasImageLoading && !isImageLoading -> {
+                            requestSnapshot(force = true)
                         }
+                        !isImageLoading -> requestSnapshot()
                     }
                 }
             } catch (e: Exception) {
@@ -424,24 +410,16 @@ class TerminalSessionEngine(
     }
 
     private fun writeRemote(data: ByteArray) {
-        runBlocking { sshMutex.withLock { nativeSsh.write(data) } }
+        nativeSsh.write(data)
     }
 
     private fun flushPtyWrites() {
         if (handle == 0L) return
-        var totalFlushed = 0
         repeat(8) {
             val ptyWrites = bridge.nativeDrainPtyWrites(handle)
-            if (ptyWrites.isEmpty()) {
-                if (totalFlushed > 0) {
-                    Log.d("TerminalSession", "flushPtyWrites flushed total=$totalFlushed bytes")
-                }
-                return
-            }
-            Log.d("TerminalSession", "flushPtyWrites flushing ${ptyWrites.size} bytes")
+            if (ptyWrites.isEmpty()) return
             try {
-                runBlocking { sshMutex.withLock { nativeSsh.write(ptyWrites) } }
-                totalFlushed += ptyWrites.size
+                nativeSsh.write(ptyWrites)
             } catch (e: Exception) {
                 Log.e("TerminalSession", "flushPtyWrites failed: ${e.message}")
                 scope.launch(dispatcher) {
@@ -453,11 +431,10 @@ class TerminalSessionEngine(
                 return
             }
         }
-        Log.d("TerminalSession", "flushPtyWrites flushed total=$totalFlushed bytes (hit repeat limit)")
     }
 
     private fun resizeRemote(cols: Int, rows: Int, widthPx: Int, heightPx: Int) {
-        runBlocking { sshMutex.withLock { nativeSsh.resize(cols, rows, widthPx, heightPx) } }
+        nativeSsh.resize(cols, rows, widthPx, heightPx)
     }
 
     private fun requestSnapshot(force: Boolean = false) {
