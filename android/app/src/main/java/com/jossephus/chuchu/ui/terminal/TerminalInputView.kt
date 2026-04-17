@@ -13,6 +13,13 @@ class TerminalInputView(context: Context) : EditText(context) {
     var onTerminalText: ((String) -> Unit)? = null
     var onTerminalKey: ((Int, KeyEvent?) -> Unit)? = null
 
+    /**
+     * When true, suppress IME text input (used to prevent double-sends
+     * when accessory-bar virtual keys like Tab are tapped).
+     */
+    @Volatile
+    var suppressInput = false
+
     init {
         setBackgroundColor(android.graphics.Color.TRANSPARENT)
         setTextColor(android.graphics.Color.TRANSPARENT)
@@ -93,6 +100,11 @@ class TerminalInputView(context: Context) : EditText(context) {
         private var composing = ""
 
         override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+            if (view.suppressInput) {
+                view.suppressInput = false
+                composing = ""
+                return true
+            }
             val str = text?.toString() ?: return true
             if (str.isEmpty()) return true
 
@@ -115,6 +127,10 @@ class TerminalInputView(context: Context) : EditText(context) {
         }
 
         override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
+            if (view.suppressInput) {
+                composing = ""
+                return true
+            }
             val newText = text?.toString() ?: ""
             val commonLen = composing.zip(newText).takeWhile { it.first == it.second }.size
 

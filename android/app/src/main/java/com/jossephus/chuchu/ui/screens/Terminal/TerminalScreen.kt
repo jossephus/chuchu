@@ -225,6 +225,8 @@ fun TerminalScreen(
                 }
 
                 fun sendVirtualKey(key: VirtualKey) {
+                    // Suppress any pending IME text to avoid double-sends
+                    inputViewRef.value?.suppressInput = true
                     val mod = modifierParam()
                     // Auto-reset modifiers after sending virtual key
                     val shouldReset = ctrlEnabled || cmdEnabled || altEnabled || shiftEnabled
