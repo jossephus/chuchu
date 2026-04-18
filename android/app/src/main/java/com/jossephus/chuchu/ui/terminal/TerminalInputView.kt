@@ -26,6 +26,12 @@ class TerminalInputView(context: Context) : EditText(context) {
     @Volatile
     var suppressInput = false
 
+    /** Active input connection for composing-state resets. */
+    private var activeInputConnection: TerminalInputConnection? = null
+
+    /** Cached InputMethodManager for IME restarts. */
+    private var inputMethodManager: InputMethodManager? = null
+
     private fun logInput(message: String) {
         if (!DEBUG_INPUT_LOGS) return
         Log.d(LOG_TAG, message)
@@ -65,6 +71,13 @@ class TerminalInputView(context: Context) : EditText(context) {
     fun armInputSuppression(reason: String) {
         suppressInput = true
         logInput("arm suppression reason=$reason")
+        activeInputConnection?.resetComposing()
+        inputMethodManager?.let { imm ->
+            post {
+                logInput("arm suppression - restarting IME input")
+                imm.restartInput(this)
+            }
+        }
     }
 
     private fun clearSuppression(reason: String) {
@@ -145,6 +158,7 @@ class TerminalInputView(context: Context) : EditText(context) {
 
     fun showKeyboard(imm: InputMethodManager?) {
         if (imm == null) return
+        inputMethodManager = imm
         if (!hasFocus()) {
             requestFocus()
             requestFocusFromTouch()
@@ -164,7 +178,9 @@ class TerminalInputView(context: Context) : EditText(context) {
             android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or
             android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
 
-        return TerminalInputConnection(this)
+        val conn = TerminalInputConnection(this)
+        activeInputConnection = conn
+        return conn
     }
 
     private class TerminalInputConnection(
@@ -172,6 +188,12 @@ class TerminalInputView(context: Context) : EditText(context) {
     ) : BaseInputConnection(view, false) {
 
         private var composing = ""
+
+        /** Reset composing state without emitting reconciliation backspaces. */
+        fun resetComposing() {
+            view.logInput("resetComposing was=${view.describeText(composing)}")
+            composing = ""
+        }
 
         override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
             val str = text?.toString() ?: return true
