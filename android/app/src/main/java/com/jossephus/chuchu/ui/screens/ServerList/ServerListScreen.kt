@@ -22,23 +22,30 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
+import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.model.HostProfile
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuCard
 import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.components.ChuTextField
+import com.jossephus.chuchu.ui.screens.Settings.SettingsSheet
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
 
@@ -53,6 +60,11 @@ fun ServerListScreen(
     onDeleteServer: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    val settingsRepo = remember(context) { SettingsRepository.getInstance(context) }
+    val currentTheme by settingsRepo.themeName.collectAsStateWithLifecycle()
+    var showSettings by remember { mutableStateOf(false) }
+
     val colors = ChuColors.current
     val typography = ChuTypography.current
     Box(
@@ -67,13 +79,27 @@ fun ServerListScreen(
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Column {
-                ChuText("Chuchu", style = typography.headline)
-                ChuText(
-                    "Active connections and saved hosts",
-                    style = typography.body,
-                    color = colors.textSecondary,
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top,
+            ) {
+                Column {
+                    ChuText("Chuchu", style = typography.headline)
+                    ChuText(
+                        "Active connections and saved hosts",
+                        style = typography.body,
+                        color = colors.textSecondary,
+                    )
+                }
+
+                ChuButton(
+                    onClick = { showSettings = true },
+                    variant = ChuButtonVariant.Ghost,
+                    contentPadding = PaddingValues(8.dp),
+                ) {
+                    ChuText("⚙", style = typography.title, color = colors.textMuted)
+                }
             }
 
             ChuTextField(
@@ -113,6 +139,15 @@ fun ServerListScreen(
                 .height(44.dp),
         ) {
             ChuText("Add Server", style = typography.label, color = colors.onAccent)
+        }
+
+        if (showSettings) {
+            SettingsSheet(
+                visible = true,
+                currentTheme = currentTheme,
+                onThemeSelected = { settingsRepo.setTheme(it) },
+                onDismiss = { showSettings = false },
+            )
         }
     }
 }

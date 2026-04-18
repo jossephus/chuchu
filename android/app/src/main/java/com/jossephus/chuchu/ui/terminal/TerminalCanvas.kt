@@ -15,10 +15,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -37,6 +37,8 @@ fun TerminalCanvas(
     snapshot: TerminalSnapshot,
     modifier: Modifier = Modifier,
     fontSizeSp: Float = 14f,
+    cursorColor: Color = Color.White.copy(alpha = 0.28f),
+    cursorTextColor: Color? = null,
     onResize: (cols: Int, rows: Int, cellWidth: Int, cellHeight: Int, widthPx: Int, heightPx: Int) -> Unit =
         { _, _, _, _, _, _ -> },
     onTap: () -> Unit = {},
@@ -61,6 +63,12 @@ fun TerminalCanvas(
         }
     }
     val bgPaint = remember {
+        Paint().apply {
+            isAntiAlias = false
+            style = Paint.Style.FILL
+        }
+    }
+    val cursorPaint = remember {
         Paint().apply {
             isAntiAlias = false
             style = Paint.Style.FILL
@@ -231,13 +239,34 @@ fun TerminalCanvas(
                 nCanvas.drawBitmap(img.bitmap, srcRect, dstRect, null)
             }
 
-            // Cursor
-            if (snapshot.cursorVisible && snapshot.cursorX >= 0 && snapshot.cursorY >= 0) {
-                drawRect(
-                    color = Color.White.copy(alpha = 0.28f),
-                    topLeft = Offset(snapshot.cursorX * cellWidth, snapshot.cursorY * cellHeight),
-                    size = androidx.compose.ui.geometry.Size(cellWidth, cellHeight),
+            if (snapshot.cursorVisible && snapshot.cursorX in 0 until cols && snapshot.cursorY in 0 until rows) {
+                val cursorLeft = snapshot.cursorX * cellWidth
+                val cursorTop = snapshot.cursorY * cellHeight
+                cursorPaint.color = cursorColor.toArgb()
+                nCanvas.drawRect(
+                    cursorLeft,
+                    cursorTop,
+                    cursorLeft + cellWidth,
+                    cursorTop + cellHeight,
+                    cursorPaint,
                 )
+
+                val cursorIndex = snapshot.cursorY * cols + snapshot.cursorX
+                if (cursorTextColor != null && cursorIndex in snapshot.codepoints.indices) {
+                    val codepoint = snapshot.codepoints[cursorIndex]
+                    if (codepoint != 0 && codepoint != 32) {
+                        val glyph = glyphCache.getOrPut(codepoint) {
+                            String(Character.toChars(codepoint))
+                        }
+                        textPaint.color = cursorTextColor.toArgb()
+                        nCanvas.drawText(
+                            glyph,
+                            cursorLeft,
+                            cursorTop + baselineOffset,
+                            textPaint,
+                        )
+                    }
+                }
             }
         }
     }

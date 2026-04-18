@@ -7,6 +7,8 @@ import android.view.inputmethod.InputMethodManager
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -26,6 +28,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -49,8 +53,13 @@ import com.jossephus.chuchu.ui.terminal.TerminalAccessoryDispatcher
 import com.jossephus.chuchu.ui.terminal.TerminalAccessoryLayoutStore
 import com.jossephus.chuchu.ui.terminal.TerminalInputView
 import com.jossephus.chuchu.ui.terminal.toGhosttyKey
+import com.jossephus.chuchu.data.repository.SettingsRepository
+import com.jossephus.chuchu.ui.screens.Settings.SettingsSheet
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
+import com.jossephus.chuchu.ui.theme.GhosttyThemeRegistry
+import com.jossephus.chuchu.ui.theme.toRgbIntArray
+import com.jossephus.chuchu.ui.theme.toTerminalPaletteBytes
 
 @Composable
 fun TerminalScreen(
@@ -68,6 +77,13 @@ fun TerminalScreen(
     val accessoryLayout = remember { TerminalAccessoryLayoutStore.defaultLayout() }
     val screenInsetsModifier = modifier.windowInsetsPadding(WindowInsets.safeDrawing)
     var lastSessionStatus by remember { mutableStateOf<SessionStatus?>(null) }
+    var showSettings by remember { mutableStateOf(false) }
+    val settingsRepo = remember(context) { SettingsRepository.getInstance(context) }
+    val currentTheme by settingsRepo.themeName.collectAsStateWithLifecycle()
+    val ghosttyTheme = remember(context, currentTheme) {
+        GhosttyThemeRegistry.getTheme(context, currentTheme)
+    }
+    val isDarkTheme = (ghosttyTheme?.background ?: colors.background).luminance() < 0.5f
 
     LaunchedEffect(hostId) {
         if (hostId == null) return@LaunchedEffect
@@ -159,116 +175,108 @@ fun TerminalScreen(
         SessionStatus.Connected -> {
             val snapshot = sessionState.snapshot
             if (snapshot != null) {
-                LaunchedEffect(colors) {
-                    vm.onColorSchemeChanged(true)
-                    vm.onDefaultColorsChanged(
-                        fg = intArrayOf(
-                            (colors.textPrimary.red * 255).toInt(),
-                            (colors.textPrimary.green * 255).toInt(),
-                            (colors.textPrimary.blue * 255).toInt(),
-                        ),
-                        bg = intArrayOf(
-                            (colors.background.red * 255).toInt(),
-                            (colors.background.green * 255).toInt(),
-                            (colors.background.blue * 255).toInt(),
-                        ),
-                        cursor = intArrayOf(
-                            (colors.accent.red * 255).toInt(),
-                            (colors.accent.green * 255).toInt(),
-                            (colors.accent.blue * 255).toInt(),
-                        ),
-                        palette = null,
-                    )
-                }
-
-                LaunchedEffect(sessionState.bellCount) {
-                    if (sessionState.bellCount > 0) {
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                Box(modifier = screenInsetsModifier.fillMaxSize()) {
+                    LaunchedEffect(ghosttyTheme, colors, isDarkTheme) {
+                        vm.onColorSchemeChanged(isDarkTheme)
+                        vm.onDefaultColorsChanged(
+                            fg = ghosttyTheme?.foreground?.toRgbIntArray() ?: colors.textPrimary.toRgbIntArray(),
+                            bg = ghosttyTheme?.background?.toRgbIntArray() ?: colors.background.toRgbIntArray(),
+                            cursor = ghosttyTheme?.cursorColor?.toRgbIntArray() ?: colors.accent.toRgbIntArray(),
+                            palette = ghosttyTheme?.toTerminalPaletteBytes(),
+                        )
                     }
-                }
-                val inputViewRef = remember { mutableStateOf<TerminalInputView?>(null) }
-                val titleText = sessionState.title?.takeIf { it.isNotBlank() }
-                val pwdText = sessionState.pwd?.takeIf { it.isNotBlank() }
-                val inputMethodManager = remember {
-                    context.getSystemService(InputMethodManager::class.java)
-                }
-                val requestInputFocus: () -> Unit = {
-                    inputViewRef.value?.let { view ->
-                        view.showKeyboard(inputMethodManager)
+
+                    LaunchedEffect(sessionState.bellCount) {
+                        if (sessionState.bellCount > 0) {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        }
                     }
-                }
-                val clipboard = remember {
-                    context.getSystemService(ClipboardManager::class.java)
-                }
-                val terminalPrefs = remember(context) {
-                    context.getSharedPreferences("chuchu_terminal", Context.MODE_PRIVATE)
-                }
-                var modifierState by remember { mutableStateOf(ModifierState()) }
-                var terminalFontSizeSp by remember {
-                    mutableStateOf(terminalPrefs.getFloat("terminal_font_size_sp", 14f).coerceAtLeast(0.1f))
-                }
 
-                LaunchedEffect(terminalFontSizeSp) {
-                    terminalPrefs.edit().putFloat("terminal_font_size_sp", terminalFontSizeSp).apply()
-                }
+                    val inputViewRef = remember { mutableStateOf<TerminalInputView?>(null) }
+                    val titleText = sessionState.title?.takeIf { it.isNotBlank() }
+                    val pwdText = sessionState.pwd?.takeIf { it.isNotBlank() }
+                    val inputMethodManager = remember {
+                        context.getSystemService(InputMethodManager::class.java)
+                    }
+                    val requestInputFocus: () -> Unit = {
+                        inputViewRef.value?.let { view ->
+                            view.showKeyboard(inputMethodManager)
+                        }
+                    }
+                    val clipboard = remember {
+                        context.getSystemService(ClipboardManager::class.java)
+                    }
+                    val terminalPrefs = remember(context) {
+                        context.getSharedPreferences("chuchu_terminal", Context.MODE_PRIVATE)
+                    }
+                    var modifierState by remember { mutableStateOf(ModifierState()) }
+                    var terminalFontSizeSp by remember {
+                        mutableStateOf(terminalPrefs.getFloat("terminal_font_size_sp", 14f).coerceAtLeast(0.1f))
+                    }
 
-                fun resetModifiers() {
-                    modifierState = modifierState.reset()
-                }
+                    LaunchedEffect(terminalFontSizeSp) {
+                        terminalPrefs.edit().putFloat("terminal_font_size_sp", terminalFontSizeSp).apply()
+                    }
 
-                fun pasteClipboard(): Boolean {
-                    val clip = clipboard?.primaryClip
-                    if (clip == null || clip.itemCount == 0) {
+                    fun resetModifiers() {
+                        modifierState = modifierState.reset()
+                    }
+
+                    fun pasteClipboard(): Boolean {
+                        val clip = clipboard?.primaryClip
+                        if (clip == null || clip.itemCount == 0) {
+                            resetModifiers()
+                            return false
+                        }
+                        val text = clip.getItemAt(0).coerceToText(context).toString()
+                        if (text.isNotEmpty()) {
+                            vm.onPasteText(modifierState.applyToText(text))
+                            resetModifiers()
+                            return true
+                        }
                         resetModifiers()
                         return false
                     }
-                    val text = clip.getItemAt(0).coerceToText(context).toString()
-                    if (text.isNotEmpty()) {
-                        vm.onPasteText(modifierState.applyToText(text))
-                        resetModifiers()
-                        return true
-                    }
-                    resetModifiers()
-                    return false
-                }
 
-                fun dispatchAccessoryAction(action: AccessoryAction) {
-                    val currentModifierState = modifierState
-                    val result = TerminalAccessoryDispatcher.dispatch(action, currentModifierState)
-                    modifierState = result.modifierState
+                    fun dispatchAccessoryAction(action: AccessoryAction) {
+                        val currentModifierState = modifierState
+                        val result = TerminalAccessoryDispatcher.dispatch(action, currentModifierState)
+                        modifierState = result.modifierState
 
-                    if (result.suppressImeInput) {
-                        inputViewRef.value?.armInputSuppression(action.toString())
-                    }
+                        if (result.suppressImeInput) {
+                            inputViewRef.value?.armInputSuppression(action.toString())
+                        }
 
-                    result.specialKey?.let { key ->
-                        vm.onSpecialKeyInput(key, currentModifierState.terminalMods())
-                    }
+                        result.specialKey?.let { key ->
+                            vm.onSpecialKeyInput(key, currentModifierState.terminalMods())
+                        }
 
-                    result.text?.let { text ->
-                        vm.onTextInput(text)
+                        result.text?.let { text ->
+                            vm.onTextInput(text)
+                        }
+
+                        if (result.shouldPaste) {
+                            pasteClipboard()
+                        }
                     }
 
-                    if (result.shouldPaste) {
-                        pasteClipboard()
+                    LaunchedEffect(Unit) {
+                        requestInputFocus()
+                        vm.onFocusChanged(true)
                     }
-                }
-
-                LaunchedEffect(Unit) {
-                    requestInputFocus()
-                    vm.onFocusChanged(true)
-                }
-                Column(
-                    modifier = screenInsetsModifier
-                        .fillMaxSize()
-                        .imePadding(),
-                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .imePadding(),
+                    ) {
                     Box(
                         modifier = Modifier.weight(1f),
                     ) {
                         TerminalCanvas(
                             snapshot = snapshot,
                             fontSizeSp = terminalFontSizeSp,
+                            cursorColor = ghosttyTheme?.cursorColor ?: Color.White.copy(alpha = 0.28f),
+                            cursorTextColor = ghosttyTheme?.cursorText,
                             modifier = Modifier.fillMaxSize(),
                             onResize = vm::onCanvasSizeChanged,
                             onTap = requestInputFocus,
@@ -278,19 +286,22 @@ fun TerminalScreen(
                             },
                         )
 
-                        if (titleText != null || pwdText != null) {
-                            Column(
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .padding(12.dp),
-                                horizontalAlignment = Alignment.End,
+                        Row(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (pwdText != null) {
+                                ChuText(text = pwdText, style = typography.labelSmall, color = colors.textPrimary.copy(alpha = 0.7f))
+                            }
+                            ChuButton(
+                                onClick = { showSettings = true },
+                                variant = ChuButtonVariant.Ghost,
+                                contentPadding = PaddingValues(4.dp),
                             ) {
-                                if (titleText != null) {
-                                    // ChuText(text = titleText, style = typography.label, color = colors.textPrimary)
-                                }
-                                if (pwdText != null) {
-                                    ChuText(text = pwdText, style = typography.labelSmall, color = colors.textPrimary.copy(alpha = 0.7f))
-                                }
+                                ChuText("⚙", style = typography.label, color = colors.textMuted)
                             }
                         }
 
@@ -349,6 +360,16 @@ fun TerminalScreen(
                         nativeVersion = sessionState.nativeVersion,
                         modifier = Modifier.padding(bottom = 2.dp),
                     )
+                }
+
+                if (showSettings) {
+                    SettingsSheet(
+                        visible = true,
+                        currentTheme = currentTheme,
+                        onThemeSelected = { settingsRepo.setTheme(it) },
+                        onDismiss = { showSettings = false },
+                    )
+                }
                 }
             }
         }
