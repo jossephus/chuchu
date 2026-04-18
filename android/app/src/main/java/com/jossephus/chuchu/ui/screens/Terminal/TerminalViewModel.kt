@@ -12,6 +12,8 @@ import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
 import com.jossephus.chuchu.service.terminal.HostKeyPrompt
 import com.jossephus.chuchu.service.terminal.SessionState
 import com.jossephus.chuchu.service.terminal.TerminalSessionEngine
+import com.jossephus.chuchu.ui.terminal.GhosttyKeyAction
+import com.jossephus.chuchu.ui.terminal.TerminalSpecialKey
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -141,12 +143,13 @@ class TerminalViewModel(
     }
 
     fun onHardwareKey(key: Int, codepoint: Int, mods: Int, action: Int) {
-        val mapped = com.jossephus.chuchu.ui.terminal.KeyMapper.map(
-            keyCode = key,
-            codepoint = codepoint,
-            metaState = mods,
-        ) ?: return
-        engine.writeKey(mapped.key, mapped.codepoint, mapped.mods, action)
+        // key/codepoint/mods are already mapped by KeyMapper in TerminalInputView.
+        // Pass them directly to Ghostty without remapping.
+        // For printable characters, include UTF-8 text so Ghostty's legacy
+        // fallback path can emit raw text when Kitty keyboard is unavailable.
+        val utf8 = if (codepoint > 0) codepoint.toChar().toString() else null
+        val ghosttyAction = GhosttyKeyAction.fromAndroid(action) ?: return
+        engine.writeKey(key, codepoint, mods, ghosttyAction, utf8)
     }
 
     fun onTextInput(text: String) {

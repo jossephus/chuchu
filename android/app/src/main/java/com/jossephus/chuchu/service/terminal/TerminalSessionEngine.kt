@@ -168,10 +168,10 @@ class TerminalSessionEngine(
         }
     }
 
-    fun writeKey(key: Int, codepoint: Int, mods: Int, action: Int) {
+    fun writeKey(key: Int, codepoint: Int, mods: Int, action: Int, utf8: String? = null) {
         scope.launch(dispatcher) {
             if (handle == 0L) return@launch
-            val encoded = bridge.nativeEncodeKey(handle, key, codepoint, mods, action) ?: return@launch
+            val encoded = bridge.nativeEncodeKey(handle, key, codepoint, mods, action, utf8) ?: return@launch
             if (encoded.isEmpty()) return@launch
             try {
                 writeRemote(encoded)

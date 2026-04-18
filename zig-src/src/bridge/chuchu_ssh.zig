@@ -85,7 +85,13 @@ fn keyboardInteractiveCallback(
 
 fn sessionFromHandle(handle: c.jlong) ?*NativeSshSession {
     if (handle == 0) return null;
-    return @ptrFromInt(@as(usize, @intCast(handle)));
+    const raw_handle: u64 = @bitCast(handle);
+    return @ptrFromInt(@as(usize, @truncate(raw_handle)));
+}
+
+fn handleFromSession(session: *NativeSshSession) c.jlong {
+    const raw_ptr: u64 = @intCast(@intFromPtr(session));
+    return @bitCast(raw_ptr);
 }
 
 fn setError(session: *NativeSshSession, comptime fmt: []const u8, args: anytype) void {
@@ -279,7 +285,7 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeCreateSess
     _ = c.libssh2_init(0);
     const session = allocator.create(NativeSshSession) catch return 0;
     session.* = .{};
-    return @intCast(@intFromPtr(session));
+    return handleFromSession(session);
 }
 
 export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeDestroySession(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong) callconv(.c) void {

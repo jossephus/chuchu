@@ -90,7 +90,13 @@ const ChuchuTerminal = struct {
 
 fn chuchuFromHandle(handle: c.jlong) ?*ChuchuTerminal {
     if (handle == 0) return null;
-    return @ptrFromInt(@as(usize, @intCast(handle)));
+    const raw_handle: u64 = @bitCast(handle);
+    return @ptrFromInt(@as(usize, @truncate(raw_handle)));
+}
+
+fn chuchuHandleFromPtr(ptr: *ChuchuTerminal) c.jlong {
+    const raw_ptr: u64 = @intCast(@intFromPtr(ptr));
+    return @bitCast(raw_ptr);
 }
 
 fn clampI32(value: c.jint, minimum: i32, fallback: i32) i32 {
@@ -286,7 +292,7 @@ export fn chuchu_create_terminal(cols: c.jint, rows: c.jint, max_scrollback: c.j
     terminal.stream = ghostty.TerminalStream.initAlloc(allocator, handler);
 
     update_render_state(terminal);
-    return @intCast(@intFromPtr(terminal));
+    return chuchuHandleFromPtr(terminal);
 }
 
 export fn chuchu_destroy_terminal(handle: c.jlong) callconv(.c) void {
@@ -412,17 +418,35 @@ export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeSetMous
     chuchu_set_mouse_encoding_size(handle, screen_width, screen_height, cell_width, cell_height, padding_top, padding_bottom, padding_left, padding_right);
 }
 
-export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeEncodeKey(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, key: c.jint, codepoint: c.jint, mods: c.jint, action: c.jint) callconv(.c) c.jbyteArray {
+export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeEncodeKey(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, key: c.jint, codepoint: c.jint, mods: c.jint, action: c.jint, utf8_jstring: c.jstring) callconv(.c) c.jbyteArray {
     _ = thiz;
     const terminal = chuchuFromHandle(handle) orelse return jniEmptyByteArray(env);
+    const action_value: ghostty.input.KeyAction = std.meta.intToEnum(ghostty.input.KeyAction, action) catch return jniEmptyByteArray(env);
+    const key_value: ghostty.input.Key = std.meta.intToEnum(ghostty.input.Key, key) catch return jniEmptyByteArray(env);
+
+    // Convert Java string to Zig slice for Ghostty's utf8 field.
+    // For printable characters this allows the legacy encoding path to emit
+    // raw text when the remote terminal doesn't support Kitty keyboard protocol.
+    // Must outlive the encodeKey call because Ghostty references it.
+    var utf8_buf: [256]u8 = undefined;
+    const utf8_slice: []const u8 = blk: {
+        if (utf8_jstring == null) break :blk "";
+        const chars = env.*.*.GetStringUTFChars.?(env, utf8_jstring, null) orelse break :blk "";
+        defer env.*.*.ReleaseStringUTFChars.?(env, utf8_jstring, chars);
+        const len = std.mem.span(chars).len;
+        if (len > utf8_buf.len) break :blk "";
+        @memcpy(utf8_buf[0..len], chars[0..len]);
+        break :blk utf8_buf[0..len];
+    };
+
     var buf: [128]u8 = undefined;
     var writer: std.Io.Writer = .fixed(&buf);
     const event: ghostty.input.KeyEvent = .{
-        .action = @enumFromInt(action),
-        .key = @enumFromInt(key),
+        .action = action_value,
+        .key = key_value,
         .mods = @bitCast(@as(ghostty.input.KeyMods.Backing, @intCast(mods))),
         .unshifted_codepoint = if (codepoint > 0) @intCast(codepoint) else 0,
-        .utf8 = "",
+        .utf8 = utf8_slice,
     };
     ghostty.input.encodeKey(&writer, event, ghostty.input.KeyEncodeOptions.fromTerminal(&terminal.terminal)) catch return jniEmptyByteArray(env);
     return jniByteArrayFromBytes(env, writer.buffered());
