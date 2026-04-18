@@ -1,6 +1,7 @@
 package com.jossephus.chuchu.ui.terminal
 
 import android.content.Context
+import android.util.Log
 import android.view.KeyEvent
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
@@ -10,8 +11,13 @@ import android.widget.EditText
 
 class TerminalInputView(context: Context) : EditText(context) {
 
+    companion object {
+        private const val LOG_TAG = "TerminalInput"
+        private const val DEBUG_INPUT_LOGS = false
+    }
+
     var onTerminalText: ((String) -> Unit)? = null
-    var onTerminalKey: ((Int, KeyEvent?) -> Unit)? = null
+    var onTerminalKey: ((Int, Int, Int, Int) -> Unit)? = null
 
     /**
      * When true, suppress IME text input (used to prevent double-sends
@@ -19,6 +25,79 @@ class TerminalInputView(context: Context) : EditText(context) {
      */
     @Volatile
     var suppressInput = false
+
+    private fun logInput(message: String) {
+        if (!DEBUG_INPUT_LOGS) return
+        Log.d(LOG_TAG, message)
+    }
+
+    private fun describeText(text: String): String = buildString {
+        text.forEach { char ->
+            when (char) {
+                '\u001b' -> append("<ESC>")
+                '\t' -> append("<TAB>")
+                '\r' -> append("<CR>")
+                '\n' -> append("<LF>")
+                '\u007f' -> append("<BS>")
+                else -> append(char)
+            }
+        }
+    }
+
+    private fun describeKeyEvent(event: KeyEvent): String = buildString {
+        append("action=")
+        append(event.action)
+        append(" keyCode=")
+        append(event.keyCode)
+        append(" unicode=")
+        append(event.unicodeChar)
+        append(" repeat=")
+        append(event.repeatCount)
+        append(" meta=")
+        append(event.metaState)
+    }
+
+    private fun emitTerminalText(source: String, text: String) {
+        logInput("emit source=$source text=${describeText(text)} suppress=$suppressInput")
+        onTerminalText?.invoke(text)
+    }
+
+    fun armInputSuppression(reason: String) {
+        suppressInput = true
+        logInput("arm suppression reason=$reason")
+    }
+
+    private fun clearSuppression(reason: String) {
+        if (!suppressInput) return
+        logInput("clear suppression reason=$reason")
+        suppressInput = false
+    }
+
+    private fun consumeSuppressionIfImeCleanup(
+        source: String,
+        incomingText: String,
+        composing: String,
+    ): Boolean {
+        if (!suppressInput) return false
+
+        val isCleanupEvent = incomingText.isEmpty() ||
+            incomingText == composing ||
+            (composing.isNotEmpty() && composing.startsWith(incomingText) && incomingText.length <= composing.length)
+
+        return if (isCleanupEvent) {
+            logInput(
+                "suppression consumed source=$source incoming=${describeText(incomingText)} composing=${describeText(composing)}",
+            )
+            suppressInput = false
+            true
+        } else {
+            logInput(
+                "suppression bypass source=$source incoming=${describeText(incomingText)} composing=${describeText(composing)}",
+            )
+            clearSuppression("$source real input")
+            false
+        }
+    }
 
     init {
         setBackgroundColor(android.graphics.Color.TRANSPARENT)
@@ -34,51 +113,46 @@ class TerminalInputView(context: Context) : EditText(context) {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        when (keyCode) {
-            KeyEvent.KEYCODE_DEL -> {
-                onTerminalText?.invoke("\u007f")
-                return true
-            }
-            KeyEvent.KEYCODE_ENTER -> {
-                onTerminalText?.invoke("\r")
-                return true
-            }
-            KeyEvent.KEYCODE_FORWARD_DEL -> {
-                onTerminalText?.invoke("\u001b[3~")
-                return true
-            }
-            else -> {
-                val unicodeChar = event.unicodeChar
-                if (unicodeChar != 0) {
-                    onTerminalText?.invoke(unicodeChar.toChar().toString())
-                    return true
-                }
-            }
+        logInput("onKeyDown ${describeKeyEvent(event)} suppress=$suppressInput")
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            clearSuppression("onKeyDown keyCode=$keyCode")
+        }
+        val ghosttyAction = GhosttyKeyAction.fromAndroid(event.action, event.repeatCount)
+        val mapped = KeyMapper.map(keyCode, event.unicodeChar, event.metaState)
+        if (mapped != null && ghosttyAction != null) {
+            onTerminalKey?.invoke(mapped.key, mapped.codepoint, mapped.mods, ghosttyAction)
+            return true
+        }
+        val unicodeChar = event.unicodeChar
+        if (unicodeChar != 0) {
+            emitTerminalText("onKeyDown.unicode", unicodeChar.toChar().toString())
+            return true
         }
         return super.onKeyDown(keyCode, event)
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
-        // Consume key-ups for keys we handled in onKeyDown to prevent
-        // EditText from processing them and corrupting its internal buffer.
-        when (keyCode) {
-            KeyEvent.KEYCODE_DEL, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_FORWARD_DEL -> return true
-            else -> {
-                if (event.unicodeChar != 0) return true
-            }
+        logInput("onKeyUp ${describeKeyEvent(event)} suppress=$suppressInput")
+        val ghosttyAction = GhosttyKeyAction.fromAndroid(event.action, event.repeatCount)
+        val mapped = KeyMapper.map(keyCode, event.unicodeChar, event.metaState)
+        if (mapped != null && ghosttyAction != null) {
+            onTerminalKey?.invoke(mapped.key, mapped.codepoint, mapped.mods, ghosttyAction)
+            return true
         }
+        if (event.unicodeChar != 0) return true
         return super.onKeyUp(keyCode, event)
     }
 
-    fun showKeyboard(inputMethodManager: InputMethodManager?) {
-        if (inputMethodManager == null) return
+    fun showKeyboard(imm: InputMethodManager?) {
+        if (imm == null) return
         if (!hasFocus()) {
             requestFocus()
             requestFocusFromTouch()
         }
         post {
-            inputMethodManager.restartInput(this)
-            inputMethodManager.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
+            logInput("showKeyboard restartInput suppress=$suppressInput")
+            imm.restartInput(this)
+            imm.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
         }
     }
 
@@ -100,47 +174,52 @@ class TerminalInputView(context: Context) : EditText(context) {
         private var composing = ""
 
         override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
-            if (view.suppressInput) {
-                view.suppressInput = false
+            val str = text?.toString() ?: return true
+            view.logInput(
+                "commitText text=${view.describeText(str)} cursor=$newCursorPosition suppress=${view.suppressInput} composing=${view.describeText(composing)}",
+            )
+            if (view.consumeSuppressionIfImeCleanup("commitText", str, composing)) {
                 composing = ""
                 return true
             }
-            val str = text?.toString() ?: return true
             if (str.isEmpty()) return true
 
-            // Delete whatever composing text we already sent to the terminal
-            repeat(composing.length) {
-                view.onTerminalText?.invoke("\u007f")
-            }
-            composing = ""
+            val commonLen = composing.zip(str).takeWhile { it.first == it.second }.size
 
-            val parts = str.split('\n')
+            repeat(composing.length - commonLen) {
+                view.emitTerminalText("commitText.clearComposing", "\u007f")
+            }
+
+            val parts = str.substring(commonLen).split('\n')
             parts.forEachIndexed { index, part ->
                 if (part.isNotEmpty()) {
-                    view.onTerminalText?.invoke(part)
+                    view.emitTerminalText("commitText.part", part)
                 }
                 if (index < parts.lastIndex) {
-                    view.onTerminalText?.invoke("\r")
+                    view.emitTerminalText("commitText.newline", "\r")
                 }
             }
+
+            composing = ""
             return true
         }
 
         override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
-            if (view.suppressInput) {
+            val newText = text?.toString() ?: ""
+            view.logInput(
+                "setComposingText text=${view.describeText(newText)} cursor=$newCursorPosition suppress=${view.suppressInput} composing=${view.describeText(composing)}",
+            )
+            if (view.consumeSuppressionIfImeCleanup("setComposingText", newText, composing)) {
                 composing = ""
                 return true
             }
-            val newText = text?.toString() ?: ""
             val commonLen = composing.zip(newText).takeWhile { it.first == it.second }.size
 
-            // Delete removed composing characters
             repeat(composing.length - commonLen) {
-                view.onTerminalText?.invoke("\u007f")
+                view.emitTerminalText("setComposingText.delete", "\u007f")
             }
-            // Send newly added composing characters
             if (newText.length > commonLen) {
-                view.onTerminalText?.invoke(newText.substring(commonLen))
+                view.emitTerminalText("setComposingText.append", newText.substring(commonLen))
             }
 
             composing = newText
@@ -148,41 +227,28 @@ class TerminalInputView(context: Context) : EditText(context) {
         }
 
         override fun finishComposingText(): Boolean {
-            // Composing chars already sent — just clear tracking
+            view.logInput("finishComposingText composing=${view.describeText(composing)} suppress=${view.suppressInput}")
             composing = ""
             return true
         }
 
         override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
+            view.logInput("deleteSurroundingText before=$beforeLength after=$afterLength suppress=${view.suppressInput}")
             repeat(beforeLength) {
-                view.onTerminalText?.invoke("\u007f")
+                view.emitTerminalText("deleteSurroundingText.before", "\u007f")
             }
             repeat(afterLength) {
-                view.onTerminalText?.invoke("\u001b[3~")
+                view.emitTerminalText("deleteSurroundingText.after", "\u001b[3~")
             }
             return true
         }
 
         override fun sendKeyEvent(event: KeyEvent): Boolean {
-            if (event.action == KeyEvent.ACTION_DOWN) {
-                when (event.keyCode) {
-                    KeyEvent.KEYCODE_DEL -> {
-                        view.onTerminalText?.invoke("\u007f")
-                        return true
-                    }
-                    KeyEvent.KEYCODE_ENTER -> {
-                        view.onTerminalText?.invoke("\r")
-                        return true
-                    }
-                    KeyEvent.KEYCODE_FORWARD_DEL -> {
-                        view.onTerminalText?.invoke("\u001b[3~")
-                        return true
-                    }
-                }
-
-                val unicodeChar = event.unicodeChar
-                if (unicodeChar != 0) {
-                    view.onTerminalText?.invoke(unicodeChar.toChar().toString())
+            val ghosttyAction = GhosttyKeyAction.fromAndroid(event.action, event.repeatCount)
+            if (ghosttyAction != null) {
+                val mapped = KeyMapper.map(event.keyCode, event.unicodeChar, event.metaState)
+                if (mapped != null) {
+                    view.onTerminalKey?.invoke(mapped.key, mapped.codepoint, mapped.mods, ghosttyAction)
                     return true
                 }
             }

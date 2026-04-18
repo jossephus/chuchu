@@ -156,6 +156,13 @@ class TerminalViewModel(
         engine.writeText(text)
     }
 
+    fun onSpecialKeyInput(key: TerminalSpecialKey, mods: Int) {
+        // Send press followed by release so terminal apps that track key state
+        // see a complete key cycle.
+        engine.writeKey(key.engineKey, 0, mods, GhosttyKeyAction.Press)
+        engine.writeKey(key.engineKey, 0, mods, GhosttyKeyAction.Release)
+    }
+
     fun onPasteText(text: String) {
         if (text.isEmpty()) return
         val chunkSize = 512

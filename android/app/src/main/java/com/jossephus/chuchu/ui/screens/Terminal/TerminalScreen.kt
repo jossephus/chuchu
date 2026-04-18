@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -41,11 +40,13 @@ import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuDialog
 import com.jossephus.chuchu.ui.components.ChuText
-import com.jossephus.chuchu.ui.terminal.KeyMapper
+import com.jossephus.chuchu.ui.terminal.AccessoryAction
 import com.jossephus.chuchu.ui.terminal.KeyboardAccessoryBar
+import com.jossephus.chuchu.ui.terminal.ModifierState
 import com.jossephus.chuchu.ui.terminal.TerminalCanvas
+import com.jossephus.chuchu.ui.terminal.TerminalAccessoryDispatcher
+import com.jossephus.chuchu.ui.terminal.TerminalAccessoryLayoutStore
 import com.jossephus.chuchu.ui.terminal.TerminalInputView
-import com.jossephus.chuchu.ui.terminal.VirtualKey
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
 
@@ -62,6 +63,7 @@ fun TerminalScreen(
     val haptics = LocalHapticFeedback.current
     val colors = ChuColors.current
     val typography = ChuTypography.current
+    val accessoryLayout = remember { TerminalAccessoryLayoutStore.defaultLayout() }
     val screenInsetsModifier = modifier.windowInsetsPadding(WindowInsets.safeDrawing)
     var lastSessionStatus by remember { mutableStateOf<SessionStatus?>(null) }
 
@@ -183,7 +185,6 @@ fun TerminalScreen(
                     }
                 }
                 val inputViewRef = remember { mutableStateOf<TerminalInputView?>(null) }
-                val accessoryBarReservedHeight = 44.dp
                 val titleText = sessionState.title?.takeIf { it.isNotBlank() }
                 val pwdText = sessionState.pwd?.takeIf { it.isNotBlank() }
                 val inputMethodManager = remember {
@@ -200,10 +201,7 @@ fun TerminalScreen(
                 val terminalPrefs = remember(context) {
                     context.getSharedPreferences("chuchu_terminal", Context.MODE_PRIVATE)
                 }
-                var ctrlEnabled by remember { mutableStateOf(false) }
-                var cmdEnabled by remember { mutableStateOf(false) }
-                var altEnabled by remember { mutableStateOf(false) }
-                var shiftEnabled by remember { mutableStateOf(false) }
+                var modifierState by remember { mutableStateOf(ModifierState()) }
                 var terminalFontSizeSp by remember {
                     mutableStateOf(terminalPrefs.getFloat("terminal_font_size_sp", 14f).coerceAtLeast(0.1f))
                 }
@@ -212,108 +210,45 @@ fun TerminalScreen(
                     terminalPrefs.edit().putFloat("terminal_font_size_sp", terminalFontSizeSp).apply()
                 }
 
-                fun modifierParam(): Int {
-                    val metaEnabled = altEnabled || cmdEnabled
-                    return 1 +
-                        (if (shiftEnabled) 1 else 0) +
-                        (if (metaEnabled) 2 else 0) +
-                        (if (ctrlEnabled) 4 else 0)
+                fun resetModifiers() {
+                    modifierState = modifierState.reset()
                 }
 
-                fun sendEscape(sequence: String) {
-                    vm.onTextInput(sequence)
-                }
-
-                fun sendVirtualKey(key: VirtualKey) {
-                    // Suppress any pending IME text to avoid double-sends
-                    inputViewRef.value?.suppressInput = true
-                    val mod = modifierParam()
-                    // Auto-reset modifiers after sending virtual key
-                    val shouldReset = ctrlEnabled || cmdEnabled || altEnabled || shiftEnabled
-                    when (key) {
-                        VirtualKey.Escape -> sendEscape("\u001b")
-                        VirtualKey.Tab -> {
-                            if (shiftEnabled) sendEscape("\u001b[Z") else sendEscape("\t")
-                        }
-
-                        VirtualKey.Up -> sendEscape(if (mod == 1) "\u001b[A" else "\u001b[1;${mod}A")
-                        VirtualKey.Down -> sendEscape(if (mod == 1) "\u001b[B" else "\u001b[1;${mod}B")
-                        VirtualKey.Right -> sendEscape(if (mod == 1) "\u001b[C" else "\u001b[1;${mod}C")
-                        VirtualKey.Left -> sendEscape(if (mod == 1) "\u001b[D" else "\u001b[1;${mod}D")
-                        VirtualKey.Home -> sendEscape(if (mod == 1) "\u001b[H" else "\u001b[1;${mod}H")
-                        VirtualKey.End -> sendEscape(if (mod == 1) "\u001b[F" else "\u001b[1;${mod}F")
-                        VirtualKey.PageUp -> sendEscape(if (mod == 1) "\u001b[5~" else "\u001b[5;${mod}~")
-                        VirtualKey.PageDown -> sendEscape(if (mod == 1) "\u001b[6~" else "\u001b[6;${mod}~")
-                        VirtualKey.Insert -> sendEscape(if (mod == 1) "\u001b[2~" else "\u001b[2;${mod}~")
-                        VirtualKey.Delete -> sendEscape(if (mod == 1) "\u001b[3~" else "\u001b[3;${mod}~")
-                        VirtualKey.F1 -> sendEscape(if (mod == 1) "\u001bOP" else "\u001b[1;${mod}P")
-                        VirtualKey.F2 -> sendEscape(if (mod == 1) "\u001bOQ" else "\u001b[1;${mod}Q")
-                        VirtualKey.F3 -> sendEscape(if (mod == 1) "\u001bOR" else "\u001b[1;${mod}R")
-                        VirtualKey.F4 -> sendEscape(if (mod == 1) "\u001bOS" else "\u001b[1;${mod}S")
-                        VirtualKey.F5 -> sendEscape(if (mod == 1) "\u001b[15~" else "\u001b[15;${mod}~")
-                        VirtualKey.F6 -> sendEscape(if (mod == 1) "\u001b[17~" else "\u001b[17;${mod}~")
-                        VirtualKey.F7 -> sendEscape(if (mod == 1) "\u001b[18~" else "\u001b[18;${mod}~")
-                        VirtualKey.F8 -> sendEscape(if (mod == 1) "\u001b[19~" else "\u001b[19;${mod}~")
-                        VirtualKey.F9 -> sendEscape(if (mod == 1) "\u001b[20~" else "\u001b[20;${mod}~")
-                        VirtualKey.F10 -> sendEscape(if (mod == 1) "\u001b[21~" else "\u001b[21;${mod}~")
-                        VirtualKey.F11 -> sendEscape(if (mod == 1) "\u001b[23~" else "\u001b[23;${mod}~")
-                        VirtualKey.F12 -> sendEscape(if (mod == 1) "\u001b[24~" else "\u001b[24;${mod}~")
+                fun pasteClipboard(): Boolean {
+                    val clip = clipboard?.primaryClip
+                    if (clip == null || clip.itemCount == 0) {
+                        resetModifiers()
+                        return false
                     }
-                    // Auto-reset modifiers after sending virtual key
-                    if (shouldReset) {
-                        ctrlEnabled = false
-                        cmdEnabled = false
-                        altEnabled = false
-                        shiftEnabled = false
-                    }
-                }
-
-                fun applyModifiers(text: String): String {
-                    if (!ctrlEnabled && !cmdEnabled) return text
-                    if (text.isEmpty()) return text
-
-                    // Only apply modifiers to the FIRST character.
-                    // The rest of the text is sent unmodified.
-                    val firstChar = text[0]
-                    val rest = text.substring(1)
-
-                    val ctrlAppliedFirst = if (ctrlEnabled) {
-                        val code = when (firstChar) {
-                            '@' -> 0
-                            '[' -> 27
-                            '\\' -> 28
-                            ']' -> 29
-                            '^' -> 30
-                            '_' -> 31
-                            in 'a'..'z' -> firstChar.code - 96
-                            in 'A'..'Z' -> firstChar.code - 64
-                            else -> firstChar.code
-                        }
-                        code.toChar().toString()
-                    } else {
-                        firstChar.toString()
-                    }
-
-                    val metaAppliedFirst = if (cmdEnabled) {
-                        "\u001b$ctrlAppliedFirst"
-                    } else {
-                        ctrlAppliedFirst
-                    }
-
-                    return metaAppliedFirst + rest
-                }
-
-                fun pasteClipboard() {
-                    val clip = clipboard?.primaryClip ?: return
-                    if (clip.itemCount == 0) return
                     val text = clip.getItemAt(0).coerceToText(context).toString()
                     if (text.isNotEmpty()) {
-                        vm.onPasteText(applyModifiers(text))
-                        // Auto-reset modifiers after paste
-                        if (ctrlEnabled) ctrlEnabled = false
-                        if (cmdEnabled) cmdEnabled = false
-                        if (altEnabled) altEnabled = false
-                        if (shiftEnabled) shiftEnabled = false
+                        vm.onPasteText(modifierState.applyToText(text))
+                        resetModifiers()
+                        return true
+                    }
+                    resetModifiers()
+                    return false
+                }
+
+                fun dispatchAccessoryAction(action: AccessoryAction) {
+                    val currentModifierState = modifierState
+                    val result = TerminalAccessoryDispatcher.dispatch(action, currentModifierState)
+                    modifierState = result.modifierState
+
+                    if (result.suppressImeInput) {
+                        inputViewRef.value?.armInputSuppression(action.toString())
+                    }
+
+                    result.specialKey?.let { key ->
+                        vm.onSpecialKeyInput(key, currentModifierState.terminalMods())
+                    }
+
+                    result.text?.let { text ->
+                        vm.onTextInput(text)
+                    }
+
+                    if (result.shouldPaste) {
+                        pasteClipboard()
                     }
                 }
 
@@ -321,94 +256,86 @@ fun TerminalScreen(
                     requestInputFocus()
                     vm.onFocusChanged(true)
                 }
-                Box(
+                Column(
                     modifier = screenInsetsModifier
                         .fillMaxSize()
                         .imePadding(),
                 ) {
-                    TerminalCanvas(
-                        snapshot = snapshot,
-                        fontSizeSp = terminalFontSizeSp,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(bottom = accessoryBarReservedHeight),
-                        onResize = vm::onCanvasSizeChanged,
-                        onTap = requestInputFocus,
-                        onScroll = vm::onScroll,
-                        onZoom = { zoomFactor ->
-                            terminalFontSizeSp = (terminalFontSizeSp * zoomFactor).coerceAtLeast(0.1f)
-                        },
-                    )
+                    Box(
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        TerminalCanvas(
+                            snapshot = snapshot,
+                            fontSizeSp = terminalFontSizeSp,
+                            modifier = Modifier.fillMaxSize(),
+                            onResize = vm::onCanvasSizeChanged,
+                            onTap = requestInputFocus,
+                            onScroll = vm::onScroll,
+                            onZoom = { zoomFactor ->
+                                terminalFontSizeSp = (terminalFontSizeSp * zoomFactor).coerceAtLeast(0.1f)
+                            },
+                        )
 
-                    if (titleText != null || pwdText != null) {
-                        Column(
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(12.dp),
-                            horizontalAlignment = Alignment.End,
-                        ) {
-                            if (titleText != null) {
-                                // ChuText(text = titleText, style = typography.label, color = colors.textPrimary)
-                            }
-                            if (pwdText != null) {
-                                ChuText(text = pwdText, style = typography.labelSmall, color = colors.textPrimary.copy(alpha = 0.7f))
+                        if (titleText != null || pwdText != null) {
+                            Column(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(12.dp),
+                                horizontalAlignment = Alignment.End,
+                            ) {
+                                if (titleText != null) {
+                                    // ChuText(text = titleText, style = typography.label, color = colors.textPrimary)
+                                }
+                                if (pwdText != null) {
+                                    ChuText(text = pwdText, style = typography.labelSmall, color = colors.textPrimary.copy(alpha = 0.7f))
+                                }
                             }
                         }
-                    }
 
-                    AndroidView(
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .size(1.dp)
-                            .alpha(0f),
-                        factory = { viewContext ->
-                            TerminalInputView(viewContext).apply {
-                                onTerminalText = { text ->
-                                    vm.onTextInput(applyModifiers(text))
-                                    // Auto-reset modifiers after text input
-                                    if (ctrlEnabled) ctrlEnabled = false
-                                    if (cmdEnabled) cmdEnabled = false
-                                    if (altEnabled) altEnabled = false
-                                    if (shiftEnabled) shiftEnabled = false
-                                }
-                                setOnFocusChangeListener { v, hasFocus ->
-                                    vm.onFocusChanged(hasFocus)
-                                    if (hasFocus) {
-                                        showKeyboard(inputMethodManager)
+                        AndroidView(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .size(1.dp)
+                                .alpha(0f),
+                            factory = { viewContext ->
+                                TerminalInputView(viewContext).apply {
+                                    onTerminalText = { text ->
+                                        vm.onTextInput(modifierState.applyToText(text))
+                                        resetModifiers()
                                     }
+                                    onTerminalKey = { key, codepoint, mods, action ->
+                                        val mergedMods = mods or modifierState.terminalMods()
+                                        vm.onHardwareKey(key, codepoint, mergedMods, action)
+                                        if (modifierState.hasActiveModifiers()) {
+                                            resetModifiers()
+                                        }
+                                    }
+                                    setOnFocusChangeListener { _, hasFocus ->
+                                        vm.onFocusChanged(hasFocus)
+                                        if (hasFocus) {
+                                            showKeyboard(inputMethodManager)
+                                        }
+                                    }
+                                }.also { view ->
+                                    inputViewRef.value = view
                                 }
-                            }.also { view ->
-                                inputViewRef.value = view
-                            }
-                        },
-                        update = { view ->
-                            if (inputViewRef.value == null) {
-                                inputViewRef.value = view
-                            }
-                        },
-                    )
-
-                    Column(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .windowInsetsPadding(WindowInsets.ime),
-                    ) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        KeyboardAccessoryBar(
-                            cmdEnabled = cmdEnabled,
-                            ctrlEnabled = ctrlEnabled,
-                            altEnabled = altEnabled,
-                            shiftEnabled = shiftEnabled,
-                            onToggleCmd = { cmdEnabled = !cmdEnabled },
-                            onToggleCtrl = { ctrlEnabled = !ctrlEnabled },
-                            onToggleAlt = { altEnabled = !altEnabled },
-                            onToggleShift = { shiftEnabled = !shiftEnabled },
-                            onSendKey = ::sendVirtualKey,
-                            onPaste = ::pasteClipboard,
-                            nativeVersion = sessionState.nativeVersion,
-                            modifier = Modifier.padding(bottom = 2.dp),
+                            },
+                            update = { view ->
+                                if (inputViewRef.value == null) {
+                                    inputViewRef.value = view
+                                }
+                            },
                         )
                     }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+                    KeyboardAccessoryBar(
+                        items = accessoryLayout,
+                        modifierState = modifierState,
+                        onAction = ::dispatchAccessoryAction,
+                        nativeVersion = sessionState.nativeVersion,
+                        modifier = Modifier.padding(bottom = 2.dp),
+                    )
                 }
             }
         }

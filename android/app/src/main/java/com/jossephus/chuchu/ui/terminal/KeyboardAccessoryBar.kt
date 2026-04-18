@@ -11,8 +11,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
@@ -22,16 +22,9 @@ import com.jossephus.chuchu.ui.theme.ChuTypography
 
 @Composable
 fun KeyboardAccessoryBar(
-    cmdEnabled: Boolean,
-    ctrlEnabled: Boolean,
-    altEnabled: Boolean,
-    shiftEnabled: Boolean,
-    onToggleCmd: () -> Unit,
-    onToggleCtrl: () -> Unit,
-    onToggleAlt: () -> Unit,
-    onToggleShift: () -> Unit,
-    onSendKey: (VirtualKey) -> Unit,
-    onPaste: () -> Unit,
+    items: List<AccessoryKeyItem>,
+    modifierState: ModifierState,
+    onAction: (AccessoryAction) -> Unit,
     nativeVersion: String? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -47,56 +40,26 @@ fun KeyboardAccessoryBar(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ChuButton(
-            onClick = { onSendKey(VirtualKey.Tab) },
-            variant = ChuButtonVariant.Outlined,
-            modifier = Modifier.height(buttonHeight),
-            contentPadding = buttonPadding,
-        ) {
-            ChuText("Tab", style = typography.label)
-        }
-        ChuButton(
-            onClick = { onSendKey(VirtualKey.Escape) },
-            variant = ChuButtonVariant.Outlined,
-            modifier = Modifier.height(buttonHeight),
-            contentPadding = buttonPadding,
-        ) {
-            ChuText("Esc", style = typography.label)
-        }
-        ToggleButton("Ctrl", ctrlEnabled, onToggleCtrl, Modifier.height(buttonHeight), buttonPadding)
-        ToggleButton("Cmd", cmdEnabled, onToggleCmd, Modifier.height(buttonHeight), buttonPadding)
-        ToggleButton("Alt", altEnabled, onToggleAlt, Modifier.height(buttonHeight), buttonPadding)
-        ToggleButton("Shift", shiftEnabled, onToggleShift, Modifier.height(buttonHeight), buttonPadding)
-
-        listOf(VirtualKey.Up, VirtualKey.Down, VirtualKey.Left, VirtualKey.Right).forEach { key ->
-            ChuButton(
-                onClick = { onSendKey(key) },
-                variant = ChuButtonVariant.Outlined,
-                modifier = Modifier.height(buttonHeight),
-                contentPadding = buttonPadding,
-            ) {
-                ChuText(key.label, style = typography.label)
+        items.forEach { item ->
+            val toggleModifier = (item.action as? AccessoryAction.ToggleModifier)?.modifier
+            if (toggleModifier != null) {
+                ToggleButton(
+                    label = item.label,
+                    enabled = modifierState.isEnabled(toggleModifier),
+                    onClick = { onAction(item.action) },
+                    modifier = Modifier.height(buttonHeight),
+                    contentPadding = buttonPadding,
+                )
+            } else {
+                ChuButton(
+                    onClick = { onAction(item.action) },
+                    variant = ChuButtonVariant.Outlined,
+                    modifier = Modifier.height(buttonHeight),
+                    contentPadding = buttonPadding,
+                ) {
+                    ChuText(item.label, style = typography.label)
+                }
             }
-        }
-
-        VirtualKey.values().filter { it.isExtended && it !in setOf(VirtualKey.Up, VirtualKey.Down, VirtualKey.Left, VirtualKey.Right) }.forEach { key ->
-            ChuButton(
-                onClick = { onSendKey(key) },
-                variant = ChuButtonVariant.Outlined,
-                modifier = Modifier.height(buttonHeight),
-                contentPadding = buttonPadding,
-            ) {
-                ChuText(key.label, style = typography.label)
-            }
-        }
-
-        ChuButton(
-            onClick = onPaste,
-            variant = ChuButtonVariant.Outlined,
-            modifier = Modifier.height(buttonHeight),
-            contentPadding = buttonPadding,
-        ) {
-            ChuText("Paste", style = typography.label)
         }
 
         if (nativeVersion != null) {
@@ -133,34 +96,4 @@ private fun ToggleButton(
             color = if (enabled) colors.onAccent else colors.textSecondary,
         )
     }
-}
-
-enum class VirtualKey(
-    val label: String,
-    val isExtended: Boolean,
-) {
-    Escape("Esc", false),
-    Tab("Tab", false),
-    Up("↑", true),
-    Down("↓", true),
-    Left("←", true),
-    Right("→", true),
-    Home("Home", true),
-    End("End", true),
-    PageUp("PgUp", true),
-    PageDown("PgDn", true),
-    Insert("Ins", true),
-    Delete("Del", true),
-    F1("F1", true),
-    F2("F2", true),
-    F3("F3", true),
-    F4("F4", true),
-    F5("F5", true),
-    F6("F6", true),
-    F7("F7", true),
-    F8("F8", true),
-    F9("F9", true),
-    F10("F10", true),
-    F11("F11", true),
-    F12("F12", true),
 }
