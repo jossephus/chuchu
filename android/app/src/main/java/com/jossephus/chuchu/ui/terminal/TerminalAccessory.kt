@@ -44,7 +44,7 @@ data class ModifierState(
         if (text.isEmpty()) return text
 
         val first = if (ctrl) ctrlModifiedChar(text[0]) else text[0].toString()
-        val metaWrapped = if (alt || cmd) "\u001b$first" else first
+        val metaWrapped = if (alt) "\u001b$first" else first
         return metaWrapped + text.substring(1)
     }
 

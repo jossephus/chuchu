@@ -41,12 +41,14 @@ import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuDialog
 import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.terminal.AccessoryAction
+import com.jossephus.chuchu.ui.terminal.GhosttyKeyAction
 import com.jossephus.chuchu.ui.terminal.KeyboardAccessoryBar
 import com.jossephus.chuchu.ui.terminal.ModifierState
 import com.jossephus.chuchu.ui.terminal.TerminalCanvas
 import com.jossephus.chuchu.ui.terminal.TerminalAccessoryDispatcher
 import com.jossephus.chuchu.ui.terminal.TerminalAccessoryLayoutStore
 import com.jossephus.chuchu.ui.terminal.TerminalInputView
+import com.jossephus.chuchu.ui.terminal.toGhosttyKey
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
 
@@ -300,7 +302,20 @@ fun TerminalScreen(
                             factory = { viewContext ->
                                 TerminalInputView(viewContext).apply {
                                     onTerminalText = { text ->
-                                        vm.onTextInput(modifierState.applyToText(text))
+                                        if (modifierState.cmd && !modifierState.alt) {
+                                            val mods = modifierState.terminalMods()
+                                            for (char in text) {
+                                                val ghosttyKey = char.toGhosttyKey()
+                                                if (ghosttyKey != null) {
+                                                    vm.onHardwareKey(ghosttyKey, char.code, mods, GhosttyKeyAction.Press)
+                                                    vm.onHardwareKey(ghosttyKey, char.code, mods, GhosttyKeyAction.Release)
+                                                } else {
+                                                    vm.onTextInput(modifierState.applyToText(char.toString()))
+                                                }
+                                            }
+                                        } else {
+                                            vm.onTextInput(modifierState.applyToText(text))
+                                        }
                                         resetModifiers()
                                     }
                                     onTerminalKey = { key, codepoint, mods, action ->
