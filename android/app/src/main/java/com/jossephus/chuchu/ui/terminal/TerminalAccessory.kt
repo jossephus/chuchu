@@ -180,9 +180,37 @@ object TerminalAccessoryLayoutStore {
 
     private val catalogById: Map<String, AccessoryKeyItem> = catalogItems.associateBy { it.id }
 
-    private val defaultLayoutIds: List<String> = catalogItems.map { it.id }
+    private val defaultLayoutIds: List<String> = listOf(
+        "escape",
+        "tab",
+        "ctrl",
+        "cmd",
+        "shift",
+        "alt",
+        "up",
+        "down",
+        "left",
+        "right",
+    )
 
     fun defaultLayout(): List<AccessoryKeyItem> = resolveLayout(defaultLayoutIds)
+
+    fun defaultLayoutIds(): List<String> = defaultLayoutIds
+
+    fun catalog(): List<AccessoryKeyItem> = catalogItems
+
+    fun resolveSelectedLayout(ids: List<String>): List<AccessoryKeyItem> =
+        normalizeIds(ids).mapNotNull(catalogById::get)
+
+    fun normalizeIds(ids: List<String>): List<String> {
+        val seen = LinkedHashSet<String>()
+        ids.forEach { id ->
+            if (catalogById.containsKey(id)) {
+                seen += id
+            }
+        }
+        return seen.toList()
+    }
 
     private fun resolveLayout(ids: List<String>): List<AccessoryKeyItem> {
         val resolved = ids.mapNotNull(catalogById::get)

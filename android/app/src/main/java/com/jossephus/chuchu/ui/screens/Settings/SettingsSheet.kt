@@ -1,5 +1,6 @@
 package com.jossephus.chuchu.ui.screens.Settings
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
@@ -49,15 +50,26 @@ enum class SettingsCategory(val label: String) {
 fun SettingsSheet(
     visible: Boolean,
     currentTheme: String,
+    currentAccessoryLayoutIds: List<String>,
     onThemeSelected: (String) -> Unit,
+    onAccessoryLayoutChanged: (List<String>) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
     var selectedCategory by remember { mutableStateOf(SettingsCategory.General) }
+    var showAccessoryEditor by remember { mutableStateOf(false) }
 
     if (visible) {
+        BackHandler(enabled = true) {
+            if (showAccessoryEditor) {
+                showAccessoryEditor = false
+            } else {
+                onDismiss()
+            }
+        }
+
         Box(
             modifier = modifier.fillMaxSize(),
         ) {
@@ -123,10 +135,23 @@ fun SettingsSheet(
                             currentTheme = currentTheme,
                             onThemeSelected = onThemeSelected,
                         )
-                        SettingsCategory.Terminal -> TerminalSettings()
+                        SettingsCategory.Terminal -> TerminalSettings(
+                            currentAccessoryLayoutIds = currentAccessoryLayoutIds,
+                            onEditAccessoryLayout = { showAccessoryEditor = true },
+                        )
                     }
                 }
             }
+
+            AccessoryLayoutEditorSheet(
+                visible = showAccessoryEditor,
+                selectedIds = currentAccessoryLayoutIds,
+                onSave = {
+                    onAccessoryLayoutChanged(it)
+                    showAccessoryEditor = false
+                },
+                onDismiss = { showAccessoryEditor = false },
+            )
         }
     }
 }
@@ -224,20 +249,5 @@ private fun GeneralSettings(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun TerminalSettings() {
-    val typography = ChuTypography.current
-    val colors = ChuColors.current
-
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        ChuText("Terminal", style = typography.title)
-        ChuText(
-            "Accessory key customization coming soon.",
-            style = typography.body,
-            color = colors.textMuted,
-        )
     }
 }

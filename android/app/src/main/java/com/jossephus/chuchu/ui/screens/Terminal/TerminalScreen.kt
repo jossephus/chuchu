@@ -74,12 +74,15 @@ fun TerminalScreen(
     val haptics = LocalHapticFeedback.current
     val colors = ChuColors.current
     val typography = ChuTypography.current
-    val accessoryLayout = remember { TerminalAccessoryLayoutStore.defaultLayout() }
     val screenInsetsModifier = modifier.windowInsetsPadding(WindowInsets.safeDrawing)
     var lastSessionStatus by remember { mutableStateOf<SessionStatus?>(null) }
     var showSettings by remember { mutableStateOf(false) }
     val settingsRepo = remember(context) { SettingsRepository.getInstance(context) }
     val currentTheme by settingsRepo.themeName.collectAsStateWithLifecycle()
+    val currentAccessoryLayoutIds by settingsRepo.accessoryLayoutIds.collectAsStateWithLifecycle()
+    val accessoryLayout = remember(currentAccessoryLayoutIds) {
+        TerminalAccessoryLayoutStore.resolveSelectedLayout(currentAccessoryLayoutIds)
+    }
     val ghosttyTheme = remember(context, currentTheme) {
         GhosttyThemeRegistry.getTheme(context, currentTheme)
     }
@@ -366,7 +369,9 @@ fun TerminalScreen(
                     SettingsSheet(
                         visible = true,
                         currentTheme = currentTheme,
+                        currentAccessoryLayoutIds = currentAccessoryLayoutIds,
                         onThemeSelected = { settingsRepo.setTheme(it) },
+                        onAccessoryLayoutChanged = { settingsRepo.setAccessoryLayoutIds(it) },
                         onDismiss = { showSettings = false },
                     )
                 }

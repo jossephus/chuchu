@@ -63,6 +63,7 @@ fun ServerListScreen(
     val context = LocalContext.current
     val settingsRepo = remember(context) { SettingsRepository.getInstance(context) }
     val currentTheme by settingsRepo.themeName.collectAsStateWithLifecycle()
+    val currentAccessoryLayoutIds by settingsRepo.accessoryLayoutIds.collectAsStateWithLifecycle()
     var showSettings by remember { mutableStateOf(false) }
 
     val colors = ChuColors.current
@@ -145,7 +146,9 @@ fun ServerListScreen(
             SettingsSheet(
                 visible = true,
                 currentTheme = currentTheme,
+                currentAccessoryLayoutIds = currentAccessoryLayoutIds,
                 onThemeSelected = { settingsRepo.setTheme(it) },
+                onAccessoryLayoutChanged = { settingsRepo.setAccessoryLayoutIds(it) },
                 onDismiss = { showSettings = false },
             )
         }
