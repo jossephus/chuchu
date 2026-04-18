@@ -5,7 +5,7 @@ import android.view.KeyEvent
 object KeyMapper {
     fun map(keyCode: Int, codepoint: Int, metaState: Int): MappedKey? {
         val mods = translateMods(metaState)
-        return when (keyCode) {
+        val mapped = when (keyCode) {
             // Navigation and editing keys
             KeyEvent.KEYCODE_DPAD_UP -> MappedKey(key = TerminalSpecialKey.Up.engineKey, codepoint = 0, mods = mods)
             KeyEvent.KEYCODE_DPAD_DOWN -> MappedKey(key = TerminalSpecialKey.Down.engineKey, codepoint = 0, mods = mods)
@@ -95,6 +95,36 @@ object KeyMapper {
                 MappedKey(key = 0, codepoint = codepoint, mods = mods)
             }
         }
+
+        if (mapped.codepoint != 0) return mapped
+        val unshiftedCodepoint = unshiftedCodepointFor(keyCode)
+        return if (unshiftedCodepoint != 0) {
+            mapped.copy(codepoint = unshiftedCodepoint)
+        } else {
+            mapped
+        }
+    }
+
+    private fun unshiftedCodepointFor(keyCode: Int): Int = when (keyCode) {
+        in KeyEvent.KEYCODE_A..KeyEvent.KEYCODE_Z ->
+            'a'.code + (keyCode - KeyEvent.KEYCODE_A)
+
+        in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9 ->
+            '0'.code + (keyCode - KeyEvent.KEYCODE_0)
+
+        KeyEvent.KEYCODE_SPACE -> ' '.code
+        KeyEvent.KEYCODE_GRAVE -> '`'.code
+        KeyEvent.KEYCODE_MINUS -> '-'.code
+        KeyEvent.KEYCODE_EQUALS -> '='.code
+        KeyEvent.KEYCODE_LEFT_BRACKET -> '['.code
+        KeyEvent.KEYCODE_RIGHT_BRACKET -> ']'.code
+        KeyEvent.KEYCODE_BACKSLASH -> '\\'.code
+        KeyEvent.KEYCODE_SEMICOLON -> ';'.code
+        KeyEvent.KEYCODE_APOSTROPHE -> '\''.code
+        KeyEvent.KEYCODE_COMMA -> ','.code
+        KeyEvent.KEYCODE_PERIOD -> '.'.code
+        KeyEvent.KEYCODE_SLASH -> '/'.code
+        else -> 0
     }
 
     private fun translateMods(metaState: Int): Int {

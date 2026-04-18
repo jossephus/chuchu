@@ -89,19 +89,19 @@ object GhosttyKey {
     const val arrowRight = 77
     const val arrowUp = 78
     const val numLock = 79
-    const val f1 = 120
-    const val f2 = 121
-    const val f3 = 122
-    const val f4 = 123
-    const val f5 = 124
-    const val f6 = 125
-    const val f7 = 126
-    const val f8 = 127
-    const val f9 = 128
-    const val f10 = 129
-    const val f11 = 130
-    const val f12 = 131
-    const val escape = 145
+    const val escape = 120
+    const val f1 = 121
+    const val f2 = 122
+    const val f3 = 123
+    const val f4 = 124
+    const val f5 = 125
+    const val f6 = 126
+    const val f7 = 127
+    const val f8 = 128
+    const val f9 = 129
+    const val f10 = 130
+    const val f11 = 131
+    const val f12 = 132
 }
 
 /**

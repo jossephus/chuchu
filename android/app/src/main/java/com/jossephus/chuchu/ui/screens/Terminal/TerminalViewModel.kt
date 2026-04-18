@@ -143,13 +143,10 @@ class TerminalViewModel(
     }
 
     fun onHardwareKey(key: Int, codepoint: Int, mods: Int, action: Int) {
-        // key/codepoint/mods are already mapped by KeyMapper in TerminalInputView.
-        // Pass them directly to Ghostty without remapping.
-        // For printable characters, include UTF-8 text so Ghostty's legacy
-        // fallback path can emit raw text when Kitty keyboard is unavailable.
-        val utf8 = if (codepoint > 0) codepoint.toChar().toString() else null
-        val ghosttyAction = GhosttyKeyAction.fromAndroid(action) ?: return
-        engine.writeKey(key, codepoint, mods, ghosttyAction, utf8)
+        val hasNonTextModifier = mods and ((1 shl 1) or (1 shl 2) or (1 shl 3)) != 0
+        val isRelease = action == GhosttyKeyAction.Release
+        val utf8 = if (codepoint > 0 && !hasNonTextModifier && !isRelease) codepoint.toChar().toString() else null
+        engine.writeKey(key, codepoint, mods, action, utf8)
     }
 
     fun onTextInput(text: String) {

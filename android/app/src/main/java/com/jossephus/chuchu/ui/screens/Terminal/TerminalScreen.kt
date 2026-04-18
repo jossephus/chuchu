@@ -309,8 +309,6 @@ fun TerminalScreen(
                                                 if (ghosttyKey != null) {
                                                     vm.onHardwareKey(ghosttyKey, char.code, mods, GhosttyKeyAction.Press)
                                                     vm.onHardwareKey(ghosttyKey, char.code, mods, GhosttyKeyAction.Release)
-                                                } else {
-                                                    vm.onTextInput(modifierState.applyToText(char.toString()))
                                                 }
                                             }
                                         } else {
