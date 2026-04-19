@@ -22,7 +22,7 @@ Chuchu is in active development. I am daily driving it and improving any issues 
 - Kotlin + Jetpack Compose for the Android app
 - Zig for native build orchestration and JNI/native bridge code
 - Ghostty VT for terminal emulation
-- `libssh2` + `mbedtls` for the current native SSH path
+- `libssh2` + `openssl` for the current native SSH path
 - Room for local data storage
 
 ## Project Layout
@@ -98,5 +98,4 @@ chuchu is one of my favorite characters from the amharic book [Yesinbit Kelemat]
 <p align="center">
   <img src="./assets/chuchu_demo.gif" alt="Chuchu demo" width="400" />
 </p>
-
 

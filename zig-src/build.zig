@@ -88,7 +88,7 @@ fn buildNativeLibrary(
     const include_dir = b.pathJoin(&.{ ndk_sysroot, "usr", "include" });
     const target_include_dir = b.pathJoin(&.{ include_dir, android_target });
 
-    // Build libssh2 (which also builds mbedtls as a sub-dependency)
+    // Build libssh2 (configured to use openssl-zig)
     const libssh2_dep = b.dependency("libssh2", .{
         .target = target,
         .optimize = optimize,

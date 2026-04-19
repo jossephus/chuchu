@@ -3,7 +3,6 @@ const std = @import("std");
 const libssh2_src: []const []const u8 = &.{
     "src/agent.c",
     "src/bcrypt_pbkdf.c",
-    "src/blowfish.c",
     "src/chacha.c",
     "src/channel.c",
     "src/cipher-chachapoly.c",
@@ -83,6 +82,7 @@ pub fn build(b: *std.Build) void {
     lib.root_module.addIncludePath(upstream.path("include"));
     lib.addIncludePath(openssl_dep.path("include"));
     lib.addIncludePath(openssl_dep.path("include_gen"));
+    lib.root_module.addCMacro("OPENSSL_NO_BF", "1");
     lib.root_module.addCMacro("HAVE_CONFIG_H", "1");
     lib.root_module.addCMacro("LIBSSH2_OPENSSL", "1");
     lib.addCSourceFiles(.{
