@@ -360,7 +360,6 @@ fun TerminalScreen(
                             }
                         }
 
-                        // Floating context menu for selection actions
                         if (hasSelectionActive) {
                             val menuOffsetX = with(density) { selectionAnchorOffset.x.toDp() }
                             val menuOffsetY = with(density) { (selectionAnchorOffset.y - 44f).toDp().coerceAtLeast(0.dp) }

@@ -62,9 +62,12 @@ fun TerminalCanvas(
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
     var selection by remember { mutableStateOf<TerminalSelection?>(null) }
     var selectionAnchorOffset by remember { mutableStateOf(Offset.Zero) }
+    val doubleTapState = remember { DoubleTapState() }
     val androidViewConfiguration = remember(context) { ViewConfiguration.get(context) }
     val touchSlopPx = remember(androidViewConfiguration) { androidViewConfiguration.scaledTouchSlop.toFloat() }
     val longPressTimeoutMillis = remember { ViewConfiguration.getLongPressTimeout().toLong() }
+    val doubleTapTimeoutMillis = remember { ViewConfiguration.getDoubleTapTimeout().toLong() }
+    val doubleTapSlopPx = remember(androidViewConfiguration) { androidViewConfiguration.scaledDoubleTapSlop.toFloat() }
     val typeface = remember {
         runCatching {
             Typeface.createFromAsset(context.assets, "fonts/JetBrainsMono-Regular.ttf")
@@ -97,6 +100,7 @@ fun TerminalCanvas(
             }
         }
     }
+    val drawBuffer = remember { StringBuilder(256) }
     val fontMetrics = textPaint.fontMetrics
     val measuredHeight = fontMetrics.descent - fontMetrics.ascent
     val cellHeightPx = if (measuredHeight > 1f) measuredHeight else 16f
@@ -107,6 +111,9 @@ fun TerminalCanvas(
     val cellHeightInt = max(1, ceil(cellHeightPx).toInt())
     val selectionBackgroundArgb = selectionBackgroundColor.toArgb()
     val selectionForegroundArgb = selectionForegroundColor?.toArgb()
+    val hasSelectionFg = selectionForegroundArgb != null
+    val cursorColorArgb = cursorColor.toArgb()
+    val cursorTextColorArgb = cursorTextColor?.toArgb()
 
     val currentOnSelectionChanged = rememberUpdatedState(onSelectionChanged)
 
@@ -115,9 +122,6 @@ fun TerminalCanvas(
         selectionAnchorOffset = Offset.Zero
     }
 
-    // Report selection state changes to the parent.
-    // Only fire the callback when the selection state actually changes,
-    // or when the selected text may have changed (snapshot updated while selected).
     val currentSelection = selection
     if (currentSelection != null) {
         LaunchedEffect(snapshot, currentSelection) {
@@ -125,7 +129,6 @@ fun TerminalCanvas(
             currentOnSelectionChanged.value(true, text, selectionAnchorOffset.x, selectionAnchorOffset.y)
         }
     } else {
-        // Selection cleared — report once.
         LaunchedEffect(Unit) {
             currentOnSelectionChanged.value(false, null, 0f, 0f)
         }
@@ -187,11 +190,34 @@ fun TerminalCanvas(
                                 break
                             }
                             if (!didScroll && !didPinch && !didDragGesture) {
-                                if (selection != null) {
-                                    selection = null
-                                    selectionAnchorOffset = Offset.Zero
+                                val tapTime = event.changes.maxOfOrNull { it.uptimeMillis } ?: lastEventUptime
+                                val tapPos = down.position
+                                val timeSinceLastTap = tapTime - doubleTapState.lastTime
+                                val distSinceLastTap = hypot(
+                                    (tapPos.x - doubleTapState.lastPos.x).toDouble(),
+                                    (tapPos.y - doubleTapState.lastPos.y).toDouble(),
+                                ).toFloat()
+                                doubleTapState.lastTime = tapTime
+                                doubleTapState.lastPos = tapPos
+
+                                if (timeSinceLastTap < doubleTapTimeoutMillis && distSinceLastTap < doubleTapSlopPx) {
+                                    val s = snapshot
+                                    val cellIdx = s.cellAt(tapPos.x, tapPos.y, cellWidthPx, cellHeightPx)
+                                    if (cellIdx != null) {
+                                        val wordRange = s.wordAt(cellIdx)
+                                        if (wordRange != null) {
+                                            selection = TerminalSelection(wordRange.first, wordRange.last)
+                                            selectionAnchorOffset = tapPos
+                                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        }
+                                    }
+                                } else {
+                                    if (selection != null) {
+                                        selection = null
+                                        selectionAnchorOffset = Offset.Zero
+                                    }
+                                    onTap()
                                 }
-                                onTap()
                             }
                             break
                         }
@@ -275,14 +301,17 @@ fun TerminalCanvas(
         val rows = max(snapshot.rows, 1)
         val cellWidth = cellWidthPx
         val cellHeight = cellHeightPx
-        val activeSelection = selection?.normalized(snapshot.codepoints.size)
+        val sel = selection?.normalized(snapshot.codepoints.size)
+        val selStart = sel?.first ?: -1
+        val selEnd = sel?.last ?: -1
+        val hasSel = sel != null
 
-        val bgDefault = Color(snapshot.defaultBgArgb)
-        drawRect(color = bgDefault)
+        drawRect(color = Color(snapshot.defaultBgArgb))
 
         drawIntoCanvas { canvas ->
             val nCanvas = canvas.nativeCanvas
-            val sb = StringBuilder(cols)
+            val sb = drawBuffer
+            val defaultBg = snapshot.defaultBgArgb
 
             for (row in 0 until rows) {
                 val rowStart = row * cols
@@ -293,16 +322,16 @@ fun TerminalCanvas(
                 var i = rowStart
                 val rowEnd = rowStart + cols
                 while (i < rowEnd) {
-                    val selected = activeSelection?.contains(i) == true
-                    val bg = if (selected) selectionBackgroundArgb else snapshot.bgArgb[i]
+                    val iSelected = hasSel && i in selStart..selEnd
+                    val bg = if (iSelected) selectionBackgroundArgb else snapshot.bgArgb[i]
                     var j = i + 1
                     while (j < rowEnd) {
-                        val nextSelected = activeSelection?.contains(j) == true
-                        val nextBg = if (nextSelected) selectionBackgroundArgb else snapshot.bgArgb[j]
+                        val jSelected = hasSel && j in selStart..selEnd
+                        val nextBg = if (jSelected) selectionBackgroundArgb else snapshot.bgArgb[j]
                         if (nextBg != bg) break
                         j++
                     }
-                    if (selected || bg != snapshot.defaultBgArgb) {
+                    if (iSelected || bg != defaultBg) {
                         bgPaint.color = bg
                         nCanvas.drawRect(
                             (i - rowStart) * cellWidth,
@@ -321,7 +350,7 @@ fun TerminalCanvas(
                     val cp = snapshot.codepoints[i]
                     if (cp == 0 || cp == 32) { i++; continue }
 
-                    val fg = if (activeSelection?.contains(i) == true && selectionForegroundArgb != null) {
+                    val fg = if (hasSel && i in selStart..selEnd && hasSelectionFg) {
                         selectionForegroundArgb
                     } else {
                         snapshot.fgArgb[i]
@@ -331,7 +360,7 @@ fun TerminalCanvas(
 
                     while (i < rowEnd) {
                         val c = snapshot.codepoints[i]
-                        val nextFg = if (activeSelection?.contains(i) == true && selectionForegroundArgb != null) {
+                        val nextFg = if (hasSel && i in selStart..selEnd && hasSelectionFg) {
                             selectionForegroundArgb
                         } else {
                             snapshot.fgArgb[i]
@@ -362,7 +391,7 @@ fun TerminalCanvas(
             if (snapshot.cursorVisible && snapshot.cursorX in 0 until cols && snapshot.cursorY in 0 until rows) {
                 val cursorLeft = snapshot.cursorX * cellWidth
                 val cursorTop = snapshot.cursorY * cellHeight
-                cursorPaint.color = cursorColor.toArgb()
+                cursorPaint.color = cursorColorArgb
                 nCanvas.drawRect(
                     cursorLeft,
                     cursorTop,
@@ -372,13 +401,13 @@ fun TerminalCanvas(
                 )
 
                 val cursorIndex = snapshot.cursorY * cols + snapshot.cursorX
-                if (cursorTextColor != null && cursorIndex in snapshot.codepoints.indices) {
+                if (cursorTextColorArgb != null && cursorIndex in snapshot.codepoints.indices) {
                     val codepoint = snapshot.codepoints[cursorIndex]
                     if (codepoint != 0 && codepoint != 32) {
                         val glyph = glyphCache.getOrPut(codepoint) {
                             String(Character.toChars(codepoint))
                         }
-                        textPaint.color = cursorTextColor.toArgb()
+                        textPaint.color = cursorTextColorArgb
                         nCanvas.drawText(
                             glyph,
                             cursorLeft,
@@ -409,6 +438,27 @@ private fun TerminalSnapshot.cellAt(x: Float, y: Float, cellWidthPx: Float, cell
     val col = floor(x / cellWidthPx).toInt().coerceIn(0, cols - 1)
     val row = floor(y / cellHeightPx).toInt().coerceIn(0, rows - 1)
     return row * cols + col
+}
+
+/** Find the word boundaries around [cellIndex], expanding left and right within the same row. */
+private fun TerminalSnapshot.wordAt(cellIndex: Int): IntRange? {
+    if (cols <= 0 || cellIndex !in codepoints.indices) return null
+    val row = cellIndex / cols
+    val rowStart = row * cols
+    val rowEnd = rowStart + cols - 1
+
+    val cp = codepoints[cellIndex]
+    if (cp == 0 || cp == 32) return null
+
+    var start = cellIndex
+    while (start > rowStart && codepoints[start - 1] != 0 && codepoints[start - 1] != 32) {
+        start--
+    }
+    var end = cellIndex
+    while (end < rowEnd && codepoints[end + 1] != 0 && codepoints[end + 1] != 32) {
+        end++
+    }
+    return start..end
 }
 
 private fun extractSelectionText(snapshot: TerminalSnapshot, selection: TerminalSelection?): String? {
@@ -445,4 +495,10 @@ private fun extractSelectionText(snapshot: TerminalSnapshot, selection: Terminal
     }
 
     return builder.toString()
+}
+
+/** Tracks double-tap timing/position without triggering Compose recomposition. */
+private class DoubleTapState {
+    var lastTime: Long = 0L
+    var lastPos: Offset = Offset.Zero
 }
