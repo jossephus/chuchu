@@ -1,10 +1,14 @@
 package com.jossephus.chuchu.ui.screens.Terminal
 
 import android.content.ClipboardManager
+import android.content.ClipData
 import android.content.Context
 import android.widget.Toast
 import android.view.inputmethod.InputMethodManager
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -28,13 +32,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import kotlinx.coroutines.awaitCancellation
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jossephus.chuchu.data.db.AppDatabase
 import com.jossephus.chuchu.data.repository.HostRepository
@@ -72,6 +80,7 @@ fun TerminalScreen(
     val hostKeyPrompt by vm.hostKeyPrompt.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
+    val density = LocalDensity.current
     val colors = ChuColors.current
     val typography = ChuTypography.current
     val screenInsetsModifier = modifier.windowInsetsPadding(WindowInsets.safeDrawing)
@@ -87,6 +96,10 @@ fun TerminalScreen(
         GhosttyThemeRegistry.getTheme(context, currentTheme)
     }
     val isDarkTheme = (ghosttyTheme?.background ?: colors.background).luminance() < 0.5f
+    var selectedText by remember { mutableStateOf<String?>(null) }
+    var hasSelectionActive by remember { mutableStateOf(false) }
+    var selectionAnchorOffset by remember { mutableStateOf(Offset.Zero) }
+    var selectionResetKey by remember { mutableStateOf(0) }
 
     LaunchedEffect(hostId) {
         if (hostId == null) return@LaunchedEffect
@@ -209,6 +222,23 @@ fun TerminalScreen(
                     val clipboard = remember {
                         context.getSystemService(ClipboardManager::class.java)
                     }
+                    var hasClipboardText by remember { mutableStateOf(false) }
+                    LaunchedEffect(clipboard) {
+                        fun check() {
+                            hasClipboardText = try {
+                                clipboard?.hasPrimaryClip() == true &&
+                                    clipboard!!.primaryClip?.getItemAt(0)?.text?.isNotEmpty() == true
+                            } catch (_: SecurityException) { false }
+                        }
+                        check()
+                        val listener = ClipboardManager.OnPrimaryClipChangedListener { check() }
+                        clipboard?.addPrimaryClipChangedListener(listener)
+                        try {
+                            awaitCancellation()
+                        } finally {
+                            clipboard?.removePrimaryClipChangedListener(listener)
+                        }
+                    }
                     val terminalPrefs = remember(context) {
                         context.getSharedPreferences("chuchu_terminal", Context.MODE_PRIVATE)
                     }
@@ -235,6 +265,10 @@ fun TerminalScreen(
                         if (text.isNotEmpty()) {
                             vm.onPasteText(modifierState.applyToText(text))
                             resetModifiers()
+                            selectedText = null
+                            hasSelectionActive = false
+                            selectionAnchorOffset = Offset.Zero
+                            selectionResetKey += 1
                             return true
                         }
                         resetModifiers()
@@ -263,6 +297,16 @@ fun TerminalScreen(
                         }
                     }
 
+                    fun copySelection() {
+                        val text = selectedText ?: return
+                        clipboard?.setPrimaryClip(ClipData.newPlainText("terminal selection", text))
+                        Toast.makeText(context, "Copied selection", Toast.LENGTH_SHORT).show()
+                        selectedText = null
+                        hasSelectionActive = false
+                        selectionAnchorOffset = Offset.Zero
+                        selectionResetKey += 1
+                    }
+
                     LaunchedEffect(Unit) {
                         requestInputFocus()
                         vm.onFocusChanged(true)
@@ -280,12 +324,20 @@ fun TerminalScreen(
                             fontSizeSp = terminalFontSizeSp,
                             cursorColor = ghosttyTheme?.cursorColor ?: Color.White.copy(alpha = 0.28f),
                             cursorTextColor = ghosttyTheme?.cursorText,
+                            selectionBackgroundColor = ghosttyTheme?.selectionBackground ?: colors.accent.copy(alpha = 0.45f),
+                            selectionForegroundColor = ghosttyTheme?.selectionForeground ?: colors.onAccent,
+                            selectionResetKey = selectionResetKey,
                             modifier = Modifier.fillMaxSize(),
                             onResize = vm::onCanvasSizeChanged,
                             onTap = requestInputFocus,
                             onScroll = vm::onScroll,
                             onZoom = { zoomFactor ->
                                 terminalFontSizeSp = (terminalFontSizeSp * zoomFactor).coerceAtLeast(0.1f)
+                            },
+                            onSelectionChanged = { active, text, anchorX, anchorY ->
+                                hasSelectionActive = active
+                                selectedText = text
+                                selectionAnchorOffset = Offset(anchorX, anchorY)
                             },
                         )
 
@@ -305,6 +357,40 @@ fun TerminalScreen(
                                 contentPadding = PaddingValues(4.dp),
                             ) {
                                 ChuText("⚙", style = typography.label, color = colors.textMuted)
+                            }
+                        }
+
+                        // Floating context menu for selection actions
+                        if (hasSelectionActive) {
+                            val menuOffsetX = with(density) { selectionAnchorOffset.x.toDp() }
+                            val menuOffsetY = with(density) { (selectionAnchorOffset.y - 44f).toDp().coerceAtLeast(0.dp) }
+                            Row(
+                                modifier = Modifier
+                                    .offset(x = menuOffsetX, y = menuOffsetY)
+                                    .shadow(4.dp, shape = RoundedCornerShape(8.dp))
+                                    .background(colors.background, shape = RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                if (!selectedText.isNullOrEmpty()) {
+                                    ChuButton(
+                                        onClick = ::copySelection,
+                                        variant = ChuButtonVariant.Ghost,
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                    ) {
+                                        ChuText("Copy", style = typography.label, color = colors.textPrimary)
+                                    }
+                                }
+                                if (hasClipboardText) {
+                                    ChuButton(
+                                        onClick = { pasteClipboard() },
+                                        variant = ChuButtonVariant.Ghost,
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                    ) {
+                                        ChuText("Paste", style = typography.label, color = colors.textPrimary)
+                                    }
+                                }
                             }
                         }
 
