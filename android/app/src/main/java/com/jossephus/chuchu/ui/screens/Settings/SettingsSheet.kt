@@ -23,8 +23,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -166,12 +168,22 @@ private fun GeneralSettings(
     val availableThemes = remember { GhosttyThemeRegistry.availableThemeNames }
     var themeQuery by remember { mutableStateOf("") }
     var expanded by remember { mutableStateOf(false) }
+    val themeListState = rememberLazyListState()
     val filteredThemes = remember(availableThemes, themeQuery) {
         val query = themeQuery.trim()
         if (query.isEmpty()) {
             availableThemes
         } else {
             availableThemes.filter { it.contains(query, ignoreCase = true) }
+        }
+    }
+
+    LaunchedEffect(expanded, filteredThemes) {
+        if (expanded) {
+            val selectedIndex = filteredThemes.indexOf(currentTheme)
+            if (selectedIndex >= 0) {
+                themeListState.scrollToItem(selectedIndex)
+            }
         }
     }
 
@@ -213,6 +225,7 @@ private fun GeneralSettings(
                 )
 
                 LazyColumn(
+                    state = themeListState,
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                     modifier = Modifier
                         .fillMaxWidth()
