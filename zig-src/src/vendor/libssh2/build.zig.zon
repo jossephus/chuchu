@@ -7,8 +7,8 @@
             .url = "https://github.com/libssh2/libssh2/archive/refs/tags/libssh2-1.11.1.tar.gz",
             .hash = "N-V-__8AAATRLQBu_rNy4X2UK6RtcdYK_yAzkV6OcCqgo5aK",
         },
-        .mbedtls = .{
-            .path = "../mbedtls",
+        .openssl = .{
+            .path = "../../../../../openssl-zig",
         },
     },
     .paths = .{

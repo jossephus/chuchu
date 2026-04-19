@@ -16,6 +16,9 @@
         .libssh2 = .{
             .path = "src/vendor/libssh2",
         },
+        .openssl = .{
+            .path = "../../openssl-zig",
+        },
     },
     .fingerprint = 0xddba11030bd5a50,
     .paths = .{
