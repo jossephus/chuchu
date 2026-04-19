@@ -1075,36 +1075,40 @@ export fn chuchu_scroll(handle: c.jlong, delta: c.jint) callconv(.c) void {
     const mouse_captured = terminal.terminal.flags.mouse_event != .none;
 
     if (in_alt_screen or mouse_captured) {
-        // Send mouse scroll events to the application
-        // Mouse wheel up = button 4, wheel down = button 5
+        // Send mouse scroll events to the application.
+        // Negative delta = scroll up (older content) → button 4.
+        // Positive delta = scroll down (newer content) → button 5.
         const button: u8 = if (delta < 0) 4 else 5;
+        const scroll_count: usize = @max(1, @abs(delta));
 
         // Use center of terminal for scroll position
         const center_x: f32 = @as(f32, @floatFromInt(terminal.cols / 2)) * @as(f32, @floatFromInt(terminal.cell_width));
         const center_y: f32 = @as(f32, @floatFromInt(terminal.rows / 2)) * @as(f32, @floatFromInt(terminal.cell_height));
 
-        var buf: [128]u8 = undefined;
+        var buf: [512]u8 = undefined;
         var writer: std.Io.Writer = .fixed(&buf);
         var last_cell: ?ghostty.point.Coordinate = null;
         const opts = ghosttyMouseEncodeOptions(terminal, false, true, &last_cell);
 
-        // Send press event
-        const press_event: ghostty.input.MouseEncodeEvent = .{
-            .action = .press,
-            .button = @enumFromInt(button),
-            .mods = .{},
-            .pos = .{ .x = center_x, .y = center_y },
-        };
-        ghostty.input.encodeMouse(&writer, press_event, opts) catch {};
+        // Send scroll_count press/release pairs to match scroll magnitude.
+        var i: usize = 0;
+        while (i < scroll_count) : (i += 1) {
+            const press_event: ghostty.input.MouseEncodeEvent = .{
+                .action = .press,
+                .button = @enumFromInt(button),
+                .mods = .{},
+                .pos = .{ .x = center_x, .y = center_y },
+            };
+            ghostty.input.encodeMouse(&writer, press_event, opts) catch {};
 
-        // Send release event
-        const release_event: ghostty.input.MouseEncodeEvent = .{
-            .action = .release,
-            .button = @enumFromInt(button),
-            .mods = .{},
-            .pos = .{ .x = center_x, .y = center_y },
-        };
-        ghostty.input.encodeMouse(&writer, release_event, opts) catch {};
+            const release_event: ghostty.input.MouseEncodeEvent = .{
+                .action = .release,
+                .button = @enumFromInt(button),
+                .mods = .{},
+                .pos = .{ .x = center_x, .y = center_y },
+            };
+            ghostty.input.encodeMouse(&writer, release_event, opts) catch {};
+        }
 
         // Send encoded events to PTY
         const encoded = writer.buffered();

@@ -164,7 +164,7 @@ fun TerminalCanvas(
 
                     while (true) {
                         val timeoutMs = (longPressDeadline - lastEventUptime).coerceAtLeast(1L)
-                        val event = if (!longPressActive && !didScroll && !didPinch && !didSelect) {
+                        val event = if (!longPressActive && !didScroll && !didPinch && !didSelect && !didDragGesture) {
                             withTimeoutOrNull(timeoutMs) { awaitPointerEvent() }
                         } else {
                             awaitPointerEvent()
@@ -249,6 +249,7 @@ fun TerminalCanvas(
                             lastSinglePointerId = it.id
                         }
 
+                        // Selection drag takes priority once activated
                         val s = snapshot
                         val selectedCell = s.cellAt(change.position.x, change.position.y, cellWidthPx, cellHeightPx)
                         if (longPressActive && selectedCell != null) {
@@ -274,10 +275,10 @@ fun TerminalCanvas(
                                 selectionCleared = true
                             }
                         }
-                        if (movedDistance <= touchSlopPx) {
-                            continue
-                        }
-
+                        // Accumulate scroll deltas even before touch slop is exceeded.
+                        // This gives responsive scrolling from the first move event.
+                        // The didScroll/didDragGesture flags still gate gesture
+                        // classification, so taps are preserved.
                         val dragAmount = change.position.y - change.previousPosition.y
                         dragRemainder += dragAmount / cellHeightPx
 
