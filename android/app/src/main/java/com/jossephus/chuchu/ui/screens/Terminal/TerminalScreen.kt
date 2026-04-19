@@ -351,13 +351,6 @@ fun TerminalScreen(
                             if (pwdText != null) {
                                 ChuText(text = pwdText, style = typography.labelSmall, color = colors.textPrimary.copy(alpha = 0.7f))
                             }
-                            ChuButton(
-                                onClick = { showSettings = true },
-                                variant = ChuButtonVariant.Ghost,
-                                contentPadding = PaddingValues(4.dp),
-                            ) {
-                                ChuText("⚙", style = typography.label, color = colors.textMuted)
-                            }
                         }
 
                         if (hasSelectionActive) {
@@ -445,7 +438,7 @@ fun TerminalScreen(
                         items = accessoryLayout,
                         modifierState = modifierState,
                         onAction = ::dispatchAccessoryAction,
-                        nativeVersion = sessionState.nativeVersion,
+                        onSettings = { showSettings = true },
                         modifier = Modifier.padding(bottom = 2.dp),
                     )
                 }
