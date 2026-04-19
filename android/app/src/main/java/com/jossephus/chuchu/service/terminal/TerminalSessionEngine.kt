@@ -293,6 +293,14 @@ class TerminalSessionEngine(
         }
     }
 
+    fun scrollToActive() {
+        scope.launch(dispatcher) {
+            if (handle == 0L) return@launch
+            bridge.nativeScrollToActive(handle)
+            requestSnapshot(force = true)
+        }
+    }
+
     fun disconnect() {
         scope.launch(dispatcher) {
             readJob?.cancel()

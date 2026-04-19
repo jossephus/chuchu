@@ -145,23 +145,29 @@ class TerminalViewModel(
     fun onHardwareKey(key: Int, codepoint: Int, mods: Int, action: Int) {
         val hasNonTextModifier = mods and ((1 shl 1) or (1 shl 2) or (1 shl 3)) != 0
         val isRelease = action == GhosttyKeyAction.Release
+        if (!isRelease) {
+            engine.scrollToActive()
+        }
         val utf8 = if (codepoint > 0 && !hasNonTextModifier && !isRelease) codepoint.toChar().toString() else null
         engine.writeKey(key, codepoint, mods, action, utf8)
     }
 
     fun onTextInput(text: String) {
+        engine.scrollToActive()
         engine.writeText(text)
     }
 
     fun onSpecialKeyInput(key: TerminalSpecialKey, mods: Int) {
         // Send press followed by release so terminal apps that track key state
         // see a complete key cycle.
+        engine.scrollToActive()
         engine.writeKey(key.engineKey, 0, mods, GhosttyKeyAction.Press)
         engine.writeKey(key.engineKey, 0, mods, GhosttyKeyAction.Release)
     }
 
     fun onPasteText(text: String) {
         if (text.isEmpty()) return
+        engine.scrollToActive()
         val chunkSize = 512
         viewModelScope.launch {
             var index = 0

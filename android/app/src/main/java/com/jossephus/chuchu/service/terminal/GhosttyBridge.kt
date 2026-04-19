@@ -26,6 +26,7 @@ class GhosttyBridge {
     external fun nativeWriteRemote(handle: Long, data: ByteArray)
     external fun nativeResize(handle: Long, cols: Int, rows: Int, cellW: Int, cellH: Int)
     external fun nativeScroll(handle: Long, delta: Int)
+    external fun nativeScrollToActive(handle: Long)
     external fun nativeSnapshot(handle: Long): ByteBuffer
     external fun nativePollTitle(handle: Long): String?
     external fun nativePollPwd(handle: Long): String?

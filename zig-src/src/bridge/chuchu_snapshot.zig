@@ -365,6 +365,12 @@ export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeScroll(
     chuchu_scroll(handle, delta);
 }
 
+export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeScrollToActive(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong) callconv(.c) void {
+    _ = env;
+    _ = thiz;
+    chuchu_scroll_to_active(handle);
+}
+
 export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeSnapshot(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong) callconv(.c) c.jobject {
     _ = thiz;
     var size: usize = 0;
@@ -1120,5 +1126,11 @@ export fn chuchu_scroll(handle: c.jlong, delta: c.jint) callconv(.c) void {
         terminal.terminal.scrollViewport(.{ .delta = @intCast(delta) });
     }
 
+    update_render_state(terminal);
+}
+
+export fn chuchu_scroll_to_active(handle: c.jlong) callconv(.c) void {
+    const terminal = chuchuFromHandle(handle) orelse return;
+    terminal.terminal.scrollViewport(.{ .bottom = {} });
     update_render_state(terminal);
 }
