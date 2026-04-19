@@ -14,6 +14,10 @@ with pkgs;
         value = "${android-sdk}/share/android-sdk";
       }
       {
+        name = "ANDROID_NDK_HOME";
+        value = "${android-sdk}/share/android-sdk/ndk/29.0.13113456";
+      }
+      {
         name = "ANDROID_SDK_ROOT";
         value = "${android-sdk}/share/android-sdk";
       }

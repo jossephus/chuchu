@@ -4,11 +4,9 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -25,7 +23,7 @@ fun KeyboardAccessoryBar(
     items: List<AccessoryKeyItem>,
     modifierState: ModifierState,
     onAction: (AccessoryAction) -> Unit,
-    nativeVersion: String? = null,
+    onSettings: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val buttonHeight = 30.dp
@@ -62,15 +60,16 @@ fun KeyboardAccessoryBar(
             }
         }
 
-        if (nativeVersion != null) {
-            Spacer(modifier = Modifier.size(4.dp))
-            ChuText(
-                text = nativeVersion,
-                style = typography.labelSmall,
-                color = ChuColors.current.textMuted,
-            )
+        if (onSettings != null) {
+            ChuButton(
+                onClick = onSettings,
+                variant = ChuButtonVariant.Outlined,
+                modifier = Modifier.height(buttonHeight),
+                contentPadding = buttonPadding,
+            ) {
+                ChuText("⚙", style = typography.label)
+            }
         }
-
     }
 }
 

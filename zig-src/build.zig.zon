@@ -10,11 +10,12 @@
             .url = "git+https://github.com/jossephus/zignal#arm32-fix",
             .hash = "zignal-0.5.0-dev-OrZ3s9DMEgAWYOOzH4U7LWIZi_jDq8zctxAckan3N0U0",
         },
-        .mbedtls = .{
-            .path = "src/vendor/mbedtls",
-        },
         .libssh2 = .{
             .path = "src/vendor/libssh2",
+        },
+        .openssl = .{
+            .url = "git+https://github.com/jossephus/openssl-zig#bc228fc66b51610129b65a6f4590e26b409048cb",
+            .hash = "openssl-3.6.0-wZcA76Qb8gHOC9xYtu7mOgCh_5Fdf-ysBWyDaR9vvwgL",
         },
     },
     .fingerprint = 0xddba11030bd5a50,

@@ -60,6 +60,7 @@ fun TerminalCanvas(
     val density = LocalDensity.current
     val fontSizePx = with(density) { fontSizeSp.sp.toPx() }
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
+    var lastResizedGrid by remember { mutableStateOf(Pair(0, 0)) }
     var selection by remember { mutableStateOf<TerminalSelection?>(null) }
     var selectionAnchorOffset by remember { mutableStateOf(Offset.Zero) }
     val doubleTapState = remember { DoubleTapState() }
@@ -138,7 +139,11 @@ fun TerminalCanvas(
         if (canvasSize.width <= 0 || canvasSize.height <= 0) return@LaunchedEffect
         val cols = max(1, floor(canvasSize.width / cellWidthPx).toInt())
         val rows = max(1, floor(canvasSize.height / cellHeightPx).toInt())
-        onResize(cols, rows, cellWidthInt, cellHeightInt, canvasSize.width, canvasSize.height)
+        val grid = Pair(cols, rows)
+        if (grid != lastResizedGrid) {
+            lastResizedGrid = grid
+            onResize(cols, rows, cellWidthInt, cellHeightInt, canvasSize.width, canvasSize.height)
+        }
     }
 
     Canvas(

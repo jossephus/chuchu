@@ -88,7 +88,7 @@ fn buildNativeLibrary(
     const include_dir = b.pathJoin(&.{ ndk_sysroot, "usr", "include" });
     const target_include_dir = b.pathJoin(&.{ include_dir, android_target });
 
-    // Build libssh2 (which also builds mbedtls as a sub-dependency)
+    // Build libssh2 (configured to use openssl-zig)
     const libssh2_dep = b.dependency("libssh2", .{
         .target = target,
         .optimize = optimize,
@@ -165,6 +165,25 @@ pub fn build(b: *std.Build) void {
         _ = copy_to_jni_libs.addArg(b.fmt("{s}/libchuchu_jni.so", .{jni_lib_dir}));
 
         jni_step.dependOn(&copy_to_jni_libs.step);
+    }
+
+    // Test: try building openssl for aarch64 android
+    const openssl_test_step = b.step("test-openssl", "Test building OpenSSL for Android aarch64");
+    {
+        const test_target = b.resolveTargetQuery(.{
+            .cpu_arch = .aarch64,
+            .os_tag = .linux,
+            .abi = .android,
+            .android_api_level = 24,
+        });
+        const openssl_dep = b.dependency("openssl", .{
+            .target = test_target,
+            .optimize = .ReleaseSmall,
+        });
+        const crypto = openssl_dep.artifact("crypto");
+        const ssl = openssl_dep.artifact("ssl");
+        openssl_test_step.dependOn(&crypto.step);
+        openssl_test_step.dependOn(&ssl.step);
     }
 
     const fmt_check = b.addFmt(.{ .paths = &.{ "src", "build.zig", "build.zig.zon" } });

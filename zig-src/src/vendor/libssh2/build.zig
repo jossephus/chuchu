@@ -3,7 +3,6 @@ const std = @import("std");
 const libssh2_src: []const []const u8 = &.{
     "src/agent.c",
     "src/bcrypt_pbkdf.c",
-    "src/blowfish.c",
     "src/chacha.c",
     "src/channel.c",
     "src/cipher-chachapoly.c",
@@ -42,15 +41,8 @@ pub fn build(b: *std.Build) void {
     // Get optional libc file path from parent (as LazyPath)
     const libc_file = b.option(std.Build.LazyPath, "libc_file", "Path to libc configuration file");
 
-    // Build mbedtls with libc_file option (parent should pass this)
-    const mbedtls_dep = b.dependency("mbedtls", .{
-        .target = target,
-        .optimize = optimize,
-        .libc_file = libc_file,
-    });
-
-    // Get the upstream mbedtls dependency to access include paths
-    const mbedtls_upstream = mbedtls_dep.builder.dependency("mbedtls_upstream", .{
+    // Build openssl with libc_file option (parent should pass this)
+    const openssl_dep = b.dependency("openssl", .{
         .target = target,
         .optimize = optimize,
     });
@@ -88,18 +80,19 @@ pub fn build(b: *std.Build) void {
 
     lib.root_module.addConfigHeader(config_header);
     lib.root_module.addIncludePath(upstream.path("include"));
-    lib.root_module.addIncludePath(mbedtls_upstream.path("include"));
-    lib.addIncludePath(mbedtls_upstream.path("include"));
+    lib.addIncludePath(openssl_dep.path("include"));
+    lib.addIncludePath(openssl_dep.path("include_gen"));
+    lib.root_module.addCMacro("OPENSSL_NO_BF", "1");
     lib.root_module.addCMacro("HAVE_CONFIG_H", "1");
-    lib.root_module.addCMacro("LIBSSH2_MBEDTLS", "1");
+    lib.root_module.addCMacro("LIBSSH2_OPENSSL", "1");
     lib.addCSourceFiles(.{
         .files = libssh2_src,
         .root = upstream.path(""),
     });
-    lib.linkLibrary(mbedtls_dep.artifact("mbedtls"));
+    lib.linkLibrary(openssl_dep.artifact("crypto"));
 
-    // Ensure mbedtls is built before libssh2
-    lib.step.dependOn(&mbedtls_dep.artifact("mbedtls").step);
+    // Ensure openssl is built before libssh2
+    lib.step.dependOn(&openssl_dep.artifact("crypto").step);
 
     b.installArtifact(lib);
 
@@ -109,5 +102,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     module.addIncludePath(upstream.path("include"));
-    module.addIncludePath(mbedtls_upstream.path("include"));
+    module.addIncludePath(openssl_dep.path("include"));
+    module.addIncludePath(openssl_dep.path("include_gen"));
 }
