@@ -142,6 +142,27 @@ class TerminalViewModel(
         engine.scroll(delta)
     }
 
+    fun onPrimaryMouseClick(x: Float, y: Float) {
+        engine.sendMouseEvent(
+            action = GhosttyMouseAction.Press,
+            button = GhosttyMouseButton.Left,
+            mods = 0,
+            x = x,
+            y = y,
+            anyButtonPressed = false,
+            trackLastCell = false,
+        )
+        engine.sendMouseEvent(
+            action = GhosttyMouseAction.Release,
+            button = GhosttyMouseButton.Left,
+            mods = 0,
+            x = x,
+            y = y,
+            anyButtonPressed = false,
+            trackLastCell = false,
+        )
+    }
+
     fun onHardwareKey(key: Int, codepoint: Int, mods: Int, action: Int) {
         val hasNonTextModifier = mods and ((1 shl 1) or (1 shl 2) or (1 shl 3)) != 0
         val isRelease = action == GhosttyKeyAction.Release
@@ -212,6 +233,15 @@ class TerminalViewModel(
                 }
             }
     }
+}
+
+private object GhosttyMouseAction {
+    const val Release = 0
+    const val Press = 1
+}
+
+private object GhosttyMouseButton {
+    const val Left = 1
 }
 
 data class ConnectForm(

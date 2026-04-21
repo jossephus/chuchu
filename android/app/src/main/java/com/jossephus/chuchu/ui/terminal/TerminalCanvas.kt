@@ -51,6 +51,7 @@ fun TerminalCanvas(
     onResize: (cols: Int, rows: Int, cellWidth: Int, cellHeight: Int, widthPx: Int, heightPx: Int) -> Unit =
         { _, _, _, _, _, _ -> },
     onTap: () -> Unit = {},
+    onPrimaryClick: (x: Float, y: Float) -> Unit = { _, _ -> },
     onScroll: (delta: Int) -> Unit = {},
     onZoom: (zoomFactor: Float) -> Unit = {},
     onSelectionChanged: (selectionActive: Boolean, text: String?, anchorOffsetX: Float, anchorOffsetY: Float) -> Unit = { _, _, _, _ -> },
@@ -221,6 +222,7 @@ fun TerminalCanvas(
                                         selection = null
                                         selectionAnchorOffset = Offset.Zero
                                     }
+                                    onPrimaryClick(tapPos.x, tapPos.y)
                                     onTap()
                                 }
                             }
