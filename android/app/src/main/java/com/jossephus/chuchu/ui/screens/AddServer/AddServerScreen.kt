@@ -51,6 +51,7 @@ import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuDialog
 import com.jossephus.chuchu.ui.components.ChuSegmentedControl
+import com.jossephus.chuchu.ui.components.ChuSwitch
 import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.components.ChuTextField
 import com.jossephus.chuchu.ui.theme.ChuColors
@@ -169,13 +170,14 @@ fun AddServerScreen(
                 AuthMethod.Password,
                 AuthMethod.Key,
             )
+            val segmentSelected = if (form.authMethod == AuthMethod.KeyWithPassphrase) AuthMethod.Key else form.authMethod
             ChuSegmentedControl(
                 options = authOptions,
                 labels = mapOf(
                     AuthMethod.Password to "Password",
                     AuthMethod.Key to "SSH Key",
                 ),
-                selected = form.authMethod,
+                selected = segmentSelected,
                 onSelect = vm::updateAuthMethod,
             )
 
@@ -190,15 +192,15 @@ fun AddServerScreen(
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
-                AuthMethod.Key -> {
+                AuthMethod.Key, AuthMethod.KeyWithPassphrase -> {
                     KeyAuthSection(
                         form = form,
                         keys = keys,
-                        onGenerate = { vm.generateRsaKey(form.name) },
+                        onGenerate = { vm.generateKey(form.name) },
                         onSelectStoredKey = vm::selectStoredKey,
                         onDeleteStoredKey = vm::deleteStoredKey,
                         onSavePrivateKey = {
-                            val name = form.name.trim().ifBlank { "android-rsa" }
+                            val name = form.name.trim().ifBlank { "android-ed25519" }
                             exportKeyLauncher.launch("$name.pem")
                         },
                         onCopyPublicKey = {
@@ -211,8 +213,36 @@ fun AddServerScreen(
                             }
                         },
                     )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                    ) {
+                        ChuSwitch(
+                            checked = form.authMethod == AuthMethod.KeyWithPassphrase,
+                            onCheckedChange = { checked ->
+                                if (checked) {
+                                    vm.updateAuthMethod(AuthMethod.KeyWithPassphrase)
+                                } else {
+                                    vm.updateAuthMethod(AuthMethod.Key)
+                                    vm.updateKeyPassphrase("")
+                                }
+                            },
+                        )
+                        ChuText("Set passphrase", style = typography.label)
+                    }
+                    if (form.authMethod == AuthMethod.KeyWithPassphrase) {
+                        ChuTextField(
+                            value = form.keyPassphrase,
+                            onValueChange = vm::updateKeyPassphrase,
+                            label = "Passphrase",
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                 }
-                AuthMethod.KeyWithPassphrase, AuthMethod.None -> Unit
+                AuthMethod.None -> Unit
             }
         }
 
@@ -323,7 +353,7 @@ private fun KeyAuthSection(
         }
     } else {
         ChuText(
-            "Generate an RSA key, then copy the public key to ~/.ssh/authorized_keys on the remote host.",
+            "Generate an Ed25519 key, then copy the public key to ~/.ssh/authorized_keys on the remote host.",
             style = typography.bodySmall,
             color = colors.textMuted,
         )

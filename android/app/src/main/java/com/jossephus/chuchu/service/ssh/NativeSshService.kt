@@ -60,9 +60,19 @@ class NativeSshService(
             }
             AuthMethod.KeyWithPassphrase -> {
                 check(privateKeyPem.isNotBlank()) { "Missing in-app private key for key auth" }
+                check(keyPassphrase.isNotBlank()) { "Missing key passphrase for encrypted private key" }
                 val ok = bridge.nativeAuthenticatePublicKeyMemory(handle, publicKeyOpenSsh.ifBlank { null }, privateKeyPem, keyPassphrase)
                 if (!ok) {
-                    throw IllegalStateException(bridge.nativeGetLastError(handle) ?: "Native SSH public key auth failed")
+                    val nativeError = bridge.nativeGetLastError(handle)
+                    val hint = if (
+                        nativeError?.contains("Callback returned error", ignoreCase = true) == true ||
+                        nativeError?.contains("Public key memory auth failed", ignoreCase = true) == true
+                    ) {
+                        "Encrypted key authentication failed. Verify you entered the key passphrase (not the server account password)."
+                    } else {
+                        null
+                    }
+                    throw IllegalStateException(hint ?: nativeError ?: "Native SSH public key auth failed")
                 }
             }
         }

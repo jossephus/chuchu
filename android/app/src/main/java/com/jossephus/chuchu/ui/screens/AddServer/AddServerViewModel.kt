@@ -14,7 +14,7 @@ import com.jossephus.chuchu.model.SshKey
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.ssh.HostKeyPolicy
 import com.jossephus.chuchu.service.ssh.NativeSshService
-import com.jossephus.chuchu.service.ssh.RsaKeyGenerator
+import com.jossephus.chuchu.service.ssh.Ed25519KeyGenerator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -43,7 +43,7 @@ class AddServerViewModel(
     private val db = AppDatabase.getInstance(application)
     private val hostRepository = HostRepository(db.hostProfileDao())
     private val sshKeyRepository = SshKeyRepository(db.sshKeyDao())
-    private val keyGenerator = RsaKeyGenerator()
+    private val keyGenerator = Ed25519KeyGenerator()
 
     private val _form = MutableStateFlow(AddServerForm())
     val form: StateFlow<AddServerForm> = _form.asStateFlow()
@@ -117,11 +117,11 @@ class AddServerViewModel(
         }
     }
 
-    fun generateRsaKey(nameHint: String = "") {
+    fun generateKey(nameHint: String = "") {
         viewModelScope.launch {
             val current = _form.value
             val baseName = if (nameHint.isNotBlank()) nameHint else current.name
-            val generatedName = baseName.trim().ifBlank { "android-rsa" }
+            val generatedName = baseName.trim().ifBlank { "android-ed25519" }
             val existingNames = _allKeys.value.map { it.name }.toSet()
             val uniqueName = if (generatedName in existingNames) {
                 var index = 2
@@ -134,7 +134,8 @@ class AddServerViewModel(
             } else {
                 generatedName
             }
-            val key = withContext(Dispatchers.Default) { keyGenerator.generate(uniqueName) }
+            val passphrase = current.keyPassphrase
+            val key = withContext(Dispatchers.Default) { keyGenerator.generate(uniqueName, passphrase) }
             val id = sshKeyRepository.insert(key)
             _form.value = _form.value.copy(
                 keyId = id,
@@ -264,7 +265,7 @@ class AddServerViewModel(
                 username = effectiveUsername,
                 password = if (isTailscale) "" else current.password,
                 keyId = if (isTailscale) null else current.keyId,
-                keyPassphrase = if (isTailscale) "" else current.keyPassphrase,
+                keyPassphrase = "",
                 transport = current.transport,
                 authMethod = if (isTailscale) AuthMethod.Password else current.authMethod,
             )

@@ -32,4 +32,5 @@ class NativeSshBridge {
     external fun nativeWrite(handle: Long, data: ByteArray): Int
     external fun nativeRead(handle: Long, maxBytes: Int): ByteArray?
     external fun nativeClose(handle: Long)
+    external fun nativeGenerateEd25519Key(comment: String, passphrase: String?): Array<String>?
 }

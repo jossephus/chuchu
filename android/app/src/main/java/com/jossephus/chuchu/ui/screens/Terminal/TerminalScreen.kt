@@ -47,11 +47,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jossephus.chuchu.data.db.AppDatabase
 import com.jossephus.chuchu.data.repository.HostRepository
 import com.jossephus.chuchu.data.repository.SshKeyRepository
+import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.service.terminal.SessionStatus
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuDialog
 import com.jossephus.chuchu.ui.components.ChuText
+import com.jossephus.chuchu.ui.components.ChuTextField
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.jossephus.chuchu.ui.terminal.AccessoryAction
 import com.jossephus.chuchu.ui.terminal.GhosttyKeyAction
 import com.jossephus.chuchu.ui.terminal.KeyboardAccessoryBar
@@ -100,9 +103,13 @@ fun TerminalScreen(
     var hasSelectionActive by remember { mutableStateOf(false) }
     var selectionAnchorOffset by remember { mutableStateOf(Offset.Zero) }
     var selectionResetKey by remember { mutableStateOf(0) }
+    var showPassphrasePrompt by remember { mutableStateOf(false) }
+    var passphraseInput by remember { mutableStateOf("") }
 
     LaunchedEffect(hostId) {
         if (hostId == null) return@LaunchedEffect
+        showPassphrasePrompt = false
+        passphraseInput = ""
         val db = AppDatabase.getInstance(context)
         val host = HostRepository(db.hostProfileDao()).getById(hostId) ?: return@LaunchedEffect
         val key = host.keyId?.let { SshKeyRepository(db.sshKeyDao()).getById(it) }
@@ -115,9 +122,39 @@ fun TerminalScreen(
         if (key != null) {
             vm.updatePrivateKey(key.privateKeyPem, key.publicKeyOpenSsh)
         }
-        vm.updateKeyPassphrase(host.keyPassphrase)
         vm.refreshTailscaleStatus()
-        vm.connect()
+        if (host.authMethod == AuthMethod.KeyWithPassphrase && key != null) {
+            showPassphrasePrompt = true
+        } else {
+            vm.updateKeyPassphrase("")
+            vm.connect()
+        }
+    }
+
+    if (showPassphrasePrompt) {
+        ChuDialog(
+            title = "Key passphrase",
+            confirmLabel = "Connect",
+            onConfirm = {
+                vm.updateKeyPassphrase(passphraseInput)
+                showPassphrasePrompt = false
+                passphraseInput = ""
+                vm.connect()
+            },
+            onDismiss = {
+                showPassphrasePrompt = false
+                passphraseInput = ""
+            },
+        ) {
+            ChuTextField(
+                value = passphraseInput,
+                onValueChange = { passphraseInput = it },
+                label = "Passphrase",
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
 
     LaunchedEffect(sessionState.status, sessionState.error) {
