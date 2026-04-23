@@ -1,6 +1,9 @@
 package com.jossephus.chuchu.ui.screens.ServerList
 
+import android.app.Application
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,15 +39,17 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import android.widget.Toast
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.model.HostProfile
+import com.jossephus.chuchu.service.terminal.SessionStatus
+import com.jossephus.chuchu.service.terminal.TerminalSessionRepository
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuCard
 import com.jossephus.chuchu.ui.components.ChuText
-import com.jossephus.chuchu.ui.components.ChuTextField
 import com.jossephus.chuchu.ui.screens.Settings.SettingsSheet
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
@@ -62,8 +67,15 @@ fun ServerListScreen(
 ) {
     val context = LocalContext.current
     val settingsRepo = remember(context) { SettingsRepository.getInstance(context) }
+    val application = context.applicationContext as Application
+    val sessionRepo = remember(application) { TerminalSessionRepository.getInstance(application) }
     val currentTheme by settingsRepo.themeName.collectAsStateWithLifecycle()
     val currentAccessoryLayoutIds by settingsRepo.accessoryLayoutIds.collectAsStateWithLifecycle()
+    val sessionState by sessionRepo.sessionState.collectAsStateWithLifecycle()
+    val activeSessionKey = sessionState.sessionKey
+    val hasActiveSession = sessionState.status == SessionStatus.Connecting ||
+        sessionState.status == SessionStatus.Connected ||
+        sessionState.status == SessionStatus.Reconnecting
     var showSettings by remember { mutableStateOf(false) }
 
     val colors = ChuColors.current
@@ -85,14 +97,7 @@ fun ServerListScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Top,
             ) {
-                Column {
-                    ChuText("Chuchu", style = typography.headline)
-                    ChuText(
-                        "Active connections and saved hosts",
-                        style = typography.body,
-                        color = colors.textSecondary,
-                    )
-                }
+                ChuText("Chuchu", style = typography.headline)
 
                 ChuButton(
                     onClick = { showSettings = true },
@@ -103,27 +108,31 @@ fun ServerListScreen(
                 }
             }
 
-            ChuTextField(
-                value = searchQuery,
-                onValueChange = onSearchChange,
-                label = "Search",
-                placeholder = "Search servers",
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                autoFocus = false,
-            )
-
-            ActiveConnectionsSection()
+            SectionHeader("Active connections and saved servers")
 
             if (hosts.isEmpty()) {
                 EmptyState()
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(hosts, key = { it.id }) { host ->
+                        val targetSessionKey = "host:${host.id}"
+                        val isConnected = sessionState.status == SessionStatus.Connected && activeSessionKey == targetSessionKey
                         HostCard(
                             host = host,
+                            isConnected = isConnected,
                             onEdit = { onEditServer(host.id) },
-                            onConnect = { onConnectServer(host.id) },
+                            onConnect = {
+                                if (!hasActiveSession || activeSessionKey == targetSessionKey) {
+                                    onConnectServer(host.id)
+                                } else {
+                                    Toast.makeText(
+                                        context,
+                                        "Disconnect current session first",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                            },
+                            onDisconnect = { sessionRepo.disconnect() },
                             onDelete = { onDeleteServer(host.id) },
                         )
                     }
@@ -156,26 +165,6 @@ fun ServerListScreen(
 }
 
 @Composable
-private fun ActiveConnectionsSection() {
-    val colors = ChuColors.current
-    val typography = ChuTypography.current
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SectionHeader("Active Connections")
-        ChuCard {
-            Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-                ChuText("No active sessions", style = typography.title)
-                Spacer(modifier = Modifier.height(6.dp))
-                ChuText(
-                    "Active tabs will appear here.",
-                    style = typography.body,
-                    color = colors.textSecondary,
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun SectionHeader(label: String) {
     ChuText(label, style = ChuTypography.current.label, color = ChuColors.current.textSecondary)
 }
@@ -200,8 +189,10 @@ private fun EmptyState() {
 @Composable
 private fun HostCard(
     host: HostProfile,
+    isConnected: Boolean,
     onEdit: () -> Unit,
     onConnect: () -> Unit,
+    onDisconnect: () -> Unit,
     onDelete: () -> Unit,
 ) {
     val colors = ChuColors.current
@@ -212,17 +203,18 @@ private fun HostCard(
     val deleteThresholdPx = with(density) { 72.dp.toPx() }
     val offsetX = remember(host.id) { Animatable(0f) }
     val cardShape = RoundedCornerShape(4.dp)
+    val activeBorderColor = colors.success.copy(alpha = 0.8f)
 
-    Box(modifier = Modifier.fillMaxWidth().height(136.dp)) {
+    Box(modifier = Modifier.fillMaxWidth().height(114.dp)) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .clip(cardShape)
-                .background(colors.error.copy(alpha = 0.78f))
+                .background(if (isConnected) colors.warning.copy(alpha = 0.78f) else colors.error.copy(alpha = 0.78f))
                 .padding(end = 14.dp),
         ) {
             ChuText(
-                "Delete",
+                if (isConnected) "Disconnect" else "Delete",
                 style = typography.label,
                 color = colors.background,
                 modifier = Modifier.align(Alignment.CenterEnd),
@@ -234,6 +226,8 @@ private fun HostCard(
                 .offset { IntOffset(offsetX.value.roundToInt(), 0) }
                 .clip(cardShape)
                 .background(colors.surface)
+                .then(if (isConnected) Modifier.border(1.dp, activeBorderColor, cardShape) else Modifier)
+                .clickable(onClick = onConnect)
                 .pointerInput(host.id) {
                     detectHorizontalDragGestures(
                         onHorizontalDrag = { change, dragAmount ->
@@ -243,7 +237,11 @@ private fun HostCard(
                         },
                         onDragEnd = {
                             if (offsetX.value <= -deleteThresholdPx) {
-                                onDelete()
+                                if (isConnected) {
+                                    onDisconnect()
+                                } else {
+                                    onDelete()
+                                }
                                 scope.launch { offsetX.snapTo(0f) }
                             } else {
                                 scope.launch { offsetX.animateTo(0f, animationSpec = tween(140)) }
@@ -253,15 +251,36 @@ private fun HostCard(
                 },
         ) {
             ChuCard(modifier = Modifier.fillMaxSize()) {
-                Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-                    ChuText(host.name, style = typography.title)
-                    Spacer(modifier = Modifier.height(4.dp))
+                Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        ChuText(host.name, style = typography.title)
+                        if (isConnected) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .background(colors.success.copy(alpha = 0.2f))
+                                    .border(1.dp, colors.success.copy(alpha = 0.6f), RoundedCornerShape(999.dp))
+                                    .padding(horizontal = 8.dp, vertical = 2.dp),
+                            ) {
+                                ChuText(
+                                    "Connected",
+                                    style = typography.labelSmall,
+                                    color = colors.success,
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
                     ChuText(
                         "${host.username}@${host.host}:${host.port}",
                         style = typography.body,
                         color = colors.textSecondary,
                     )
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         ChuButton(
                             onClick = onEdit,

@@ -23,17 +23,20 @@ import android.util.Log
 enum class SessionStatus {
     Disconnected,
     Connecting,
+    Reconnecting,
     Connected,
     Error,
 }
 
 data class SessionState(
     val status: SessionStatus = SessionStatus.Disconnected,
+    val sessionKey: String? = null,
     val snapshot: TerminalSnapshot? = null,
     val title: String? = null,
     val pwd: String? = null,
     val bellCount: Int = 0,
     val nativeVersion: String? = null,
+    val reconnectAttempt: Int = 0,
     val error: String? = null,
 )
 
@@ -51,6 +54,18 @@ class TerminalSessionEngine(
     private val hostKeyStore: HostKeyStore,
     private val tailscaleStatusChecker: TailscaleStatusChecker,
 ) {
+    private data class ConnectionParams(
+        val host: String,
+        val port: Int,
+        val username: String,
+        val password: String,
+        val authMethod: AuthMethod,
+        val publicKeyOpenSsh: String,
+        val privateKeyPem: String,
+        val keyPassphrase: String,
+        val transport: Transport,
+    )
+
     private val dispatcher = Executors.newSingleThreadExecutor { r ->
         Thread(r, "terminal-session").apply { isDaemon = true }
     }.asCoroutineDispatcher()
@@ -74,6 +89,9 @@ class TerminalSessionEngine(
     private var images: List<ImagePlacement> = emptyList()
     private var pendingColorScheme: Int? = null
     private var pendingDefaultColors: DefaultColors? = null
+    private var lastConnectionParams: ConnectionParams? = null
+    private var reconnectJob: Job? = null
+    private var disconnectRequested = false
 
     private val nativeVersion = if (bridge.isLoaded()) {
         runCatching { bridge.nativeVersion() }.getOrNull()
@@ -105,12 +123,34 @@ class TerminalSessionEngine(
         privateKeyPem: String,
         keyPassphrase: String,
         transport: Transport,
+        sessionKey: String,
     ) {
+        disconnectRequested = false
+        val params = ConnectionParams(
+            host = host,
+            port = port,
+            username = username,
+            password = password,
+            authMethod = authMethod,
+            publicKeyOpenSsh = publicKeyOpenSsh,
+            privateKeyPem = privateKeyPem,
+            keyPassphrase = keyPassphrase,
+            transport = transport,
+        )
+        lastConnectionParams = params
         scope.launch(dispatcher) {
-            _state.value = SessionState(status = SessionStatus.Connecting)
+            reconnectJob?.cancel()
+            reconnectJob = null
+            _state.value = _state.value.copy(
+                status = SessionStatus.Connecting,
+                error = null,
+                reconnectAttempt = 0,
+                sessionKey = sessionKey,
+            )
             if (!bridge.isLoaded()) {
                 _state.value = SessionState(
                     status = SessionStatus.Error,
+                    sessionKey = sessionKey,
                     error = "Native terminal library ${bridge.nativeStatus()}. Check ABI/NDK build.",
                 )
                 return@launch
@@ -118,6 +158,7 @@ class TerminalSessionEngine(
             if (transport == Transport.TailscaleSSH && !tailscaleStatusChecker.isActive()) {
                 _state.value = SessionState(
                     status = SessionStatus.Error,
+                    sessionKey = sessionKey,
                     error = "Tailscale VPN is not active",
                 )
                 return@launch
@@ -130,38 +171,26 @@ class TerminalSessionEngine(
             if (effectiveUsername.isBlank()) {
                 _state.value = SessionState(
                     status = SessionStatus.Error,
+                    sessionKey = sessionKey,
                     error = "Username required",
                 )
                 return@launch
             }
             try {
-                handle = bridge.nativeCreate(cols, rows, 1000)
-                applyTerminalOptions()
-                val effectiveAuthMethod = if (transport == Transport.TailscaleSSH) {
-                    AuthMethod.None
-                } else {
-                    authMethod
-                }
-                val authPassword = if (effectiveAuthMethod == AuthMethod.Password) password else null
-                check(nativeSsh.isAvailable()) { "Native SSH unavailable" }
-                nativeSsh.connect(
-                    host = host,
-                    port = port,
-                    username = effectiveUsername,
-                    authMethod = effectiveAuthMethod,
-                    password = authPassword.orEmpty(),
-                    publicKeyOpenSsh = publicKeyOpenSsh,
-                    privateKeyPem = privateKeyPem,
-                    keyPassphrase = keyPassphrase,
+                establishConnection(params, effectiveUsername)
+                _state.value = _state.value.copy(
+                    status = SessionStatus.Connected,
+                    error = null,
+                    reconnectAttempt = 0,
+                    sessionKey = sessionKey,
                 )
-                nativeSsh.openShell(cols, rows, screenWidth, screenHeight)
-                _state.value = SessionState(status = SessionStatus.Connected)
                 requestSnapshot(force = true)
                 startReadLoop()
             } catch (e: Exception) {
                 Log.e("TerminalSession", "Connect failed", e)
                 _state.value = SessionState(
                     status = SessionStatus.Error,
+                    sessionKey = sessionKey,
                     error = "${e::class.simpleName}: ${e.message}",
                 )
             }
@@ -302,6 +331,10 @@ class TerminalSessionEngine(
     }
 
     fun disconnect() {
+        disconnectRequested = true
+        reconnectJob?.cancel()
+        reconnectJob = null
+        lastConnectionParams = null
         scope.launch(dispatcher) {
             readJob?.cancel()
             readJob = null
@@ -320,6 +353,7 @@ class TerminalSessionEngine(
             _state.value = SessionState(
                 status = SessionStatus.Disconnected,
                 nativeVersion = nativeVersion,
+                sessionKey = _state.value.sessionKey,
             )
         }
     }
@@ -387,8 +421,93 @@ class TerminalSessionEngine(
             } catch (e: Exception) {
                 android.util.Log.e("TerminalSession", "Read loop failed", e)
             }
-            scope.launch(dispatcher) {
-                _state.value = _state.value.copy(status = SessionStatus.Disconnected)
+            scheduleReconnect("Connection interrupted")
+        }
+    }
+
+    private fun establishConnection(params: ConnectionParams, effectiveUsername: String) {
+        if (handle != 0L) {
+            bridge.nativeDestroy(handle)
+            handle = 0L
+        }
+        nativeSsh.close()
+        handle = bridge.nativeCreate(cols, rows, 1000)
+        applyTerminalOptions()
+        val effectiveAuthMethod = if (params.transport == Transport.TailscaleSSH) {
+            AuthMethod.None
+        } else {
+            params.authMethod
+        }
+        val authPassword = if (effectiveAuthMethod == AuthMethod.Password) params.password else null
+        check(nativeSsh.isAvailable()) { "Native SSH unavailable" }
+        nativeSsh.connect(
+            host = params.host,
+            port = params.port,
+            username = effectiveUsername,
+            authMethod = effectiveAuthMethod,
+            password = authPassword.orEmpty(),
+            publicKeyOpenSsh = params.publicKeyOpenSsh,
+            privateKeyPem = params.privateKeyPem,
+            keyPassphrase = params.keyPassphrase,
+        )
+        nativeSsh.openShell(cols, rows, screenWidth, screenHeight)
+    }
+
+    private fun scheduleReconnect(reason: String) {
+        if (disconnectRequested) {
+            _state.value = _state.value.copy(status = SessionStatus.Disconnected)
+            return
+        }
+        val params = lastConnectionParams ?: run {
+            _state.value = _state.value.copy(status = SessionStatus.Disconnected)
+            return
+        }
+        if (reconnectJob?.isActive == true) return
+        reconnectJob = scope.launch(dispatcher) {
+            readJob?.cancel()
+            readJob = null
+            var attempt = 0
+            while (isActive && !disconnectRequested) {
+                attempt += 1
+                _state.value = _state.value.copy(
+                    status = SessionStatus.Reconnecting,
+                    reconnectAttempt = attempt,
+                    error = reason,
+                )
+                val delayMs = (1_000L shl (attempt - 1).coerceAtMost(5)).coerceAtMost(60_000L)
+                delay(delayMs)
+                val effectiveUsername = if (params.transport == Transport.TailscaleSSH && params.username.isBlank()) {
+                    "root"
+                } else {
+                    params.username
+                }
+                if (effectiveUsername.isBlank()) {
+                    _state.value = _state.value.copy(
+                        status = SessionStatus.Error,
+                        error = "Username required",
+                    )
+                    return@launch
+                }
+                try {
+                    establishConnection(params, effectiveUsername)
+                    _state.value = _state.value.copy(
+                        status = SessionStatus.Connected,
+                        reconnectAttempt = 0,
+                        error = null,
+                    )
+                    requestSnapshot(force = true)
+                    startReadLoop()
+                    return@launch
+                } catch (e: Exception) {
+                    Log.e("TerminalSession", "Reconnect attempt $attempt failed", e)
+                    if (attempt >= 8) {
+                        _state.value = _state.value.copy(
+                            status = SessionStatus.Error,
+                            error = "Reconnect failed: ${e.message}",
+                        )
+                        return@launch
+                    }
+                }
             }
         }
     }

@@ -7,11 +7,10 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.Transport
-import com.jossephus.chuchu.service.ssh.HostKeyStore
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
 import com.jossephus.chuchu.service.terminal.HostKeyPrompt
 import com.jossephus.chuchu.service.terminal.SessionState
-import com.jossephus.chuchu.service.terminal.TerminalSessionEngine
+import com.jossephus.chuchu.service.terminal.TerminalSessionRepository
 import com.jossephus.chuchu.ui.terminal.GhosttyKeyAction
 import com.jossephus.chuchu.ui.terminal.TerminalSpecialKey
 import kotlinx.coroutines.delay
@@ -23,25 +22,26 @@ import kotlinx.coroutines.launch
 class TerminalViewModel(
     application: Application,
 ) : AndroidViewModel(application) {
-    private val hostKeyStore = HostKeyStore(
-        application.getSharedPreferences("host_keys", Application.MODE_PRIVATE),
-    )
     private val tailscaleStatusChecker = TailscaleStatusChecker(application)
-    private val engine = TerminalSessionEngine(
-        viewModelScope,
-        application.filesDir.toPath(),
-        hostKeyStore,
-        tailscaleStatusChecker,
-    )
+    private val sessionRepository = TerminalSessionRepository.getInstance(application)
 
     private val _tailscaleActive = MutableStateFlow(tailscaleStatusChecker.isActive())
     val tailscaleActive: StateFlow<Boolean> = _tailscaleActive.asStateFlow()
 
-    val sessionState: StateFlow<SessionState> = engine.state
-    val hostKeyPrompt: StateFlow<HostKeyPrompt?> = engine.hostKeyPrompt
+    val sessionState: StateFlow<SessionState> = sessionRepository.sessionState
+    val hostKeyPrompt: StateFlow<HostKeyPrompt?> = sessionRepository.hostKeyPrompt
+
+    init {
+        sessionRepository.attachClient()
+    }
 
     private val _connectForm = MutableStateFlow(ConnectForm())
     val connectForm: StateFlow<ConnectForm> = _connectForm.asStateFlow()
+    private var selectedHostId: Long? = null
+
+    fun setSelectedHostId(hostId: Long?) {
+        selectedHostId = hostId
+    }
 
     fun updateHost(host: String) {
         _connectForm.value = _connectForm.value.copy(host = host)
@@ -109,8 +109,9 @@ class TerminalViewModel(
     fun connect() {
         val form = _connectForm.value
         val port = form.port.toIntOrNull() ?: 22
+        val sessionKey = selectedHostId?.let { "host:$it" } ?: "${form.transport.name}:${form.username}@${form.host}:$port"
         refreshTailscaleStatus()
-        engine.connect(
+        sessionRepository.connect(
             host = form.host,
             port = port,
             username = form.username,
@@ -120,11 +121,12 @@ class TerminalViewModel(
             privateKeyPem = form.privateKeyPem,
             keyPassphrase = form.keyPassphrase,
             transport = form.transport,
+            sessionKey = sessionKey,
         )
     }
 
     fun disconnect() {
-        engine.disconnect()
+        sessionRepository.disconnect()
     }
 
     fun onCanvasSizeChanged(
@@ -135,15 +137,15 @@ class TerminalViewModel(
         screenWidth: Int,
         screenHeight: Int,
     ) {
-        engine.resize(cols, rows, cellWidth, cellHeight, screenWidth, screenHeight)
+        sessionRepository.resize(cols, rows, cellWidth, cellHeight, screenWidth, screenHeight)
     }
 
     fun onScroll(delta: Int) {
-        engine.scroll(delta)
+        sessionRepository.scroll(delta)
     }
 
     fun onPrimaryMouseClick(x: Float, y: Float) {
-        engine.sendMouseEvent(
+        sessionRepository.sendMouseEvent(
             action = GhosttyMouseAction.Press,
             button = GhosttyMouseButton.Left,
             mods = 0,
@@ -152,7 +154,7 @@ class TerminalViewModel(
             anyButtonPressed = false,
             trackLastCell = false,
         )
-        engine.sendMouseEvent(
+        sessionRepository.sendMouseEvent(
             action = GhosttyMouseAction.Release,
             button = GhosttyMouseButton.Left,
             mods = 0,
@@ -167,34 +169,34 @@ class TerminalViewModel(
         val hasNonTextModifier = mods and ((1 shl 1) or (1 shl 2) or (1 shl 3)) != 0
         val isRelease = action == GhosttyKeyAction.Release
         if (!isRelease) {
-            engine.scrollToActive()
+            sessionRepository.scrollToActive()
         }
         val utf8 = if (codepoint > 0 && !hasNonTextModifier && !isRelease) codepoint.toChar().toString() else null
-        engine.writeKey(key, codepoint, mods, action, utf8)
+        sessionRepository.writeKey(key, codepoint, mods, action, utf8)
     }
 
     fun onTextInput(text: String) {
-        engine.scrollToActive()
-        engine.writeText(text)
+        sessionRepository.scrollToActive()
+        sessionRepository.writeText(text)
     }
 
     fun onSpecialKeyInput(key: TerminalSpecialKey, mods: Int) {
         // Send press followed by release so terminal apps that track key state
         // see a complete key cycle.
-        engine.scrollToActive()
-        engine.writeKey(key.engineKey, 0, mods, GhosttyKeyAction.Press)
-        engine.writeKey(key.engineKey, 0, mods, GhosttyKeyAction.Release)
+        sessionRepository.scrollToActive()
+        sessionRepository.writeKey(key.engineKey, 0, mods, GhosttyKeyAction.Press)
+        sessionRepository.writeKey(key.engineKey, 0, mods, GhosttyKeyAction.Release)
     }
 
     fun onPasteText(text: String) {
         if (text.isEmpty()) return
-        engine.scrollToActive()
+        sessionRepository.scrollToActive()
         val chunkSize = 512
         viewModelScope.launch {
             var index = 0
             while (index < text.length) {
                 val end = (index + chunkSize).coerceAtMost(text.length)
-                engine.writeText(text.substring(index, end))
+                sessionRepository.writeText(text.substring(index, end))
                 index = end
                 delay(8)
             }
@@ -202,23 +204,23 @@ class TerminalViewModel(
     }
 
     fun onFocusChanged(focused: Boolean) {
-        engine.sendFocusEvent(focused)
+        sessionRepository.sendFocusEvent(focused)
     }
 
     fun onColorSchemeChanged(isDark: Boolean) {
-        engine.setColorScheme(isDark)
+        sessionRepository.setColorScheme(isDark)
     }
 
     fun onDefaultColorsChanged(fg: IntArray?, bg: IntArray?, cursor: IntArray?, palette: ByteArray?) {
-        engine.setDefaultColors(fg, bg, cursor, palette)
+        sessionRepository.setDefaultColors(fg, bg, cursor, palette)
     }
 
     fun onHostKeyDecision(accepted: Boolean) {
-        engine.respondToHostKey(accepted)
+        sessionRepository.respondToHostKey(accepted)
     }
 
     override fun onCleared() {
-        engine.disconnect()
+        sessionRepository.detachClient()
     }
 
     companion object {

@@ -29,8 +29,7 @@ class NativeSshBridge {
     external fun nativeAuthenticatePublicKeyMemory(handle: Long, publicKeyOpenSsh: String?, privateKeyPem: String, passphrase: String?): Boolean
     external fun nativeOpenShell(handle: Long, cols: Int, rows: Int, widthPx: Int, heightPx: Int, term: String): Boolean
     external fun nativeResize(handle: Long, cols: Int, rows: Int, widthPx: Int, heightPx: Int): Boolean
-    external fun nativeWrite(handle: Long, data: ByteArray): Int
-    external fun nativeRead(handle: Long, maxBytes: Int): ByteArray?
+    external fun nativeIpcExchange(handle: Long, request: ByteArray): ByteArray?
     external fun nativeClose(handle: Long)
     external fun nativeGenerateEd25519Key(comment: String, passphrase: String?): Array<String>?
 }

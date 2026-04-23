@@ -12,6 +12,7 @@ const c = @cImport({
     @cInclude("errno.h");
     @cInclude("poll.h");
 });
+const ipc = @import("ipc.zig");
 
 const allocator = std.heap.c_allocator;
 const LOG_TAG = "ChuKittySSH";
@@ -264,6 +265,73 @@ fn hostkeyAlgorithmName(kind: c_int) []const u8 {
         c.LIBSSH2_HOSTKEY_TYPE_ED25519 => "ED25519",
         else => "UNKNOWN",
     };
+}
+
+fn appendErrorFrame(response: *std.ArrayList(u8), session: *NativeSshSession, fallback: []const u8) void {
+    const message = if (session.last_error.items.len > 0) session.last_error.items else fallback;
+    ipc.appendMessage(allocator, response, .Error, message) catch {};
+}
+
+fn writeChannel(session: *NativeSshSession, bytes: []const u8) c.jint {
+    const channel = session.channel orelse {
+        setError(session, "Shell not open", .{});
+        return -1;
+    };
+    if (bytes.len == 0) return 0;
+    var total_written: usize = 0;
+    var stalled_loops: u32 = 0;
+    while (total_written < bytes.len) {
+        const chunk = bytes[total_written..];
+        const rc = c.libssh2_channel_write_ex(channel, 0, @ptrCast(chunk.ptr), @intCast(chunk.len));
+        if (rc == c.LIBSSH2_ERROR_EAGAIN or rc == 0) {
+            stalled_loops +%= 1;
+            if (stalled_loops > 64) {
+                break;
+            }
+            if (!waitSocket(session, io_wait_timeout_ms)) {
+                break;
+            }
+            continue;
+        }
+        if (rc < 0) {
+            setLibssh2Error(session, "Write failed", @intCast(rc));
+            return -1;
+        }
+        stalled_loops = 0;
+        total_written += @intCast(rc);
+    }
+    return @intCast(total_written);
+}
+
+fn readChannel(alloc: std.mem.Allocator, session: *NativeSshSession, max_bytes: usize) ?[]u8 {
+    const channel = session.channel orelse return null;
+    const cap = @max(max_bytes, 1);
+    const buf = alloc.alloc(u8, cap) catch return null;
+    defer alloc.free(buf);
+    var total_read: usize = 0;
+    while (true) {
+        const rc = c.libssh2_channel_read_ex(channel, 0, @ptrCast(buf.ptr + total_read), @intCast(buf.len - total_read));
+        if (rc == c.LIBSSH2_ERROR_EAGAIN) {
+            session.empty_reads +%= 1;
+            break;
+        }
+        if (rc == 0) {
+            break;
+        }
+        if (rc < 0) {
+            setLibssh2Error(session, "Read failed", @intCast(rc));
+            return null;
+        }
+        total_read += @intCast(rc);
+        if (total_read >= buf.len) {
+            session.empty_reads = 0;
+            break;
+        }
+    }
+    if (total_read == 0) {
+        return alloc.dupe(u8, &.{}) catch null;
+    }
+    return alloc.dupe(u8, buf[0..total_read]) catch null;
 }
 
 fn readJByteArray(env: *c.JNIEnv, array: c.jbyteArray) ?[]u8 {
@@ -767,76 +835,52 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeResize(env
     }
 }
 
-export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeWrite(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, data: c.jbyteArray) callconv(.c) c.jint {
-    _ = thiz;
-    const session = sessionFromHandle(handle) orelse return -1;
-    const channel = session.channel orelse {
-        setError(session, "Shell not open", .{});
-        return -1;
-    };
-    const bytes = readJByteArray(env, data) orelse return -1;
-    defer if (bytes.len > 0) allocator.free(bytes);
-    if (bytes.len == 0) return 0;
-    var total_written: usize = 0;
-    var stalled_loops: u32 = 0;
-    while (total_written < bytes.len) {
-        const chunk = bytes[total_written..];
-        const rc = c.libssh2_channel_write_ex(channel, 0, @ptrCast(chunk.ptr), @intCast(chunk.len));
-        if (rc == c.LIBSSH2_ERROR_EAGAIN or rc == 0) {
-            stalled_loops +%= 1;
-            if (stalled_loops > 64) {
-                break;
-            }
-            if (!waitSocket(session, io_wait_timeout_ms)) {
-                break;
-            }
-            continue;
-        }
-        if (rc < 0) {
-            setLibssh2Error(session, "Write failed", @intCast(rc));
-            return -1;
-        }
-        stalled_loops = 0;
-        total_written += @intCast(rc);
-    }
-    return @intCast(total_written);
-}
-
-export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeRead(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, max_bytes: c.jint) callconv(.c) c.jbyteArray {
+export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeIpcExchange(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, request: c.jbyteArray) callconv(.c) c.jbyteArray {
     _ = thiz;
     const session = sessionFromHandle(handle) orelse return null;
-    const channel = session.channel orelse return null;
-    const cap: usize = @intCast(@max(max_bytes, 1));
-    const buf = allocator.alloc(u8, cap) catch return null;
-    defer allocator.free(buf);
-    var total_read: usize = 0;
-    while (true) {
-        const rc = c.libssh2_channel_read_ex(channel, 0, @ptrCast(buf.ptr + total_read), @intCast(buf.len - total_read));
-        if (rc == c.LIBSSH2_ERROR_EAGAIN) {
-            session.empty_reads +%= 1;
-            if (total_read > 0) {
-                session.empty_reads = 0;
-                return jniNewByteArrayOrNull(env, buf[0..total_read]);
+    const req_bytes = readJByteArray(env, request) orelse return null;
+    defer if (req_bytes.len > 0) allocator.free(req_bytes);
+
+    var response: std.ArrayList(u8) = .empty;
+    defer response.deinit(allocator);
+
+    const frame = ipc.parse(req_bytes) catch {
+        setError(session, "Invalid IPC frame", .{});
+        appendErrorFrame(&response, session, "Invalid IPC frame");
+        return jniNewByteArrayOrNull(env, response.items);
+    };
+
+    switch (frame.header.tag) {
+        .Write => {
+            const written = writeChannel(session, frame.payload);
+            if (written < 0) {
+                appendErrorFrame(&response, session, "Write failed");
+                return jniNewByteArrayOrNull(env, response.items);
             }
-            return jniNewByteArrayOrNull(env, &.{});
-        }
-        if (rc == 0) {
-            if (total_read > 0) {
-                session.empty_reads = 0;
-                return jniNewByteArrayOrNull(env, buf[0..total_read]);
+            const written_u32: u32 = @intCast(written);
+            ipc.appendMessage(allocator, &response, .Ack, std.mem.asBytes(&written_u32)) catch {};
+        },
+        .Read => {
+            if (frame.payload.len != @sizeOf(u32)) {
+                setError(session, "Invalid read request payload", .{});
+                appendErrorFrame(&response, session, "Invalid read request payload");
+                return jniNewByteArrayOrNull(env, response.items);
             }
-            return jniNewByteArrayOrNull(env, &.{});
-        }
-        if (rc < 0) {
-            setLibssh2Error(session, "Read failed", @intCast(rc));
-            return null;
-        }
-        total_read += @intCast(rc);
-        if (total_read >= buf.len) {
-            session.empty_reads = 0;
-            return jniNewByteArrayOrNull(env, buf[0..total_read]);
-        }
+            const max_bytes = std.mem.bytesToValue(u32, frame.payload[0..@sizeOf(u32)]);
+            const bytes = readChannel(allocator, session, @intCast(@max(max_bytes, 1))) orelse {
+                appendErrorFrame(&response, session, "Read failed");
+                return jniNewByteArrayOrNull(env, response.items);
+            };
+            defer allocator.free(bytes);
+            ipc.appendMessage(allocator, &response, .Data, bytes) catch {};
+        },
+        else => {
+            setError(session, "Unsupported IPC tag {}", .{@intFromEnum(frame.header.tag)});
+            appendErrorFrame(&response, session, "Unsupported IPC tag");
+        },
     }
+
+    return jniNewByteArrayOrNull(env, response.items);
 }
 
 export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeClose(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong) callconv(.c) void {

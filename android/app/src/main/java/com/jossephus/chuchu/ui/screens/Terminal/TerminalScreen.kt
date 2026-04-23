@@ -107,6 +107,7 @@ fun TerminalScreen(
     var passphraseInput by remember { mutableStateOf("") }
 
     LaunchedEffect(hostId) {
+        vm.setSelectedHostId(hostId)
         if (hostId == null) return@LaunchedEffect
         showPassphrasePrompt = false
         passphraseInput = ""
@@ -225,7 +226,8 @@ fun TerminalScreen(
             }
         }
 
-        SessionStatus.Connected -> {
+        SessionStatus.Connected, SessionStatus.Reconnecting -> {
+            val isReconnecting = sessionState.status == SessionStatus.Reconnecting
             val snapshot = sessionState.snapshot
             if (snapshot != null) {
                 Box(modifier = screenInsetsModifier.fillMaxSize()) {
@@ -386,6 +388,13 @@ fun TerminalScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            if (isReconnecting) {
+                                ChuText(
+                                    text = "Reconnecting${sessionState.reconnectAttempt.takeIf { it > 0 }?.let { " ($it)" } ?: ""}",
+                                    style = typography.labelSmall,
+                                    color = colors.error,
+                                )
+                            }
                             if (pwdText != null) {
                                 ChuText(text = pwdText, style = typography.labelSmall, color = colors.textPrimary.copy(alpha = 0.7f))
                             }
@@ -491,6 +500,18 @@ fun TerminalScreen(
                         onDismiss = { showSettings = false },
                     )
                 }
+                }
+            } else {
+                Column(
+                    modifier = screenInsetsModifier.fillMaxSize().padding(16.dp),
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    val message = if (isReconnecting) {
+                        "Reconnecting to ${connectForm.host}..."
+                    } else {
+                        "Preparing terminal..."
+                    }
+                    ChuText(message, style = typography.body)
                 }
             }
         }
