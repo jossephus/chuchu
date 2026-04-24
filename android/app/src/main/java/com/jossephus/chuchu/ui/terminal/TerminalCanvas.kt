@@ -1,9 +1,12 @@
 package com.jossephus.chuchu.ui.terminal
 
+import com.jossephus.chuchu.R
+
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
+import androidx.core.content.res.ResourcesCompat
 import android.view.ViewConfiguration
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -72,7 +75,8 @@ fun TerminalCanvas(
     val doubleTapSlopPx = remember(androidViewConfiguration) { androidViewConfiguration.scaledDoubleTapSlop.toFloat() }
     val typeface = remember {
         runCatching {
-            Typeface.createFromAsset(context.assets, "fonts/JetBrainsMono-Regular.ttf")
+            ResourcesCompat.getFont(context, R.font.jetbrains_mono_regular)
+                ?: Typeface.MONOSPACE
         }.getOrDefault(Typeface.MONOSPACE)
     }
     val textPaint = remember(typeface, fontSizePx) {
