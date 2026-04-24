@@ -59,6 +59,7 @@ jobs:
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release_tag }}
           target_commitish: ${{ github.sha }}
+          draft: true
           files: |
             ./android/app/build/outputs/apk/release/*.apk
           fail_on_unmatched_files: true
