@@ -21,18 +21,36 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - uses: DeterminateSystems/nix-installer-action@main
       - uses: DeterminateSystems/magic-nix-cache-action@main
 
-      - name: nix shell
-        run: nix develop -L --verbose
+      - name: Cache Zig build
+        uses: actions/cache@v4
+        with:
+          path: |
+            zig-src/zig-cache
+            ~/.cache/zig
+          key: zig-${{ runner.os }}-${{ hashFiles('zig-src/build.zig', 'zig-src/build.zig.zon') }}
+          restore-keys: |
+            zig-${{ runner.os }}-
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
 
       - name: build chuchu_jni
         run: |
           nix develop -c bash -c '
             set -e
             cd zig-src
-            zig build -Doptimize=ReleaseSmall jni 
+            zig build -Doptimize=ReleaseSmall jni
           '
 
       - name: generate release key
@@ -40,7 +58,7 @@ jobs:
           cd android/app/ && echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > key.jks
 
       - name: build android release
-        env: 
+        env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
