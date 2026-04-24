@@ -5,17 +5,48 @@
 # For more details, see
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# Preserve line numbers for crash reports
+-keepattributes SourceFile,LineNumberTable
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Hide original source file name in stack traces
+-renamesourcefileattribute SourceFile
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# === JNI: keep native bridge classes ===
+-keepclassmembers class com.jossephus.chuchu.service.terminal.GhosttyBridge {
+    *** native*;
+}
+-keepclassmembers class com.jossephus.chuchu.service.ssh.NativeSshBridge {
+    *** native*;
+}
+
+# === Room: keep entities, DAOs, and database ===
+-keep class * extends androidx.room.RoomDatabase
+-keep @androidx.room.Entity class *
+-keep @androidx.room.Dao class *
+-keepclassmembers class * {
+    @androidx.room.Query <methods>;
+    @androidx.room.Insert <methods>;
+    @androidx.room.Update <methods>;
+    @androidx.room.Delete <methods>;
+}
+
+# === Compose: keep composable functions ===
+-dontwarn androidx.compose.**
+-keep class androidx.compose.** { *; }
+
+# === Kotlin coroutines ===
+-dontwarn kotlinx.coroutines.**
+
+# === Android components ===
+-keep class * extends android.app.Activity
+-keep class * extends android.app.Service
+-keep class * extends androidx.appcompat.app.AppCompatActivity
+
+# === Serialization ===
+-keepattributes *Annotation*, Signature, ExceptionHandler
+
+# === Enum serialization ===
+-keepclassmembers enum * {
+    public static **[] values();
+    public static ** valueOf(java.lang.String);
+}
