@@ -39,6 +39,7 @@ import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.components.ChuTextField
+import com.jossephus.chuchu.ui.terminal.TerminalCustomKeyGroup
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
 import com.jossephus.chuchu.ui.theme.GhosttyThemeRegistry
@@ -53,8 +54,10 @@ fun SettingsSheet(
     visible: Boolean,
     currentTheme: String,
     currentAccessoryLayoutIds: List<String>,
+    currentTerminalCustomKeyGroups: List<TerminalCustomKeyGroup>,
     onThemeSelected: (String) -> Unit,
     onAccessoryLayoutChanged: (List<String>) -> Unit,
+    onTerminalCustomActionsChanged: (List<TerminalCustomKeyGroup>) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -62,10 +65,13 @@ fun SettingsSheet(
     val typography = ChuTypography.current
     var selectedCategory by remember { mutableStateOf(SettingsCategory.General) }
     var showAccessoryEditor by remember { mutableStateOf(false) }
+    var showCustomActionEditor by remember { mutableStateOf(false) }
 
     if (visible) {
         BackHandler(enabled = true) {
-            if (showAccessoryEditor) {
+            if (showCustomActionEditor) {
+                showCustomActionEditor = false
+            } else if (showAccessoryEditor) {
                 showAccessoryEditor = false
             } else {
                 onDismiss()
@@ -140,6 +146,8 @@ fun SettingsSheet(
                         SettingsCategory.Terminal -> TerminalSettings(
                             currentAccessoryLayoutIds = currentAccessoryLayoutIds,
                             onEditAccessoryLayout = { showAccessoryEditor = true },
+                            currentTerminalCustomKeyGroups = currentTerminalCustomKeyGroups,
+                            onEditCustomActions = { showCustomActionEditor = true },
                         )
                     }
                 }
@@ -153,6 +161,13 @@ fun SettingsSheet(
                     showAccessoryEditor = false
                 },
                 onDismiss = { showAccessoryEditor = false },
+            )
+
+            TerminalCustomActionsEditorSheet(
+                visible = showCustomActionEditor,
+                initialGroups = currentTerminalCustomKeyGroups,
+                onSave = onTerminalCustomActionsChanged,
+                onDismiss = { showCustomActionEditor = false },
             )
         }
     }

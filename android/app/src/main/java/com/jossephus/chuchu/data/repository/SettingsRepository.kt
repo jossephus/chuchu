@@ -3,6 +3,8 @@ package com.jossephus.chuchu.data.repository
 import android.content.Context
 import android.content.SharedPreferences
 import com.jossephus.chuchu.ui.terminal.TerminalAccessoryLayoutStore
+import com.jossephus.chuchu.ui.terminal.TerminalCustomActionStore
+import com.jossephus.chuchu.ui.terminal.TerminalCustomKeyGroup
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,6 +20,9 @@ class SettingsRepository(context: Context) {
     private val _accessoryLayoutIds = MutableStateFlow(loadAccessoryLayoutIds())
     val accessoryLayoutIds: StateFlow<List<String>> = _accessoryLayoutIds.asStateFlow()
 
+    private val _terminalCustomKeyGroups = MutableStateFlow(loadTerminalCustomKeyGroups())
+    val terminalCustomKeyGroups: StateFlow<List<TerminalCustomKeyGroup>> = _terminalCustomKeyGroups.asStateFlow()
+
     fun setTheme(name: String) {
         prefs.edit().putString(KEY_THEME, name).apply()
         _themeName.value = name
@@ -27,6 +32,13 @@ class SettingsRepository(context: Context) {
         val normalized = TerminalAccessoryLayoutStore.normalizeIds(ids)
         prefs.edit().putString(KEY_ACCESSORY_LAYOUT, normalized.joinToString(separator = ",")).apply()
         _accessoryLayoutIds.value = normalized
+    }
+
+    fun setTerminalCustomKeyGroups(groups: List<TerminalCustomKeyGroup>) {
+        val normalized = TerminalCustomActionStore.normalize(groups)
+        val serialized = TerminalCustomActionStore.serialize(normalized)
+        prefs.edit().putString(KEY_TERMINAL_CUSTOM_ACTIONS, serialized).apply()
+        _terminalCustomKeyGroups.value = normalized
     }
 
     private fun loadAccessoryLayoutIds(): List<String> {
@@ -40,9 +52,15 @@ class SettingsRepository(context: Context) {
         )
     }
 
+    private fun loadTerminalCustomKeyGroups(): List<TerminalCustomKeyGroup> {
+        val stored = prefs.getString(KEY_TERMINAL_CUSTOM_ACTIONS, null)
+        return TerminalCustomActionStore.parse(stored)
+    }
+
     companion object {
         private const val KEY_THEME = "theme_name"
         private const val KEY_ACCESSORY_LAYOUT = "terminal_accessory_layout"
+        private const val KEY_TERMINAL_CUSTOM_ACTIONS = "terminal_custom_actions"
         const val DEFAULT_THEME = "Catppuccin Mocha"
 
         @Volatile

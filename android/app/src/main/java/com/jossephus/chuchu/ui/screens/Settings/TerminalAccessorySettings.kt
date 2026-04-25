@@ -1,6 +1,8 @@
 package com.jossephus.chuchu.ui.screens.Settings
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
@@ -44,6 +46,7 @@ import com.jossephus.chuchu.ui.terminal.AccessoryKeyItem
 import com.jossephus.chuchu.ui.terminal.KeyboardAccessoryBar
 import com.jossephus.chuchu.ui.terminal.ModifierState
 import com.jossephus.chuchu.ui.terminal.TerminalAccessoryLayoutStore
+import com.jossephus.chuchu.ui.terminal.TerminalCustomKeyGroup
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
 import kotlin.math.roundToInt
@@ -52,6 +55,8 @@ import kotlin.math.roundToInt
 internal fun TerminalSettings(
     currentAccessoryLayoutIds: List<String>,
     onEditAccessoryLayout: () -> Unit,
+    currentTerminalCustomKeyGroups: List<TerminalCustomKeyGroup>,
+    onEditCustomActions: () -> Unit,
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
@@ -115,6 +120,45 @@ internal fun TerminalSettings(
                 }
             }
         }
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(colors.surface)
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    ChuText("Custom actions", style = typography.label)
+                    val actionCount = currentTerminalCustomKeyGroups.sumOf { it.actions.size }
+                    ChuText(
+                        if (actionCount == 0) "No custom actions" else "$actionCount actions",
+                        style = typography.body,
+                        color = colors.textMuted,
+                    )
+                }
+
+                ChuButton(
+                    onClick = onEditCustomActions,
+                    variant = ChuButtonVariant.Outlined,
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                ) {
+                    ChuText("Customize", style = typography.label)
+                }
+            }
+
+            ChuText(
+                "Create quick keys.",
+                style = typography.body,
+                color = colors.textSecondary,
+            )
+        }
     }
 }
 
@@ -125,8 +169,6 @@ internal fun AccessoryLayoutEditorSheet(
     onSave: (List<String>) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    if (!visible) return
-
     val colors = ChuColors.current
     val typography = ChuTypography.current
     val density = LocalDensity.current
@@ -164,16 +206,22 @@ internal fun AccessoryLayoutEditorSheet(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(colors.background.copy(alpha = 0.72f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onDismiss,
-                ),
-        )
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(colors.background.copy(alpha = 0.72f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onDismiss,
+                    ),
+            )
+        }
 
         AnimatedVisibility(
             visible = visible,
@@ -187,6 +235,11 @@ internal fun AccessoryLayoutEditorSheet(
                     .fillMaxHeight(0.82f)
                     .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
                     .background(colors.surfaceVariant)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {},
+                    )
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
@@ -259,51 +312,51 @@ internal fun AccessoryLayoutEditorSheet(
                         ) {
                             selectedItems.forEach { item ->
                                 key(item.id) {
-                                val isDragging = previewDraggingId == item.id
-                                PreviewKeyChip(
-                                    item = item,
-                                    dragging = isDragging,
-                                    modifier = Modifier.pointerInput(item.id) {
-                                        detectDragGesturesAfterLongPress(
-                                            onDragStart = {
-                                                previewDraggingId = item.id
-                                                previewDragRemainderPx = 0f
-                                                previewDragOffsetPx = 0f
-                                            },
-                                            onDragEnd = {
-                                                previewDraggingId = null
-                                                previewDragRemainderPx = 0f
-                                                previewDragOffsetPx = 0f
-                                            },
-                                            onDragCancel = {
-                                                previewDraggingId = null
-                                                previewDragRemainderPx = 0f
-                                                previewDragOffsetPx = 0f
-                                            },
-                                            onDrag = { change, dragAmount ->
-                                                change.consume()
-                                                previewDragRemainderPx += dragAmount.x
-                                                previewDragOffsetPx += dragAmount.x
-                                                if (previewDragRemainderPx >= reorderStepPx) {
-                                                    val stepCount = (previewDragRemainderPx / reorderStepPx).toInt()
-                                                    repeat(stepCount) {
-                                                        if (!moveSelectedItem(item.id, 1)) return@repeat
-                                                        previewDragRemainderPx -= reorderStepPx
-                                                        previewDragOffsetPx -= reorderStepPx
+                                    val isDragging = previewDraggingId == item.id
+                                    PreviewKeyChip(
+                                        item = item,
+                                        dragging = isDragging,
+                                        modifier = Modifier.pointerInput(item.id) {
+                                            detectDragGesturesAfterLongPress(
+                                                onDragStart = {
+                                                    previewDraggingId = item.id
+                                                    previewDragRemainderPx = 0f
+                                                    previewDragOffsetPx = 0f
+                                                },
+                                                onDragEnd = {
+                                                    previewDraggingId = null
+                                                    previewDragRemainderPx = 0f
+                                                    previewDragOffsetPx = 0f
+                                                },
+                                                onDragCancel = {
+                                                    previewDraggingId = null
+                                                    previewDragRemainderPx = 0f
+                                                    previewDragOffsetPx = 0f
+                                                },
+                                                onDrag = { change, dragAmount ->
+                                                    change.consume()
+                                                    previewDragRemainderPx += dragAmount.x
+                                                    previewDragOffsetPx += dragAmount.x
+                                                    if (previewDragRemainderPx >= reorderStepPx) {
+                                                        val stepCount = (previewDragRemainderPx / reorderStepPx).toInt()
+                                                        repeat(stepCount) {
+                                                            if (!moveSelectedItem(item.id, 1)) return@repeat
+                                                            previewDragRemainderPx -= reorderStepPx
+                                                            previewDragOffsetPx -= reorderStepPx
+                                                        }
+                                                    } else if (previewDragRemainderPx <= -reorderStepPx) {
+                                                        val stepCount = (-previewDragRemainderPx / reorderStepPx).toInt()
+                                                        repeat(stepCount) {
+                                                            if (!moveSelectedItem(item.id, -1)) return@repeat
+                                                            previewDragRemainderPx += reorderStepPx
+                                                            previewDragOffsetPx += reorderStepPx
+                                                        }
                                                     }
-                                                } else if (previewDragRemainderPx <= -reorderStepPx) {
-                                                    val stepCount = (-previewDragRemainderPx / reorderStepPx).toInt()
-                                                    repeat(stepCount) {
-                                                        if (!moveSelectedItem(item.id, -1)) return@repeat
-                                                        previewDragRemainderPx += reorderStepPx
-                                                        previewDragOffsetPx += reorderStepPx
-                                                    }
-                                                }
-                                            },
-                                        )
-                                    },
-                                    dragOffsetPx = if (isDragging) previewDragOffsetPx else 0f,
-                                )
+                                                },
+                                            )
+                                        },
+                                        dragOffsetPx = if (isDragging) previewDragOffsetPx else 0f,
+                                    )
                                 }
                             }
                         }

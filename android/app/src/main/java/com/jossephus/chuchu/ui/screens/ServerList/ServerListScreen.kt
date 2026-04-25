@@ -71,6 +71,7 @@ fun ServerListScreen(
     val sessionRepo = remember(application) { TerminalSessionRepository.getInstance(application) }
     val currentTheme by settingsRepo.themeName.collectAsStateWithLifecycle()
     val currentAccessoryLayoutIds by settingsRepo.accessoryLayoutIds.collectAsStateWithLifecycle()
+    val currentTerminalCustomKeyGroups by settingsRepo.terminalCustomKeyGroups.collectAsStateWithLifecycle()
     val sessionState by sessionRepo.sessionState.collectAsStateWithLifecycle()
     val activeSessionKey = sessionState.sessionKey
     val hasActiveSession = sessionState.status == SessionStatus.Connecting ||
@@ -156,8 +157,10 @@ fun ServerListScreen(
                 visible = true,
                 currentTheme = currentTheme,
                 currentAccessoryLayoutIds = currentAccessoryLayoutIds,
+                currentTerminalCustomKeyGroups = currentTerminalCustomKeyGroups,
                 onThemeSelected = { settingsRepo.setTheme(it) },
                 onAccessoryLayoutChanged = { settingsRepo.setAccessoryLayoutIds(it) },
+                onTerminalCustomActionsChanged = { settingsRepo.setTerminalCustomKeyGroups(it) },
                 onDismiss = { showSettings = false },
             )
         }

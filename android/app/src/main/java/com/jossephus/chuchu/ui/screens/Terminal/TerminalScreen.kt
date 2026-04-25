@@ -5,10 +5,17 @@ import android.content.ClipData
 import android.content.Context
 import android.widget.Toast
 import android.view.inputmethod.InputMethodManager
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -31,6 +38,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
@@ -62,7 +70,12 @@ import com.jossephus.chuchu.ui.terminal.ModifierState
 import com.jossephus.chuchu.ui.terminal.TerminalCanvas
 import com.jossephus.chuchu.ui.terminal.TerminalAccessoryDispatcher
 import com.jossephus.chuchu.ui.terminal.TerminalAccessoryLayoutStore
+import com.jossephus.chuchu.ui.terminal.TerminalCustomAction
+import com.jossephus.chuchu.ui.terminal.TerminalCustomKeyGroup
 import com.jossephus.chuchu.ui.terminal.TerminalInputView
+import com.jossephus.chuchu.ui.terminal.CustomActionModifier
+import com.jossephus.chuchu.ui.terminal.decodeCustomActionValue
+import com.jossephus.chuchu.ui.terminal.modifierStateForCustomAction
 import com.jossephus.chuchu.ui.terminal.toGhosttyKey
 import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.ui.screens.Settings.SettingsSheet
@@ -71,6 +84,120 @@ import com.jossephus.chuchu.ui.theme.ChuTypography
 import com.jossephus.chuchu.ui.theme.GhosttyThemeRegistry
 import com.jossephus.chuchu.ui.theme.toRgbIntArray
 import com.jossephus.chuchu.ui.theme.toTerminalPaletteBytes
+
+private fun TerminalViewModel.dispatchTextWithModifierState(
+    text: String,
+    modifierState: ModifierState,
+) {
+    if (modifierState.cmd && !modifierState.alt) {
+        val mods = modifierState.terminalMods()
+        for (char in text) {
+            val ghosttyKey = char.toGhosttyKey()
+            if (ghosttyKey != null) {
+                onHardwareKey(ghosttyKey, char.code, mods, GhosttyKeyAction.Press)
+                onHardwareKey(ghosttyKey, char.code, mods, GhosttyKeyAction.Release)
+            } else {
+                onTextInput(modifierState.applyToText(char.toString()))
+            }
+        }
+    } else {
+        onTextInput(modifierState.applyToText(text))
+    }
+}
+
+@Composable
+private fun TerminalCustomActionsFab(
+    groups: List<TerminalCustomKeyGroup>,
+    onActionClick: (TerminalCustomAction) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+    var expanded by remember { mutableStateOf(false) }
+    var selectedGroupKey by remember { mutableStateOf<String?>(null) }
+    val selectedGroup = remember(selectedGroupKey, groups) {
+        groups.firstOrNull { it.keyLabel == selectedGroupKey }
+    }
+
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn() + scaleIn(),
+            exit = fadeOut() + scaleOut(),
+        ) {
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (selectedGroup == null) {
+                    groups.forEach { group ->
+                        ChuButton(
+                            onClick = {
+                                if (group.actions.size == 1) {
+                                    onActionClick(group.actions.first())
+                                    expanded = false
+                                    selectedGroupKey = null
+                                } else {
+                                    selectedGroupKey = group.keyLabel
+                                }
+                            },
+                            variant = ChuButtonVariant.Outlined,
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                        ) {
+                            ChuText(group.keyLabel, style = typography.label)
+                        }
+                    }
+                } else {
+                    selectedGroup.actions.forEach { action ->
+                        ChuButton(
+                            onClick = {
+                                onActionClick(action)
+                                expanded = false
+                                selectedGroupKey = null
+                            },
+                            variant = ChuButtonVariant.Outlined,
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                        ) {
+                            ChuText(action.label, style = typography.label)
+                        }
+                    }
+                    ChuButton(
+                        onClick = { selectedGroupKey = null },
+                        variant = ChuButtonVariant.Ghost,
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    ) {
+                        ChuText("<", style = typography.label, color = colors.textMuted)
+                    }
+                }
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .shadow(6.dp, CircleShape)
+                .clip(CircleShape)
+                .background(colors.accent)
+                .clickable {
+                    expanded = !expanded
+                    if (!expanded) {
+                        selectedGroupKey = null
+                    }
+                }
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            ChuText(
+                if (expanded) "x" else "+",
+                style = typography.label,
+                color = colors.onAccent,
+            )
+        }
+    }
+}
 
 @Composable
 fun TerminalScreen(
@@ -92,6 +219,7 @@ fun TerminalScreen(
     val settingsRepo = remember(context) { SettingsRepository.getInstance(context) }
     val currentTheme by settingsRepo.themeName.collectAsStateWithLifecycle()
     val currentAccessoryLayoutIds by settingsRepo.accessoryLayoutIds.collectAsStateWithLifecycle()
+    val currentTerminalCustomKeyGroups by settingsRepo.terminalCustomKeyGroups.collectAsStateWithLifecycle()
     val accessoryLayout = remember(currentAccessoryLayoutIds) {
         TerminalAccessoryLayoutStore.resolveSelectedLayout(currentAccessoryLayoutIds)
     }
@@ -441,18 +569,7 @@ fun TerminalScreen(
                             factory = { viewContext ->
                                 TerminalInputView(viewContext).apply {
                                     onTerminalText = { text ->
-                                        if (modifierState.cmd && !modifierState.alt) {
-                                            val mods = modifierState.terminalMods()
-                                            for (char in text) {
-                                                val ghosttyKey = char.toGhosttyKey()
-                                                if (ghosttyKey != null) {
-                                                    vm.onHardwareKey(ghosttyKey, char.code, mods, GhosttyKeyAction.Press)
-                                                    vm.onHardwareKey(ghosttyKey, char.code, mods, GhosttyKeyAction.Release)
-                                                }
-                                            }
-                                        } else {
-                                            vm.onTextInput(modifierState.applyToText(text))
-                                        }
+                                        vm.dispatchTextWithModifierState(text, modifierState)
                                         resetModifiers()
                                     }
                                     onTerminalKey = { key, codepoint, mods, action ->
@@ -478,6 +595,23 @@ fun TerminalScreen(
                                 }
                             },
                         )
+
+                        if (currentTerminalCustomKeyGroups.isNotEmpty()) {
+                            TerminalCustomActionsFab(
+                                groups = currentTerminalCustomKeyGroups,
+                                onActionClick = { action ->
+                                    val decoded = decodeCustomActionValue(action.payload)
+                                    val rawText = decoded.text + if (CustomActionModifier.Enter in decoded.modifiers) "\n" else ""
+                                    val actionModifierState = modifierStateForCustomAction(decoded.modifiers)
+                                    vm.dispatchTextWithModifierState(rawText, actionModifierState)
+                                    resetModifiers()
+                                    requestInputFocus()
+                                },
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .padding(end = 14.dp, bottom = 12.dp),
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(6.dp))
@@ -495,8 +629,10 @@ fun TerminalScreen(
                         visible = true,
                         currentTheme = currentTheme,
                         currentAccessoryLayoutIds = currentAccessoryLayoutIds,
+                        currentTerminalCustomKeyGroups = currentTerminalCustomKeyGroups,
                         onThemeSelected = { settingsRepo.setTheme(it) },
                         onAccessoryLayoutChanged = { settingsRepo.setAccessoryLayoutIds(it) },
+                        onTerminalCustomActionsChanged = { settingsRepo.setTerminalCustomKeyGroups(it) },
                         onDismiss = { showSettings = false },
                     )
                 }
