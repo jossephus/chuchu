@@ -149,7 +149,7 @@ fun AddServerScreen(
         )
         if (form.transport == Transport.TailscaleSSH) {
             ChuText(
-                "Requires the Tailscale VPN to be active.",
+                "Connects through the Tailscale network. Use the host's Tailscale IP (100.x.x.x) or MagicDNS name.",
                 style = typography.bodySmall,
                 color = colors.textMuted,
             )
@@ -159,98 +159,97 @@ fun AddServerScreen(
 
         // --- Auth ---
         SectionHeader("Authentication")
-        if (form.transport == Transport.TailscaleSSH) {
-            ChuText(
-                "Handled by Tailscale SSH policy — no credentials needed.",
-                style = typography.bodySmall,
-                color = colors.textSecondary,
-            )
-        } else {
-            val authOptions = listOf(
-                AuthMethod.Password,
-                AuthMethod.Key,
-            )
-            val segmentSelected = if (form.authMethod == AuthMethod.KeyWithPassphrase) AuthMethod.Key else form.authMethod
-            ChuSegmentedControl(
-                options = authOptions,
-                labels = mapOf(
-                    AuthMethod.Password to "Password",
-                    AuthMethod.Key to "SSH Key",
-                ),
-                selected = segmentSelected,
-                onSelect = vm::updateAuthMethod,
-            )
+        val authOptions = listOf(
+            AuthMethod.Password,
+            AuthMethod.Key,
+            AuthMethod.None,
+        )
+        val segmentSelected = if (form.authMethod == AuthMethod.KeyWithPassphrase) AuthMethod.Key else form.authMethod
+        ChuSegmentedControl(
+            options = authOptions,
+            labels = mapOf(
+                AuthMethod.Password to "Password",
+                AuthMethod.Key to "SSH Key",
+                AuthMethod.None to "None",
+            ),
+            selected = segmentSelected,
+            onSelect = vm::updateAuthMethod,
+        )
 
-            when (form.authMethod) {
-                AuthMethod.Password -> {
+        when (form.authMethod) {
+            AuthMethod.Password -> {
+                ChuTextField(
+                    value = form.password,
+                    onValueChange = vm::updatePassword,
+                    label = "Password",
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            AuthMethod.Key, AuthMethod.KeyWithPassphrase -> {
+                KeyAuthSection(
+                    form = form,
+                    keys = keys,
+                    onGenerate = { vm.generateKey(form.name) },
+                    onSelectStoredKey = vm::selectStoredKey,
+                    onDeleteStoredKey = vm::deleteStoredKey,
+                    onSavePrivateKey = {
+                        val name = form.name.trim().ifBlank { "android-ed25519" }
+                        exportKeyLauncher.launch("$name.pem")
+                    },
+                    onCopyPublicKey = {
+                        if (form.publicKeyOpenSsh.isBlank()) {
+                            Toast.makeText(context, "No public key available", Toast.LENGTH_SHORT).show()
+                        } else {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("SSH Public Key", form.publicKeyOpenSsh))
+                            Toast.makeText(context, "Public key copied", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                ) {
+                    ChuSwitch(
+                        checked = form.authMethod == AuthMethod.KeyWithPassphrase,
+                        onCheckedChange = { checked ->
+                            if (checked) {
+                                vm.updateAuthMethod(AuthMethod.KeyWithPassphrase)
+                            } else {
+                                vm.updateAuthMethod(AuthMethod.Key)
+                                vm.updateKeyPassphrase("")
+                            }
+                        },
+                    )
+                    ChuText("Set passphrase", style = typography.label)
+                }
+                if (form.authMethod == AuthMethod.KeyWithPassphrase) {
                     ChuTextField(
-                        value = form.password,
-                        onValueChange = vm::updatePassword,
-                        label = "Password",
+                        value = form.keyPassphrase,
+                        onValueChange = vm::updateKeyPassphrase,
+                        label = "Passphrase",
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
-                AuthMethod.Key, AuthMethod.KeyWithPassphrase -> {
-                    KeyAuthSection(
-                        form = form,
-                        keys = keys,
-                        onGenerate = { vm.generateKey(form.name) },
-                        onSelectStoredKey = vm::selectStoredKey,
-                        onDeleteStoredKey = vm::deleteStoredKey,
-                        onSavePrivateKey = {
-                            val name = form.name.trim().ifBlank { "android-ed25519" }
-                            exportKeyLauncher.launch("$name.pem")
-                        },
-                        onCopyPublicKey = {
-                            if (form.publicKeyOpenSsh.isBlank()) {
-                                Toast.makeText(context, "No public key available", Toast.LENGTH_SHORT).show()
-                            } else {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                clipboard.setPrimaryClip(ClipData.newPlainText("SSH Public Key", form.publicKeyOpenSsh))
-                                Toast.makeText(context, "Public key copied", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                    ) {
-                        ChuSwitch(
-                            checked = form.authMethod == AuthMethod.KeyWithPassphrase,
-                            onCheckedChange = { checked ->
-                                if (checked) {
-                                    vm.updateAuthMethod(AuthMethod.KeyWithPassphrase)
-                                } else {
-                                    vm.updateAuthMethod(AuthMethod.Key)
-                                    vm.updateKeyPassphrase("")
-                                }
-                            },
-                        )
-                        ChuText("Set passphrase", style = typography.label)
-                    }
-                    if (form.authMethod == AuthMethod.KeyWithPassphrase) {
-                        ChuTextField(
-                            value = form.keyPassphrase,
-                            onValueChange = vm::updateKeyPassphrase,
-                            label = "Passphrase",
-                            singleLine = true,
-                            visualTransformation = PasswordVisualTransformation(),
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                }
-                AuthMethod.None -> Unit
+            }
+            AuthMethod.None -> {
+                ChuText(
+                    "No SSH auth uses Tailscale SSH policy (`tailscale up --ssh`) on the server. We'll connect through Tailscale SSH instead of regular sshd credentials.",
+                    style = typography.bodySmall,
+                    color = colors.textMuted,
+                )
             }
         }
 
         SectionDivider()
 
         // --- Actions ---
-        val canTest = form.host.isNotBlank() &&
-            (form.transport == Transport.TailscaleSSH || form.username.isNotBlank())
+        val canTest = form.host.isNotBlank() && form.username.isNotBlank()
         ChuButton(
             onClick = vm::testConnection,
             enabled = canTest,

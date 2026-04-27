@@ -164,56 +164,33 @@ class AddServerViewModel(
     fun updateTransport(transport: Transport) {
         val current = _form.value
         val nextAuthMethod = when {
-            transport == Transport.TailscaleSSH -> AuthMethod.Password
             transport == Transport.SSH && current.authMethod == AuthMethod.None -> AuthMethod.Password
             else -> current.authMethod
         }
-        _form.value = if (transport == Transport.TailscaleSSH) {
-            current.copy(
-                transport = transport,
-                authMethod = nextAuthMethod,
-                password = "",
-                keyId = null,
-                privateKeyPem = "",
-                publicKeyOpenSsh = "",
-                keyPassphrase = "",
-            )
-        } else {
-            current.copy(transport = transport, authMethod = nextAuthMethod)
-        }
+        _form.value = current.copy(transport = transport, authMethod = nextAuthMethod)
     }
 
     fun updateAuthMethod(authMethod: AuthMethod) {
-        val transport = _form.value.transport
-        if (transport == Transport.TailscaleSSH) {
+        val current = _form.value
+        if (authMethod == AuthMethod.None) {
+            _form.value = current.copy(
+                transport = Transport.TailscaleSSH,
+                authMethod = AuthMethod.None,
+            )
             return
         }
-        if (transport == Transport.SSH && authMethod == AuthMethod.None) {
-            return
-        }
-        _form.value = _form.value.copy(authMethod = authMethod)
+        _form.value = current.copy(authMethod = authMethod)
     }
 
     fun testConnection() {
         val current = _form.value
         if (current.host.isBlank()) return
-        val effectiveUsername = if (
-            current.transport == Transport.TailscaleSSH && current.username.isBlank()
-        ) {
-            "root"
-        } else {
-            current.username.trim()
-        }
-        if (effectiveUsername.isBlank()) return
+        val username = current.username.trim()
+        if (username.isBlank()) return
         _testState.value = ConnectionTestState(status = ConnectionTestStatus.Running)
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) {
                 runCatching {
-                    val effectiveAuthMethod = if (current.transport == Transport.TailscaleSSH) {
-                        AuthMethod.None
-                    } else {
-                        current.authMethod
-                    }
                     val port = current.port.toIntOrNull() ?: 22
                     val policy = HostKeyPolicy { _, _, _, _ -> true }
                     val nativeSsh = NativeSshService(hostKeyPolicy = policy)
@@ -221,9 +198,9 @@ class AddServerViewModel(
                     nativeSsh.connect(
                         host = current.host.trim(),
                         port = port,
-                        username = effectiveUsername,
-                        authMethod = effectiveAuthMethod,
-                        password = if (effectiveAuthMethod == AuthMethod.Password) current.password else "",
+                        username = username,
+                        authMethod = current.authMethod,
+                        password = if (current.authMethod == AuthMethod.Password) current.password else "",
                         publicKeyOpenSsh = current.publicKeyOpenSsh,
                         privateKeyPem = current.privateKeyPem,
                         keyPassphrase = current.keyPassphrase,
@@ -246,37 +223,25 @@ class AddServerViewModel(
         val current = _form.value
         val port = current.port.toIntOrNull() ?: 22
         if (!current.canSave()) return
-        val effectiveUsername = if (
-            current.transport == Transport.TailscaleSSH && current.username.isBlank()
-        ) {
-            "root"
-        } else {
-            current.username.trim()
-        }
-        if (effectiveUsername.isBlank()) return
+        val username = current.username.trim()
+        if (username.isBlank()) return
 
         viewModelScope.launch {
-            val isTailscale = current.transport == Transport.TailscaleSSH
             val profile = HostProfile(
                 id = current.id ?: 0L,
                 name = current.name.trim(),
                 host = current.host.trim(),
                 port = port,
-                username = effectiveUsername,
-                password = if (isTailscale) "" else current.password,
-                keyId = if (isTailscale) null else current.keyId,
-                keyPassphrase = "",
+                username = username,
+                password = current.password,
+                keyId = current.keyId,
+                keyPassphrase = current.keyPassphrase,
                 transport = current.transport,
-                authMethod = if (isTailscale) AuthMethod.Password else current.authMethod,
+                authMethod = current.authMethod,
             )
             hostRepository.upsert(profile)
             onComplete()
         }
-    }
-
-
-    private fun effectiveAuthMethodLabel(transport: Transport, authMethod: AuthMethod): String {
-        return if (transport == Transport.TailscaleSSH) AuthMethod.None.name else authMethod.name
     }
 }
 
@@ -296,8 +261,7 @@ data class AddServerForm(
 )
 
 fun AddServerForm.canSave(): Boolean {
-    if (name.isBlank() || host.isBlank()) return false
-    if (transport != Transport.TailscaleSSH && username.isBlank()) return false
+    if (name.isBlank() || host.isBlank() || username.isBlank()) return false
     return when (authMethod) {
         AuthMethod.Key,
         AuthMethod.KeyWithPassphrase -> keyId != null && privateKeyPem.isNotBlank()

@@ -48,42 +48,6 @@ const NativeSshSession = struct {
     empty_reads: u32 = 0,
 };
 
-const KeyboardAuthContext = struct {
-    password: []const u8,
-};
-
-fn keyboardInteractiveCallback(
-    name: [*c]const u8,
-    name_len: c_int,
-    instruction: [*c]const u8,
-    instruction_len: c_int,
-    num_prompts: c_int,
-    prompts: [*c]const c.LIBSSH2_USERAUTH_KBDINT_PROMPT,
-    responses: [*c]c.LIBSSH2_USERAUTH_KBDINT_RESPONSE,
-    abstract: ?*?*anyopaque,
-) callconv(.c) void {
-    _ = name;
-    _ = name_len;
-    _ = instruction;
-    _ = instruction_len;
-    if (abstract == null or abstract.?.* == null or num_prompts <= 0) return;
-
-    const ctx: *KeyboardAuthContext = @ptrCast(@alignCast(abstract.?.*));
-    const count: usize = @intCast(num_prompts);
-    var i: usize = 0;
-    while (i < count) : (i += 1) {
-        _ = prompts[i];
-        const dup = allocator.alloc(u8, ctx.password.len) catch {
-            responses[i].text = null;
-            responses[i].length = 0;
-            continue;
-        };
-        @memcpy(dup, ctx.password);
-        responses[i].text = @ptrCast(dup.ptr);
-        responses[i].length = @intCast(dup.len);
-    }
-}
-
 fn sessionFromHandle(handle: c.jlong) ?*NativeSshSession {
     if (handle == 0) return null;
     const raw_handle: u64 = @bitCast(handle);
@@ -536,7 +500,7 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeAuthentica
     defer allocator.free(password_slice);
     c.libssh2_session_set_blocking(ssh_session, 1);
     defer c.libssh2_session_set_blocking(ssh_session, 0);
-    logInfo("Password auth attempt start", .{});
+    logInfo("Password auth attempt start username_len={} password_len={}", .{ username_slice.len, password_slice.len });
     const password_deadline_ms = nowMs() + setup_wait_timeout_ms;
     while (true) {
         const rc = c.libssh2_userauth_password_ex(ssh_session, username_slice.ptr, @intCast(username_slice.len), password_slice.ptr, @intCast(password_slice.len), null);
@@ -545,50 +509,17 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeAuthentica
             return c.JNI_TRUE;
         }
         if (rc != c.LIBSSH2_ERROR_EAGAIN) {
-            logError("Password auth failed rc={} (trying keyboard-interactive)", .{rc});
-            break;
+            logError("Password auth failed rc={} (keyboard-interactive fallback disabled for diagnostics)", .{rc});
+            setLibssh2Error(session, "Password auth failed", rc);
+            return c.JNI_FALSE;
         }
         if (nowMs() >= password_deadline_ms) {
-            logError("Password auth timed out (trying keyboard-interactive)", .{});
-            break;
-        }
-        _ = waitSocket(session, io_wait_timeout_ms);
-    }
-
-    logInfo("Keyboard-interactive auth attempt start", .{});
-    var ctx = KeyboardAuthContext{ .password = password_slice };
-    const abstract_ptr = c.libssh2_session_abstract(ssh_session);
-    if (abstract_ptr != null) {
-        abstract_ptr.* = @ptrCast(&ctx);
-    }
-    defer if (abstract_ptr != null) {
-        abstract_ptr.* = null;
-    };
-
-    const kbd_deadline_ms = nowMs() + setup_wait_timeout_ms;
-    while (true) {
-        const rc = c.libssh2_userauth_keyboard_interactive_ex(
-            ssh_session,
-            username_slice.ptr,
-            @intCast(username_slice.len),
-            keyboardInteractiveCallback,
-        );
-        if (rc == 0) {
-            logInfo("Keyboard-interactive auth succeeded", .{});
-            return c.JNI_TRUE;
-        }
-        if (rc != c.LIBSSH2_ERROR_EAGAIN) {
-            setLibssh2Error(session, "Keyboard-interactive auth failed", rc);
-            return c.JNI_FALSE;
-        }
-        if (nowMs() >= kbd_deadline_ms) {
-            setError(session, "Keyboard-interactive auth timed out", .{});
+            logError("Password auth timed out (keyboard-interactive fallback disabled for diagnostics)", .{});
+            setError(session, "Password auth timed out", .{});
             return c.JNI_FALSE;
         }
         _ = waitSocket(session, io_wait_timeout_ms);
     }
-
-    return c.JNI_FALSE;
 }
 
 export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeAuthenticatePublicKey(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, key_path: c.jstring, passphrase: c.jstring) callconv(.c) c.jboolean {

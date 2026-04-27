@@ -62,29 +62,14 @@ class TerminalViewModel(
     fun updateTransport(transport: Transport) {
         val current = _connectForm.value
         val nextAuthMethod = when {
-            transport == Transport.TailscaleSSH -> AuthMethod.Password
             transport == Transport.SSH && current.authMethod == AuthMethod.None -> AuthMethod.Password
             else -> current.authMethod
         }
-        _connectForm.value = if (transport == Transport.TailscaleSSH) {
-            current.copy(
-                transport = transport,
-                authMethod = nextAuthMethod,
-                password = "",
-                privateKeyPem = "",
-                publicKeyOpenSsh = "",
-                keyPassphrase = "",
-            )
-        } else {
-            current.copy(transport = transport, authMethod = nextAuthMethod)
-        }
+        _connectForm.value = current.copy(transport = transport, authMethod = nextAuthMethod)
     }
 
     fun updateAuthMethod(authMethod: AuthMethod) {
         val transport = _connectForm.value.transport
-        if (transport == Transport.TailscaleSSH) {
-            return
-        }
         if (transport == Transport.SSH && authMethod == AuthMethod.None) {
             return
         }

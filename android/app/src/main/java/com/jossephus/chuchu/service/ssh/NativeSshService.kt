@@ -9,6 +9,14 @@ class NativeSshService(
     private val bridge: NativeSshBridge = NativeSshBridge(),
     private val hostKeyPolicy: HostKeyPolicy,
 ) : Closeable {
+    private fun passwordAuthErrorMessage(nativeError: String?): String {
+        if (nativeError.isNullOrBlank()) return "Native SSH password auth failed"
+        if (nativeError.contains("Keyboard-interactive auth failed", ignoreCase = true)) {
+            return "$nativeError. Server-side password authentication may be disabled for this endpoint (for example Tailscale SSH or sshd Match rules on tailnet addresses)."
+        }
+        return nativeError
+    }
+
     private object Ipc {
         private const val VERSION: Byte = 1
         private const val TAG_WRITE: Byte = 1
@@ -109,13 +117,13 @@ class NativeSshService(
             AuthMethod.None -> {
                 if (!bridge.nativeAuthenticateNone(handle)) {
                     throw IllegalStateException(
-                        "Tailscale SSH authentication was not accepted by the server. This app currently supports direct tailnet connections only (no userspace proxy fallback).",
+                        bridge.nativeGetLastError(handle) ?: "Server did not accept none authentication",
                     )
                 }
             }
             AuthMethod.Password -> {
                 if (!bridge.nativeAuthenticatePassword(handle, password)) {
-                    throw IllegalStateException(bridge.nativeGetLastError(handle) ?: "Native SSH password auth failed")
+                    throw IllegalStateException(passwordAuthErrorMessage(bridge.nativeGetLastError(handle)))
                 }
             }
             AuthMethod.Key -> {

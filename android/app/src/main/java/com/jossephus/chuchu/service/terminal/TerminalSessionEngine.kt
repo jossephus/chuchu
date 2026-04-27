@@ -155,20 +155,7 @@ class TerminalSessionEngine(
                 )
                 return@launch
             }
-            if (transport == Transport.TailscaleSSH && !tailscaleStatusChecker.isActive()) {
-                _state.value = SessionState(
-                    status = SessionStatus.Error,
-                    sessionKey = sessionKey,
-                    error = "Tailscale VPN is not active",
-                )
-                return@launch
-            }
-            val effectiveUsername = if (transport == Transport.TailscaleSSH && username.isBlank()) {
-                "root"
-            } else {
-                username
-            }
-            if (effectiveUsername.isBlank()) {
+            if (username.isBlank()) {
                 _state.value = SessionState(
                     status = SessionStatus.Error,
                     sessionKey = sessionKey,
@@ -177,7 +164,7 @@ class TerminalSessionEngine(
                 return@launch
             }
             try {
-                establishConnection(params, effectiveUsername)
+                establishConnection(params, username)
                 _state.value = _state.value.copy(
                     status = SessionStatus.Connected,
                     error = null,
@@ -425,7 +412,7 @@ class TerminalSessionEngine(
         }
     }
 
-    private fun establishConnection(params: ConnectionParams, effectiveUsername: String) {
+    private fun establishConnection(params: ConnectionParams, username: String) {
         if (handle != 0L) {
             bridge.nativeDestroy(handle)
             handle = 0L
@@ -433,18 +420,13 @@ class TerminalSessionEngine(
         nativeSsh.close()
         handle = bridge.nativeCreate(cols, rows, 1000)
         applyTerminalOptions()
-        val effectiveAuthMethod = if (params.transport == Transport.TailscaleSSH) {
-            AuthMethod.None
-        } else {
-            params.authMethod
-        }
-        val authPassword = if (effectiveAuthMethod == AuthMethod.Password) params.password else null
+        val authPassword = if (params.authMethod == AuthMethod.Password) params.password else null
         check(nativeSsh.isAvailable()) { "Native SSH unavailable" }
         nativeSsh.connect(
             host = params.host,
             port = params.port,
-            username = effectiveUsername,
-            authMethod = effectiveAuthMethod,
+            username = username,
+            authMethod = params.authMethod,
             password = authPassword.orEmpty(),
             publicKeyOpenSsh = params.publicKeyOpenSsh,
             privateKeyPem = params.privateKeyPem,
@@ -476,12 +458,7 @@ class TerminalSessionEngine(
                 )
                 val delayMs = (1_000L shl (attempt - 1).coerceAtMost(5)).coerceAtMost(60_000L)
                 delay(delayMs)
-                val effectiveUsername = if (params.transport == Transport.TailscaleSSH && params.username.isBlank()) {
-                    "root"
-                } else {
-                    params.username
-                }
-                if (effectiveUsername.isBlank()) {
+                if (params.username.isBlank()) {
                     _state.value = _state.value.copy(
                         status = SessionStatus.Error,
                         error = "Username required",
@@ -489,7 +466,7 @@ class TerminalSessionEngine(
                     return@launch
                 }
                 try {
-                    establishConnection(params, effectiveUsername)
+                    establishConnection(params, params.username)
                     _state.value = _state.value.copy(
                         status = SessionStatus.Connected,
                         reconnectAttempt = 0,

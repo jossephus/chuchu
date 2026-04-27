@@ -44,6 +44,7 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.model.HostProfile
+import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.terminal.SessionStatus
 import com.jossephus.chuchu.service.terminal.TerminalSessionRepository
 import com.jossephus.chuchu.ui.components.ChuButton
@@ -278,11 +279,32 @@ private fun HostCard(
                         }
                     }
                     Spacer(modifier = Modifier.height(2.dp))
-                    ChuText(
-                        "${host.username}@${host.host}:${host.port}",
-                        style = typography.body,
-                        color = colors.textSecondary,
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        ChuText(
+                            "${host.username}@${host.host}:${host.port}",
+                            style = typography.body,
+                            color = colors.textSecondary,
+                        )
+                        if (host.transport == Transport.TailscaleSSH) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .background(colors.accent.copy(alpha = 0.15f))
+                                    .border(1.dp, colors.accent.copy(alpha = 0.5f), RoundedCornerShape(999.dp))
+                                    .padding(horizontal = 6.dp, vertical = 1.dp),
+                            ) {
+                                ChuText(
+                                    "Tailscale",
+                                    style = typography.labelSmall,
+                                    color = colors.accent,
+                                )
+                            }
+                        }
+                    }
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         ChuButton(
