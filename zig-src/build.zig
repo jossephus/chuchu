@@ -52,7 +52,7 @@ fn buildNativeLibrary(
         .target = target,
         .optimize = optimize,
     });
-    const zignal_dep = b.dependency("zignal", .{
+    const zigimg_dep = b.dependency("zigimg", .{
         .target = target,
         .optimize = optimize,
     });
@@ -109,7 +109,7 @@ fn buildNativeLibrary(
     root_module.addIncludePath(b.path("src/bridge"));
     root_module.addIncludePath(libssh2_upstream.path("include"));
     root_module.addImport("ghostty-vt", ghostty_dep.module("ghostty-vt"));
-    root_module.addImport("zignal", zignal_dep.module("zignal"));
+    root_module.addImport("zigimg", zigimg_dep.module("zigimg"));
 
     const lib = b.addLibrary(.{
         .linkage = .dynamic,

@@ -19,6 +19,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -39,6 +40,8 @@ import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.hypot
 import kotlin.math.max
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withTimeoutOrNull
 
 @Composable
@@ -122,6 +125,24 @@ fun TerminalCanvas(
     val cursorTextColorArgb = cursorTextColor?.toArgb()
 
     val currentOnSelectionChanged = rememberUpdatedState(onSelectionChanged)
+    val currentSnapshot = rememberUpdatedState(snapshot)
+    val currentOnScroll = rememberUpdatedState(onScroll)
+
+    val scrollDeltaChannel = remember { Channel<Int>(capacity = Channel.UNLIMITED) }
+    LaunchedEffect(scrollDeltaChannel) {
+        while (isActive) {
+            val first = scrollDeltaChannel.receive()
+            var accumulated = first
+            while (true) {
+                val next = scrollDeltaChannel.tryReceive().getOrNull() ?: break
+                accumulated += next
+            }
+            if (accumulated != 0) {
+                currentOnScroll.value(accumulated)
+            }
+            withFrameNanos { }
+        }
+    }
 
     LaunchedEffect(selectionResetKey) {
         selection = null
@@ -135,7 +156,7 @@ fun TerminalCanvas(
             currentOnSelectionChanged.value(true, text, selectionAnchorOffset.x, selectionAnchorOffset.y)
         }
     } else {
-        LaunchedEffect(Unit) {
+        LaunchedEffect(currentSelection) {
             currentOnSelectionChanged.value(false, null, 0f, 0f)
         }
     }
@@ -181,7 +202,7 @@ fun TerminalCanvas(
                         }
 
                         if (event == null) {
-                            val s = snapshot
+                            val s = currentSnapshot.value
                             val selectedCell = s.cellAt(down.position.x, down.position.y, cellWidthPx, cellHeightPx)
                             selection = selectedCell?.let { TerminalSelection(it, it) }
                             if (selectedCell != null) {
@@ -211,7 +232,7 @@ fun TerminalCanvas(
                                 doubleTapState.lastPos = tapPos
 
                                 if (timeSinceLastTap < doubleTapTimeoutMillis && distSinceLastTap < doubleTapSlopPx) {
-                                    val s = snapshot
+                                    val s = currentSnapshot.value
                                     val cellIdx = s.cellAt(tapPos.x, tapPos.y, cellWidthPx, cellHeightPx)
                                     if (cellIdx != null) {
                                         val wordRange = s.wordAt(cellIdx)
@@ -261,7 +282,7 @@ fun TerminalCanvas(
                         }
 
                         // Selection drag takes priority once activated
-                        val s = snapshot
+                        val s = currentSnapshot.value
                         val selectedCell = s.cellAt(change.position.x, change.position.y, cellWidthPx, cellHeightPx)
                         if (longPressActive && selectedCell != null) {
                             val currentSelection = selection
@@ -274,6 +295,8 @@ fun TerminalCanvas(
                             continue
                         }
 
+                        val dragX = change.position.x - change.previousPosition.x
+                        val dragY = change.position.y - change.previousPosition.y
                         val movedDistance = hypot(
                             (change.position.x - down.position.x).toDouble(),
                             (change.position.y - down.position.y).toDouble(),
@@ -286,19 +309,17 @@ fun TerminalCanvas(
                                 selectionCleared = true
                             }
                         }
-                        // Accumulate scroll deltas even before touch slop is exceeded.
-                        // This gives responsive scrolling from the first move event.
-                        // The didScroll/didDragGesture flags still gate gesture
-                        // classification, so taps are preserved.
-                        val dragAmount = change.position.y - change.previousPosition.y
-                        dragRemainder += dragAmount / cellHeightPx
+                        val verticalIntent = abs(dragY) > abs(dragX) * 1.2f
+                        if (verticalIntent) {
+                            dragRemainder += dragY / cellHeightPx
+                        }
 
-                        if (abs(dragRemainder) >= 1f) {
+                        if (didDragGesture && abs(dragRemainder) >= 1f) {
                             val delta = dragRemainder.toInt()
                             dragRemainder -= delta
                             if (delta != 0) {
                                 didScroll = true
-                                onScroll(-delta)
+                                scrollDeltaChannel.trySend(-delta)
                             }
                         }
 

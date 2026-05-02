@@ -1,6 +1,6 @@
-//! Zig wrapper around zignal PNG decoding.
+//! Zig wrapper around zigimg PNG decoding.
 const std = @import("std");
-const zignal = @import("zignal");
+const zigimg = @import("zigimg");
 const c = @cImport({
     @cInclude("android/log.h");
 });
@@ -11,7 +11,6 @@ comptime {
 }
 
 const c_allocator = std.heap.c_allocator;
-const Rgba = zignal.Rgba;
 const LOG_TAG = "ChuKittyNative";
 
 fn logLine(prio: c_int, message: []const u8) void {
@@ -38,45 +37,37 @@ pub fn decodePng(
     out_w: *u32,
     out_h: *u32,
 ) ?[*]u8 {
-    const ImageRgba = zignal.Image(Rgba);
-    var name_buf: [64]u8 = undefined;
-    const suffix = std.crypto.random.int(u64);
-    const temp_name = std.fmt.bufPrint(&name_buf, "chuchu_zignal_{x}.png", .{suffix}) catch return null;
-
-    const cwd = std.fs.cwd();
-    const file = cwd.createFile(temp_name, .{}) catch {
-        logWarn("zignal create temp failed len={}", .{len});
+    var img = zigimg.Image.fromMemory(c_allocator, data[0..len]) catch {
+        logWarn("zigimg decode failed len={}", .{len});
         return null;
     };
-    defer file.close();
-    defer cwd.deleteFile(temp_name) catch {};
-    file.writeAll(data[0..len]) catch {
-        logWarn("zignal temp write failed len={}", .{len});
+    defer img.deinit(c_allocator);
+
+    img.convert(c_allocator, .rgba32) catch {
+        logWarn("zigimg rgba32 convert failed len={}", .{len});
         return null;
     };
 
-    const img = ImageRgba.load(c_allocator, temp_name) catch {
-        logWarn("zignal load failed path={s} len={}", .{ temp_name, len });
-        return null;
-    };
-
-    if (img.cols > std.math.maxInt(u32) or img.rows > std.math.maxInt(u32)) {
-        logWarn("zignal image too large cols={} rows={}", .{ img.cols, img.rows });
+    if (img.width > std.math.maxInt(u32) or img.height > std.math.maxInt(u32)) {
+        logWarn("zigimg image too large width={} height={}", .{ img.width, img.height });
         return null;
     }
-    logInfo("zignal load ok path={s} cols={} rows={}", .{ temp_name, img.cols, img.rows });
-    out_w.* = @intCast(img.cols);
-    out_h.* = @intCast(img.rows);
+    logInfo("zigimg decode ok cols={} rows={}", .{ img.width, img.height });
+    out_w.* = @intCast(img.width);
+    out_h.* = @intCast(img.height);
 
-    const bytes = std.mem.sliceAsBytes(img.data);
-    return bytes.ptr;
+    const pixels = c_allocator.alloc(u8, img.rawBytes().len) catch {
+        logWarn("zigimg alloc failed bytes={}", .{img.rawBytes().len});
+        return null;
+    };
+    @memcpy(pixels, img.rawBytes());
+    return pixels.ptr;
 }
 
 /// Free pixel data previously returned by `decodePng`.
 pub fn freePixels(ptr: ?[*]u8, w: u32, h: u32) void {
     if (ptr) |p| {
-        const total = @as(usize, w) * @as(usize, h);
-        const typed: [*]Rgba = @ptrCast(@alignCast(p));
-        c_allocator.free(typed[0..total]);
+        const total_bytes = @as(usize, w) * @as(usize, h) * 4;
+        c_allocator.free(p[0..total_bytes]);
     }
 }
