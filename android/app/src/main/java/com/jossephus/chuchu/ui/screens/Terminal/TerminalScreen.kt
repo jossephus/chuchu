@@ -64,6 +64,7 @@ import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.components.ChuTextField
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.jossephus.chuchu.ui.terminal.AccessoryAction
+import com.jossephus.chuchu.ui.terminal.GhosttyKey
 import com.jossephus.chuchu.ui.terminal.GhosttyKeyAction
 import com.jossephus.chuchu.ui.terminal.KeyboardAccessoryBar
 import com.jossephus.chuchu.ui.terminal.ModifierState
@@ -89,19 +90,23 @@ private fun TerminalViewModel.dispatchTextWithModifierState(
     text: String,
     modifierState: ModifierState,
 ) {
-    if (modifierState.cmd && !modifierState.alt) {
-        val mods = modifierState.terminalMods()
-        for (char in text) {
-            val ghosttyKey = char.toGhosttyKey()
-            if (ghosttyKey != null) {
-                onHardwareKey(ghosttyKey, char.code, mods, GhosttyKeyAction.Press)
-                onHardwareKey(ghosttyKey, char.code, mods, GhosttyKeyAction.Release)
-            } else {
-                onTextInput(modifierState.applyToText(char.toString()))
-            }
+    val mods = modifierState.terminalMods()
+    for (char in text) {
+        val ghosttyKey = when (char) {
+            '\r', '\n' -> GhosttyKey.enter
+            '\t' -> GhosttyKey.tab
+            else -> char.toGhosttyKey()
         }
-    } else {
-        onTextInput(modifierState.applyToText(text))
+        if (ghosttyKey != null) {
+            val codepoint = when (char) {
+                '\r', '\n', '\t' -> 0
+                else -> char.code
+            }
+            onHardwareKey(ghosttyKey, codepoint, mods, GhosttyKeyAction.Press)
+            onHardwareKey(ghosttyKey, codepoint, mods, GhosttyKeyAction.Release)
+        } else {
+            onTextInput(modifierState.applyToText(char.toString()))
+        }
     }
 }
 
