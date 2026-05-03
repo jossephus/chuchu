@@ -70,8 +70,13 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
             .link_libc = true,
+            .strip = true,
+            .unwind_tables = .none,
+            .omit_frame_pointer = true,
         }),
     });
+    lib.link_function_sections = true;
+    lib.link_data_sections = true;
 
     // Set libc file on libssh2 if provided
     if (libc_file) |path| {

@@ -51,6 +51,7 @@ fn buildNativeLibrary(
     const ghostty_dep = b.dependency("ghostty", .{
         .target = target,
         .optimize = optimize,
+        .simd = false,
     });
     const zigimg_dep = b.dependency("zigimg", .{
         .target = target,
@@ -105,6 +106,9 @@ fn buildNativeLibrary(
         .target = target,
         .optimize = optimize,
         .link_libc = true,
+        .strip = true,
+        .unwind_tables = .none,
+        .omit_frame_pointer = true,
     });
     root_module.addIncludePath(b.path("src/bridge"));
     root_module.addIncludePath(libssh2_upstream.path("include"));
@@ -116,6 +120,14 @@ fn buildNativeLibrary(
         .name = "chuchu_jni",
         .root_module = root_module,
     });
+    lib.link_function_sections = true;
+    lib.link_data_sections = true;
+    lib.link_gc_sections = true;
+    lib.link_eh_frame_hdr = false;
+    lib.lto = .thin;
+    root_module.strip = true;
+    root_module.unwind_tables = .none;
+    root_module.omit_frame_pointer = true;
 
     lib.addIncludePath(.{ .cwd_relative = include_dir });
     lib.addIncludePath(.{ .cwd_relative = target_include_dir });
@@ -128,6 +140,7 @@ fn buildNativeLibrary(
     lib.linkLibrary(libssh2);
     lib.linkSystemLibrary("log");
     lib.linkLibC();
+    lib.version_script = b.path("src/bridge/version-script.map");
 
     b.installArtifact(lib);
     return lib;

@@ -1,0 +1,10 @@
+{
+  global:
+    Java_*;
+    chuchu_*;
+    update_render_state;
+    shm_open;
+    shm_unlink;
+  local:
+    *;
+};
