@@ -11,10 +11,12 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.ui.screens.AddServer.AddServerScreen
 import com.jossephus.chuchu.ui.screens.AddServer.AddServerViewModel
 import com.jossephus.chuchu.ui.screens.ServerList.ServerListScreen
 import com.jossephus.chuchu.ui.screens.ServerList.ServerListViewModel
+import com.jossephus.chuchu.ui.screens.Settings.SettingsScreen
 import com.jossephus.chuchu.ui.screens.Terminal.TerminalScreen
 import com.jossephus.chuchu.ui.screens.Terminal.TerminalViewModel
 
@@ -37,6 +39,22 @@ fun ApplicationNavController() {
                 onEditServer = { id -> navController.navigate("servers/edit/$id") },
                 onConnectServer = { id -> navController.navigate("terminal/$id") },
                 onDeleteServer = vm::deleteServer,
+                onOpenSettings = { navController.navigate("settings") },
+            )
+        }
+        composable("settings") {
+            val settingsRepo = SettingsRepository.getInstance(application)
+            val themeName by settingsRepo.themeName.collectAsStateWithLifecycle()
+            val accessoryLayoutIds by settingsRepo.accessoryLayoutIds.collectAsStateWithLifecycle()
+            val customKeyGroups by settingsRepo.terminalCustomKeyGroups.collectAsStateWithLifecycle()
+            SettingsScreen(
+                currentTheme = themeName,
+                currentAccessoryLayoutIds = accessoryLayoutIds,
+                currentTerminalCustomKeyGroups = customKeyGroups,
+                onThemeSelected = settingsRepo::setTheme,
+                onAccessoryLayoutChanged = settingsRepo::setAccessoryLayoutIds,
+                onTerminalCustomActionsChanged = settingsRepo::setTerminalCustomKeyGroups,
+                onBack = { navController.popBackStack() },
             )
         }
         composable("servers/add") {
@@ -63,7 +81,11 @@ fun ApplicationNavController() {
         ) { backStackEntry ->
             val id = backStackEntry.arguments?.getLong("id")
             val vm: TerminalViewModel = viewModel(factory = TerminalViewModel.factory(application))
-            TerminalScreen(vm = vm, hostId = id)
+            TerminalScreen(
+                vm = vm,
+                hostId = id,
+                onOpenSettings = { navController.navigate("settings") },
+            )
         }
     }
 }

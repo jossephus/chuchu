@@ -79,7 +79,6 @@ import com.jossephus.chuchu.ui.terminal.decodeCustomActionValue
 import com.jossephus.chuchu.ui.terminal.modifierStateForCustomAction
 import com.jossephus.chuchu.ui.terminal.toGhosttyKey
 import com.jossephus.chuchu.data.repository.SettingsRepository
-import com.jossephus.chuchu.ui.screens.Settings.SettingsSheet
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
 import com.jossephus.chuchu.ui.theme.GhosttyThemeRegistry
@@ -208,6 +207,7 @@ private fun TerminalCustomActionsFab(
 fun TerminalScreen(
     vm: TerminalViewModel,
     hostId: Long?,
+    onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val sessionState by vm.sessionState.collectAsStateWithLifecycle()
@@ -220,7 +220,6 @@ fun TerminalScreen(
     val typography = ChuTypography.current
     val screenInsetsModifier = modifier.windowInsetsPadding(WindowInsets.safeDrawing)
     var lastSessionStatus by remember { mutableStateOf<SessionStatus?>(null) }
-    var showSettings by remember { mutableStateOf(false) }
     val settingsRepo = remember(context) { SettingsRepository.getInstance(context) }
     val currentTheme by settingsRepo.themeName.collectAsStateWithLifecycle()
     val currentAccessoryLayoutIds by settingsRepo.accessoryLayoutIds.collectAsStateWithLifecycle()
@@ -624,23 +623,11 @@ fun TerminalScreen(
                         items = accessoryLayout,
                         modifierState = modifierState,
                         onAction = ::dispatchAccessoryAction,
-                        onSettings = { showSettings = true },
+                        onSettings = onOpenSettings,
                         modifier = Modifier.padding(bottom = 2.dp),
                     )
                 }
 
-                if (showSettings) {
-                    SettingsSheet(
-                        visible = true,
-                        currentTheme = currentTheme,
-                        currentAccessoryLayoutIds = currentAccessoryLayoutIds,
-                        currentTerminalCustomKeyGroups = currentTerminalCustomKeyGroups,
-                        onThemeSelected = { settingsRepo.setTheme(it) },
-                        onAccessoryLayoutChanged = { settingsRepo.setAccessoryLayoutIds(it) },
-                        onTerminalCustomActionsChanged = { settingsRepo.setTerminalCustomKeyGroups(it) },
-                        onDismiss = { showSettings = false },
-                    )
-                }
                 }
             } else {
                 Column(

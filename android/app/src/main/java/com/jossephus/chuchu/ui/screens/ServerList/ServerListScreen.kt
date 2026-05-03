@@ -26,10 +26,8 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,7 +40,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.widget.Toast
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
-import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.model.HostProfile
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.terminal.SessionStatus
@@ -51,7 +48,6 @@ import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuCard
 import com.jossephus.chuchu.ui.components.ChuText
-import com.jossephus.chuchu.ui.screens.Settings.SettingsSheet
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
 
@@ -64,21 +60,17 @@ fun ServerListScreen(
     onEditServer: (Long) -> Unit,
     onConnectServer: (Long) -> Unit,
     onDeleteServer: (Long) -> Unit,
+    onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
-    val settingsRepo = remember(context) { SettingsRepository.getInstance(context) }
     val application = context.applicationContext as Application
     val sessionRepo = remember(application) { TerminalSessionRepository.getInstance(application) }
-    val currentTheme by settingsRepo.themeName.collectAsStateWithLifecycle()
-    val currentAccessoryLayoutIds by settingsRepo.accessoryLayoutIds.collectAsStateWithLifecycle()
-    val currentTerminalCustomKeyGroups by settingsRepo.terminalCustomKeyGroups.collectAsStateWithLifecycle()
     val sessionState by sessionRepo.sessionState.collectAsStateWithLifecycle()
     val activeSessionKey = sessionState.sessionKey
     val hasActiveSession = sessionState.status == SessionStatus.Connecting ||
         sessionState.status == SessionStatus.Connected ||
         sessionState.status == SessionStatus.Reconnecting
-    var showSettings by remember { mutableStateOf(false) }
 
     val colors = ChuColors.current
     val typography = ChuTypography.current
@@ -102,7 +94,7 @@ fun ServerListScreen(
                 ChuText("Chuchu", style = typography.headline)
 
                 ChuButton(
-                    onClick = { showSettings = true },
+                    onClick = onOpenSettings,
                     variant = ChuButtonVariant.Ghost,
                     contentPadding = PaddingValues(8.dp),
                 ) {
@@ -153,18 +145,6 @@ fun ServerListScreen(
             ChuText("Add Server", style = typography.label, color = colors.onAccent)
         }
 
-        if (showSettings) {
-            SettingsSheet(
-                visible = true,
-                currentTheme = currentTheme,
-                currentAccessoryLayoutIds = currentAccessoryLayoutIds,
-                currentTerminalCustomKeyGroups = currentTerminalCustomKeyGroups,
-                onThemeSelected = { settingsRepo.setTheme(it) },
-                onAccessoryLayoutChanged = { settingsRepo.setAccessoryLayoutIds(it) },
-                onTerminalCustomActionsChanged = { settingsRepo.setTerminalCustomKeyGroups(it) },
-                onDismiss = { showSettings = false },
-            )
-        }
     }
 }
 
