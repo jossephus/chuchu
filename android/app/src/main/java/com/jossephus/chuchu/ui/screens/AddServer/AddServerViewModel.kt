@@ -75,6 +75,7 @@ class AddServerViewModel(
                     keyPassphrase = profile.keyPassphrase,
                     transport = profile.transport,
                     authMethod = profile.authMethod,
+                    requireAuthOnConnect = profile.requireAuthOnConnect,
                 )
             }
         }
@@ -182,6 +183,10 @@ class AddServerViewModel(
         _form.value = current.copy(authMethod = authMethod)
     }
 
+    fun updateRequireAuthOnConnect(enabled: Boolean) {
+        _form.value = _form.value.copy(requireAuthOnConnect = enabled)
+    }
+
     fun testConnection() {
         val current = _form.value
         if (current.host.isBlank()) return
@@ -238,6 +243,7 @@ class AddServerViewModel(
                 keyPassphrase = current.keyPassphrase,
                 transport = current.transport,
                 authMethod = current.authMethod,
+                requireAuthOnConnect = current.requireAuthOnConnect,
             )
             hostRepository.upsert(profile)
             onComplete()
@@ -258,6 +264,7 @@ data class AddServerForm(
     val keyPassphrase: String = "",
     val transport: Transport = Transport.SSH,
     val authMethod: AuthMethod = AuthMethod.Password,
+    val requireAuthOnConnect: Boolean = false,
 )
 
 fun AddServerForm.canSave(): Boolean {

@@ -248,6 +248,21 @@ fun AddServerScreen(
 
         SectionDivider()
 
+        SectionHeader("Security")
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        ) {
+            ChuText("Require verification before connect", style = typography.label)
+            ChuSwitch(
+                checked = form.requireAuthOnConnect,
+                onCheckedChange = vm::updateRequireAuthOnConnect,
+            )
+        }
+
+        SectionDivider()
+
         // --- Actions ---
         val canTest = form.host.isNotBlank() && form.username.isNotBlank()
         ChuButton(

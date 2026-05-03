@@ -86,6 +86,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.4")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
+    implementation("androidx.biometric:biometric:1.2.0-alpha05")
+    implementation("androidx.fragment:fragment-ktx:1.8.2")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     implementation(libs.androidx.compose.foundation)

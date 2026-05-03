@@ -26,10 +26,13 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -186,6 +189,7 @@ private fun HostCard(
     val maxSwipePx = with(density) { 120.dp.toPx() }
     val deleteThresholdPx = with(density) { 72.dp.toPx() }
     val offsetX = remember(host.id) { Animatable(0f) }
+    var revealAddress by remember(host.id) { mutableStateOf(false) }
     val cardShape = RoundedCornerShape(4.dp)
     val activeBorderColor = colors.success.copy(alpha = 0.8f)
 
@@ -268,6 +272,10 @@ private fun HostCard(
                             "${host.username}@${host.host}:${host.port}",
                             style = typography.body,
                             color = colors.textSecondary,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .clickable { revealAddress = !revealAddress }
+                                .then(if (revealAddress) Modifier else Modifier.blur(8.dp)),
                         )
                         if (host.transport == Transport.TailscaleSSH) {
                             Box(

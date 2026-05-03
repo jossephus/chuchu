@@ -1,5 +1,6 @@
 package com.jossephus.chuchu.model
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -19,4 +20,6 @@ data class HostProfile(
     val keyPassphrase: String = "",
     val transport: Transport = Transport.SSH,
     val authMethod: AuthMethod = AuthMethod.Password,
+    @ColumnInfo(defaultValue = "0")
+    val requireAuthOnConnect: Boolean = false,
 )

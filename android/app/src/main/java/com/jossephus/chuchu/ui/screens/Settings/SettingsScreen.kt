@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
+import com.jossephus.chuchu.ui.components.ChuSwitch
 import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.terminal.TerminalCustomKeyGroup
 import com.jossephus.chuchu.ui.theme.ChuColors
@@ -38,9 +39,13 @@ enum class SettingsCategory(val label: String) {
 @Composable
 fun SettingsScreen(
     currentTheme: String,
+    appLockEnabled: Boolean,
+    requireAuthOnConnect: Boolean,
     currentAccessoryLayoutIds: List<String>,
     currentTerminalCustomKeyGroups: List<TerminalCustomKeyGroup>,
     onThemeSelected: (String) -> Unit,
+    onAppLockEnabledChanged: (Boolean) -> Unit,
+    onRequireAuthOnConnectChanged: (Boolean) -> Unit,
     onAccessoryLayoutChanged: (List<String>) -> Unit,
     onTerminalCustomActionsChanged: (List<TerminalCustomKeyGroup>) -> Unit,
     onBack: () -> Unit,
@@ -110,6 +115,10 @@ fun SettingsScreen(
                 SettingsCategory.General -> GeneralSettings(
                     currentTheme = currentTheme,
                     onThemeSelected = onThemeSelected,
+                    appLockEnabled = appLockEnabled,
+                    requireAuthOnConnect = requireAuthOnConnect,
+                    onAppLockEnabledChanged = onAppLockEnabledChanged,
+                    onRequireAuthOnConnectChanged = onRequireAuthOnConnectChanged,
                 )
                 SettingsCategory.Terminal -> TerminalSettings(
                     currentAccessoryLayoutIds = currentAccessoryLayoutIds,
@@ -143,9 +152,37 @@ fun SettingsScreen(
 private fun GeneralSettings(
     currentTheme: String,
     onThemeSelected: (String) -> Unit,
+    appLockEnabled: Boolean,
+    requireAuthOnConnect: Boolean,
+    onAppLockEnabledChanged: (Boolean) -> Unit,
+    onRequireAuthOnConnectChanged: (Boolean) -> Unit,
 ) {
+    val typography = ChuTypography.current
+    val colors = ChuColors.current
     ThemeSelectorSection(
         currentTheme = currentTheme,
         onThemeSelected = onThemeSelected,
     )
+    Spacer(modifier = Modifier.height(16.dp))
+    ChuText("Security", style = typography.title)
+    Spacer(modifier = Modifier.height(8.dp))
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ChuText("Lock app on open", style = typography.label)
+        ChuSwitch(checked = appLockEnabled, onCheckedChange = onAppLockEnabledChanged)
+    }
+    Spacer(modifier = Modifier.height(8.dp))
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ChuText("Verify before server connect", style = typography.label)
+        ChuSwitch(checked = requireAuthOnConnect, onCheckedChange = onRequireAuthOnConnectChanged)
+    }
+    Spacer(modifier = Modifier.height(4.dp))
+    ChuText("Use biometrics or device PIN/pattern.", style = typography.bodySmall, color = colors.textMuted)
 }

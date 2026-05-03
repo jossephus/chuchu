@@ -13,10 +13,11 @@ import com.jossephus.chuchu.model.SshKey
 
 @Database(
     entities = [HostProfile::class, SshKey::class],
-    version = 7,
+    version = 8,
     autoMigrations = [
         AutoMigration(from = 5, to = 6),
         AutoMigration(from = 6, to = 7, spec = AppDatabase.Migration6To7::class),
+        AutoMigration(from = 7, to = 8),
     ],
 )
 @TypeConverters(Converters::class)
