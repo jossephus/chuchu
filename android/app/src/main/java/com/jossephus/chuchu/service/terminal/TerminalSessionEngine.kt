@@ -2,6 +2,10 @@ package com.jossephus.chuchu.service.terminal
 
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.Transport
+import com.jossephus.chuchu.service.mosh.MoshBootstrapParser
+import com.jossephus.chuchu.service.mosh.MoshEventType
+import com.jossephus.chuchu.service.mosh.MoshState
+import com.jossephus.chuchu.service.mosh.NativeMoshService
 import com.jossephus.chuchu.service.ssh.HostKeyStore
 import com.jossephus.chuchu.service.ssh.NativeSshService
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
@@ -13,9 +17,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import org.json.JSONObject
 import java.nio.file.Path
 import java.util.concurrent.Executors
 import android.util.Log
@@ -72,6 +79,7 @@ class TerminalSessionEngine(
 
     private val bridge = GhosttyBridge()
     private val nativeSsh = NativeSshService(hostKeyPolicy = ::verifyHostKey)
+    private val moshService = NativeMoshService()
 
     private var handle: Long = 0L
     private var readJob: Job? = null
@@ -152,6 +160,22 @@ class TerminalSessionEngine(
                     status = SessionStatus.Error,
                     sessionKey = sessionKey,
                     error = "Native terminal library ${bridge.nativeStatus()}. Check ABI/NDK build.",
+                )
+                return@launch
+            }
+            if (transport != Transport.Mosh && !nativeSsh.isAvailable()) {
+                _state.value = SessionState(
+                    status = SessionStatus.Error,
+                    sessionKey = sessionKey,
+                    error = "Native SSH unavailable. Check ABI/NDK build.",
+                )
+                return@launch
+            }
+            if (transport == Transport.Mosh && !moshService.isLoaded) {
+                _state.value = SessionState(
+                    status = SessionStatus.Error,
+                    sessionKey = sessionKey,
+                    error = "Native mosh unavailable. Check ABI/NDK build.",
                 )
                 return@launch
             }
@@ -326,6 +350,7 @@ class TerminalSessionEngine(
             readJob?.cancel()
             readJob = null
             nativeSsh.close()
+            moshService.close()
             if (handle != 0L) {
                 bridge.nativeDestroy(handle)
                 handle = 0L
@@ -381,58 +406,214 @@ class TerminalSessionEngine(
 
     private fun startReadLoop() {
         readJob = scope.launch(dispatcher) {
-            val buf = ByteArray(65536)
             try {
-                while (isActive) {
-                    val chunk = nativeSsh.read(buf.size)
-                    if (chunk == null) {
-                        break
-                    }
-                    if (chunk.isEmpty()) {
-                        delay(2)
-                        continue
-                    }
-                    if (handle == 0L) continue
-                    val wasImageLoading = bridge.nativeIsImageLoading(handle)
-                    flushPtyWrites()
-                    bridge.nativeWriteRemote(handle, chunk)
-                    flushPtyWrites()
-                    val isImageLoading = bridge.nativeIsImageLoading(handle)
-                    when {
-                        wasImageLoading && !isImageLoading -> {
-                            requestSnapshot(force = true)
-                        }
-                        !isImageLoading -> requestSnapshot()
-                    }
+                if (lastConnectionParams?.transport == Transport.Mosh) {
+                    startMoshReadLoop()
+                } else {
+                    startSshReadLoop()
                 }
             } catch (e: Exception) {
-                android.util.Log.e("TerminalSession", "Read loop failed", e)
+                Log.e("TerminalSession", "Read loop failed", e)
             }
             scheduleReconnect("Connection interrupted")
         }
     }
 
-    private fun establishConnection(params: ConnectionParams, username: String) {
+    private suspend fun startSshReadLoop() {
+        val buf = ByteArray(65536)
+        while (currentCoroutineContext().isActive) {
+            val chunk = nativeSsh.read(buf.size)
+            if (chunk == null) {
+                break
+            }
+            if (chunk.isEmpty()) {
+                delay(2)
+                continue
+            }
+            if (handle == 0L) continue
+            val wasImageLoading = bridge.nativeIsImageLoading(handle)
+            flushPtyWrites()
+            bridge.nativeWriteRemote(handle, chunk)
+            flushPtyWrites()
+            val isImageLoading = bridge.nativeIsImageLoading(handle)
+            when {
+                wasImageLoading && !isImageLoading -> {
+                    requestSnapshot(force = true)
+                }
+                !isImageLoading -> requestSnapshot()
+            }
+        }
+    }
+
+    private suspend fun startMoshReadLoop() {
+        Log.d("TerminalSession", "MOSH: read loop started")
+        var loopCount = 0
+        while (currentCoroutineContext().isActive) {
+            loopCount++
+
+            // Drive retransmissions, acks, heartbeats, timeout checks
+            val tickOk = moshService.maintenanceTick()
+            if (!tickOk) {
+                Log.w("TerminalSession", "MOSH: maintenanceTick returned false")
+            }
+
+            // Drive the UDP socket (send queued datagrams, receive inbound)
+            val pumpOk = moshService.pumpNetwork()
+            if (!pumpOk) {
+                Log.w("TerminalSession", "MOSH: pumpNetwork returned false")
+            }
+
+            // Drain all available output events
+            var hadEvent = false
+            while (true) {
+                val event = moshService.pollOutput() ?: break
+                hadEvent = true
+                when (event.eventType) {
+                    MoshEventType.HostBytes.code -> {
+                        if (event.payload.isNotEmpty() && handle != 0L) {
+                            bridge.nativeWriteRemote(handle, event.payload)
+                        }
+                    }
+                    MoshEventType.Resize.code -> {
+                        if (event.cols > 0 && event.rows > 0) {
+                            cols = event.cols
+                            rows = event.rows
+                            bridge.nativeResize(handle, cols, rows, cellWidth, cellHeight)
+                        }
+                    }
+                    MoshEventType.EchoAck.code -> Unit
+                    MoshEventType.StateChanged.code -> {
+                        Log.d("TerminalSession", "MOSH: STATE_CHANGED: ${String(event.payload)}")
+                    }
+                    MoshEventType.Diagnostic.code -> {
+                        Log.d("TerminalSession", "MOSH: DIAG: ${String(event.payload)}")
+                    }
+                    else -> {
+                        Log.d("TerminalSession", "MOSH: unknown event type=${event.eventType}")
+                    }
+                }
+            }
+
+            if (hadEvent && handle != 0L) {
+                requestSnapshot()
+            }
+
+            // Check session health
+            val runtime = moshService.pollState()
+            if (runtime != null) {
+                if (runtime.state == MoshState.Failed.code) {
+                    Log.e("TerminalSession", "MOSH: session FAILED code=${runtime.lastFailureCode}")
+                    break
+                }
+            }
+
+            delay(2)
+        }
+        Log.d("TerminalSession", "MOSH: read loop exited after $loopCount iterations")
+    }
+
+    private suspend fun establishConnection(params: ConnectionParams, username: String) {
         if (handle != 0L) {
             bridge.nativeDestroy(handle)
             handle = 0L
         }
         nativeSsh.close()
+        moshService.close()
         handle = bridge.nativeCreate(cols, rows, 1000)
         applyTerminalOptions()
-        val authPassword = if (params.authMethod == AuthMethod.Password) params.password else null
+
+        when (params.transport) {
+            Transport.Mosh -> establishMoshConnection(params, username)
+            else -> establishSshConnection(params, username)
+        }
+    }
+
+    private fun establishSshConnection(params: ConnectionParams, username: String) {
         check(nativeSsh.isAvailable()) { "Native SSH unavailable" }
         nativeSsh.connect(
             host = params.host,
             port = params.port,
             username = username,
             authMethod = params.authMethod,
-            password = authPassword.orEmpty(),
+            password = if (params.authMethod == AuthMethod.Password) params.password else "",
             publicKeyOpenSsh = params.publicKeyOpenSsh,
             privateKeyPem = params.privateKeyPem,
             keyPassphrase = params.keyPassphrase,
         )
         nativeSsh.openShell(cols, rows, screenWidth, screenHeight)
+    }
+
+    private suspend fun establishMoshConnection(params: ConnectionParams, username: String) {
+        Log.d("TerminalSession", "MOSH: Phase 1 — SSH bootstrap start")
+        check(nativeSsh.isAvailable()) { "Native SSH unavailable for mosh bootstrap" }
+        nativeSsh.connect(
+            host = params.host,
+            port = params.port,
+            username = username,
+            authMethod = params.authMethod,
+            password = if (params.authMethod == AuthMethod.Password) params.password else "",
+            publicKeyOpenSsh = params.publicKeyOpenSsh,
+            privateKeyPem = params.privateKeyPem,
+            keyPassphrase = params.keyPassphrase,
+        )
+        nativeSsh.openShell(cols, rows, screenWidth, screenHeight)
+        Log.d("TerminalSession", "MOSH: SSH connected, shell opened")
+
+        // Send the mosh-server command and collect output
+        val command = "mosh-server new -s -c 256 -l LC_ALL=en_US.UTF-8\n"
+        nativeSsh.write(command.toByteArray(Charsets.UTF_8))
+        Log.d("TerminalSession", "MOSH: Sent mosh-server command")
+
+        // Read output until we find MOSH CONNECT or timeout
+        val outputBuffer = StringBuilder()
+        val deadline = System.currentTimeMillis() + 10_000
+        var found = false
+        while (System.currentTimeMillis() < deadline) {
+            val chunk = nativeSsh.read(4096)
+            if (chunk != null && chunk.isNotEmpty()) {
+                val text = String(chunk, Charsets.UTF_8)
+                Log.d("TerminalSession", "MOSH: SSH chunk: ${text.take(200)}")
+                outputBuffer.append(text)
+                val result = MoshBootstrapParser.parse(params.host, outputBuffer.toString())
+                if (result is MoshBootstrapParser.ParseResult.Success) {
+                    found = true
+                    Log.d("TerminalSession", "MOSH: Parsed endpoint host=${result.endpoint.host} port=${result.endpoint.port}")
+                    nativeSsh.close()
+
+                    val configJson = JSONObject().apply {
+                        put("host", result.endpoint.host)
+                        put("port", result.endpoint.port)
+                        put("keyBase64_22", result.endpoint.key)
+                        put("useNetworkCrypto", true)
+                    }.toString()
+                    Log.d("TerminalSession", "MOSH: Creating mosh client with JSON: $configJson")
+                    if (!moshService.create(configJson)) {
+                        throw IllegalStateException("Failed to create mosh client")
+                    }
+                    Log.d("TerminalSession", "MOSH: mosh client created, starting...")
+                    if (!moshService.start()) {
+                        throw IllegalStateException("Failed to start mosh client")
+                    }
+                    Log.d("TerminalSession", "MOSH: mosh client started, resizing $cols x $rows")
+                    moshService.resize(cols, rows)
+                    break
+                }
+            } else {
+                delay(50)
+            }
+        }
+        if (!found) {
+            nativeSsh.close()
+            val result = MoshBootstrapParser.parse(params.host, outputBuffer.toString())
+            val reason = if (result is MoshBootstrapParser.ParseResult.Error) {
+                result.reason
+            } else {
+                "Mosh bootstrap timeout"
+            }
+            Log.e("TerminalSession", "MOSH: Bootstrap failed: $reason")
+            throw IllegalStateException(reason)
+        }
+        Log.d("TerminalSession", "MOSH: Phase 2 — mosh client ready")
     }
 
     private fun scheduleReconnect(reason: String) {
@@ -449,7 +630,7 @@ class TerminalSessionEngine(
             readJob?.cancel()
             readJob = null
             var attempt = 0
-            while (isActive && !disconnectRequested) {
+            while (currentCoroutineContext().isActive && !disconnectRequested) {
                 attempt += 1
                 _state.value = _state.value.copy(
                     status = SessionStatus.Reconnecting,
@@ -514,7 +695,11 @@ class TerminalSessionEngine(
     }
 
     private fun writeRemote(data: ByteArray) {
-        nativeSsh.write(data)
+        if (lastConnectionParams?.transport == Transport.Mosh) {
+            moshService.sendInput(data)
+        } else {
+            nativeSsh.write(data)
+        }
     }
 
     private fun flushPtyWrites() {
@@ -523,7 +708,7 @@ class TerminalSessionEngine(
             val ptyWrites = bridge.nativeDrainPtyWrites(handle)
             if (ptyWrites.isEmpty()) return
             try {
-                nativeSsh.write(ptyWrites)
+                writeRemote(ptyWrites)
             } catch (e: Exception) {
                 Log.e("TerminalSession", "flushPtyWrites failed: ${e.message}")
                 scope.launch(dispatcher) {
@@ -538,7 +723,12 @@ class TerminalSessionEngine(
     }
 
     private fun resizeRemote(cols: Int, rows: Int, widthPx: Int, heightPx: Int) {
-        nativeSsh.resize(cols, rows, widthPx, heightPx)
+        if (lastConnectionParams?.transport == Transport.Mosh) {
+            Log.d("TerminalSession", "MOSH: resizeRemote ${cols}x${rows}")
+            moshService.resize(cols, rows)
+        } else {
+            nativeSsh.resize(cols, rows, widthPx, heightPx)
+        }
     }
 
     private fun requestSnapshot(force: Boolean = false) {

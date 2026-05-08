@@ -139,10 +139,11 @@ fun AddServerScreen(
         // --- Transport ---
         SectionHeader("Transport")
         ChuSegmentedControl(
-            options = listOf(Transport.SSH, Transport.TailscaleSSH),
+            options = listOf(Transport.SSH, Transport.TailscaleSSH, Transport.Mosh),
             labels = mapOf(
                 Transport.SSH to "SSH",
                 Transport.TailscaleSSH to "Tailscale",
+                Transport.Mosh to "Mosh",
             ),
             selected = form.transport,
             onSelect = vm::updateTransport,

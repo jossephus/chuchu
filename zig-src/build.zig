@@ -57,6 +57,10 @@ fn buildNativeLibrary(
         .target = target,
         .optimize = optimize,
     });
+    const mosh_dep = b.dependency("mosh", .{
+        .target = target,
+        .optimize = optimize,
+    });
 
     const ndk_root = b.graph.env_map.get("ANDROID_NDK_HOME") orelse b.graph.env_map.get("ANDROID_NDK_ROOT").?;
     const ndk_home = resolveNdkHome(b, ndk_root);
@@ -115,6 +119,8 @@ fn buildNativeLibrary(
     root_module.addImport("ghostty-vt", ghostty_dep.module("ghostty-vt"));
     root_module.addImport("zigimg", zigimg_dep.module("zigimg"));
 
+    root_module.addImport("mosh", mosh_dep.module("mosh"));
+
     const lib = b.addLibrary(.{
         .linkage = .dynamic,
         .name = "chuchu_jni",
@@ -139,6 +145,7 @@ fn buildNativeLibrary(
     lib.setLibCFile(libc_config);
     lib.linkLibrary(libssh2);
     lib.linkSystemLibrary("log");
+    lib.linkSystemLibrary("z");
     lib.linkLibC();
     lib.version_script = b.path("src/bridge/version-script.map");
 
@@ -150,18 +157,14 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const has_android_ndk = b.graph.env_map.get("ANDROID_NDK_HOME") != null or b.graph.env_map.get("ANDROID_NDK_ROOT") != null;
 
-    if (!has_android_ndk) {
-        std.debug.print("Error: ANDROID_NDK_HOME or ANDROID_NDK_ROOT environment variable must be set\n", .{});
-        std.process.exit(1);
-    }
-
     const native_step = b.step("native", "Build native JNI library");
     const jni_step = b.step("jni", "Build native library and copy to jniLibs");
 
-    for (build_targets) |target_query| {
-        const resolved_target = b.resolveTargetQuery(target_query);
-        const native_lib = buildNativeLibrary(b, resolved_target, optimize);
-        native_step.dependOn(&native_lib.step);
+    if (has_android_ndk) {
+        for (build_targets) |target_query| {
+            const resolved_target = b.resolveTargetQuery(target_query);
+            const native_lib = buildNativeLibrary(b, resolved_target, optimize);
+            native_step.dependOn(&native_lib.step);
 
         const abi_name = ndk.getOutputDir(resolved_target.result) catch unreachable;
         const jni_lib_dir = b.fmt("../android/app/src/main/jniLibs/{s}", .{abi_name});
@@ -175,11 +178,12 @@ pub fn build(b: *std.Build) void {
         _ = copy_to_jni_libs.addArg(b.fmt("{s}/libchuchu_jni.so", .{jni_lib_dir}));
 
         jni_step.dependOn(&copy_to_jni_libs.step);
+        }
     }
 
     // Test: try building openssl for aarch64 android
     const openssl_test_step = b.step("test-openssl", "Test building OpenSSL for Android aarch64");
-    {
+    if (has_android_ndk) {
         const test_target = b.resolveTargetQuery(.{
             .cpu_arch = .aarch64,
             .os_tag = .linux,
