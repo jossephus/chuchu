@@ -22,8 +22,12 @@ android {
         applicationId = "com.jossephus.chuchu"
         minSdk = 24
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.1.3"
+
+        val major = (System.getenv("VERSION_MAJOR")?.toIntOrNull() ?: 0)
+        val minor = (System.getenv("VERSION_MINOR")?.toIntOrNull() ?: 1)
+        val patch = (System.getenv("VERSION_PATCH")?.toIntOrNull() ?: 3)
+        versionCode = major * 10_000 + minor * 100 + patch
+        versionName = "$major.$minor.$patch"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

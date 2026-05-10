@@ -16,6 +16,7 @@ jobs:
     permissions:
       contents: write
       id-token: write
+      pull-requests: write
     runs-on: ubuntu-latest
 
     steps:
@@ -26,6 +27,30 @@ jobs:
 
       - name: nix shell
         run: nix develop -L --verbose
+
+      - name: parse version from tag
+        id: version
+        if: ${{ github.ref_type == 'tag' || inputs.release_tag != '' }}
+        run: |
+          set -e
+          TAG="${{ github.ref_type == 'tag' && github.ref_name || inputs.release_tag }}"
+          VERSION="${TAG#v}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Tag '$TAG' is not a valid semver (expected MAJOR.MINOR.PATCH, optionally prefixed with 'v')"
+            exit 1
+          fi
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+          for COMPONENT in "$MAJOR" "$MINOR" "$PATCH"; do
+            if [ "$COMPONENT" -gt 99 ]; then
+              echo "::error::Version component '$COMPONENT' exceeds 99 (MMmmpp scheme limit)"
+              exit 1
+            fi
+          done
+          echo "major=$MAJOR" >> "$GITHUB_OUTPUT"
+          echo "minor=$MINOR" >> "$GITHUB_OUTPUT"
+          echo "patch=$PATCH" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Parsed version: $VERSION (major=$MAJOR minor=$MINOR patch=$PATCH)"
 
       - name: build chuchu_jni
         run: |
@@ -40,10 +65,13 @@ jobs:
           cd android/app/ && echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > key.jks
 
       - name: build android release
-        env: 
+        env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          VERSION_MAJOR: ${{ steps.version.outputs.major }}
+          VERSION_MINOR: ${{ steps.version.outputs.minor }}
+          VERSION_PATCH: ${{ steps.version.outputs.patch }}
         run: |
           nix develop -c bash -c '
             set -e
@@ -63,3 +91,32 @@ jobs:
           files: |
             ./android/app/build/outputs/apk/release/*.apk
           fail_on_unmatched_files: true
+
+      - name: sync version in build.gradle.kts
+        if: ${{ steps.version.outputs.version != '' }}
+        run: |
+          set -e
+          FILE=android/app/build.gradle.kts
+          sed -i -E \
+            -e 's/(VERSION_MAJOR"\)\?\.toIntOrNull\(\) \?: )[0-9]+/\1${{ steps.version.outputs.major }}/' \
+            -e 's/(VERSION_MINOR"\)\?\.toIntOrNull\(\) \?: )[0-9]+/\1${{ steps.version.outputs.minor }}/' \
+            -e 's/(VERSION_PATCH"\)\?\.toIntOrNull\(\) \?: )[0-9]+/\1${{ steps.version.outputs.patch }}/' \
+            "$FILE"
+          echo "--- updated $FILE ---"
+          grep -n 'VERSION_' "$FILE" || true
+
+      - name: open version-bump PR
+        if: ${{ steps.version.outputs.version != '' }}
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "chore: bump version to ${{ steps.version.outputs.version }}"
+          title: "chore: bump version to ${{ steps.version.outputs.version }}"
+          body: |
+            Automated bump after releasing `${{ steps.version.outputs.version }}`.
+
+            Updates the fallback values in `android/app/build.gradle.kts` so the
+            source tree matches the most recent published tag.
+          branch: chore/bump-version-${{ steps.version.outputs.version }}
+          base: ${{ github.event.repository.default_branch }}
+          delete-branch: true
+          add-paths: android/app/build.gradle.kts
