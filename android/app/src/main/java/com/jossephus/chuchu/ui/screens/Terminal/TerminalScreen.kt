@@ -244,6 +244,7 @@ fun TerminalScreen(
     val settingsRepo = remember(context) { SettingsRepository.getInstance(context) }
     val currentTheme by settingsRepo.themeName.collectAsStateWithLifecycle()
     val currentAccessoryLayoutIds by settingsRepo.accessoryLayoutIds.collectAsStateWithLifecycle()
+    val useSingleRowAccessoryBar by settingsRepo.accessoryBarSingleRow.collectAsStateWithLifecycle()
     val currentTerminalCustomKeyGroups by settingsRepo.terminalCustomKeyGroups.collectAsStateWithLifecycle()
     val accessoryLayout = remember(currentAccessoryLayoutIds) {
         TerminalAccessoryLayoutStore.resolveSelectedLayout(currentAccessoryLayoutIds)
@@ -740,6 +741,7 @@ fun TerminalScreen(
                             onAction = ::dispatchAccessoryAction,
                             onSettings = onOpenSettings,
                             onOpenFiles = { vm.selectTab(ConnectionTab.Files) },
+                            useSingleRow = useSingleRowAccessoryBar,
                             modifier = Modifier.padding(bottom = 2.dp),
                         )
                     }

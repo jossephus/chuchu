@@ -23,6 +23,9 @@ class SettingsRepository(context: Context) {
     private val _terminalCustomKeyGroups = MutableStateFlow(loadTerminalCustomKeyGroups())
     val terminalCustomKeyGroups: StateFlow<List<TerminalCustomKeyGroup>> = _terminalCustomKeyGroups.asStateFlow()
 
+    private val _accessoryBarSingleRow = MutableStateFlow(prefs.getBoolean(KEY_ACCESSORY_BAR_SINGLE_ROW, false))
+    val accessoryBarSingleRow: StateFlow<Boolean> = _accessoryBarSingleRow.asStateFlow()
+
     private val _appLockEnabled = MutableStateFlow(prefs.getBoolean(KEY_APP_LOCK_ENABLED, false))
     val appLockEnabled: StateFlow<Boolean> = _appLockEnabled.asStateFlow()
 
@@ -45,6 +48,11 @@ class SettingsRepository(context: Context) {
         val serialized = TerminalCustomActionStore.serialize(normalized)
         prefs.edit().putString(KEY_TERMINAL_CUSTOM_ACTIONS, serialized).apply()
         _terminalCustomKeyGroups.value = normalized
+    }
+
+    fun setAccessoryBarSingleRow(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_ACCESSORY_BAR_SINGLE_ROW, enabled).apply()
+        _accessoryBarSingleRow.value = enabled
     }
 
     fun setAppLockEnabled(enabled: Boolean) {
@@ -77,6 +85,7 @@ class SettingsRepository(context: Context) {
         private const val KEY_THEME = "theme_name"
         private const val KEY_ACCESSORY_LAYOUT = "terminal_accessory_layout"
         private const val KEY_TERMINAL_CUSTOM_ACTIONS = "terminal_custom_actions"
+        private const val KEY_ACCESSORY_BAR_SINGLE_ROW = "terminal_accessory_bar_single_row"
         private const val KEY_APP_LOCK_ENABLED = "app_lock_enabled"
         private const val KEY_REQUIRE_AUTH_ON_CONNECT = "require_auth_on_connect"
         const val DEFAULT_THEME = "Catppuccin Mocha"

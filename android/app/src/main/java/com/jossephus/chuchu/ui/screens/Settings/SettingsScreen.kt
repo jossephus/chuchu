@@ -42,11 +42,13 @@ fun SettingsScreen(
     appLockEnabled: Boolean,
     requireAuthOnConnect: Boolean,
     currentAccessoryLayoutIds: List<String>,
+    accessoryBarSingleRow: Boolean,
     currentTerminalCustomKeyGroups: List<TerminalCustomKeyGroup>,
     onThemeSelected: (String) -> Unit,
     onAppLockEnabledChanged: (Boolean) -> Unit,
     onRequireAuthOnConnectChanged: (Boolean) -> Unit,
     onAccessoryLayoutChanged: (List<String>) -> Unit,
+    onAccessoryBarSingleRowChanged: (Boolean) -> Unit,
     onTerminalCustomActionsChanged: (List<TerminalCustomKeyGroup>) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -132,6 +134,8 @@ fun SettingsScreen(
                 SettingsCategory.Terminal -> TerminalSettings(
                     currentAccessoryLayoutIds = currentAccessoryLayoutIds,
                     onEditAccessoryLayout = { showAccessoryEditor = true },
+                    accessoryBarSingleRow = accessoryBarSingleRow,
+                    onAccessoryBarSingleRowChanged = onAccessoryBarSingleRowChanged,
                     currentTerminalCustomKeyGroups = currentTerminalCustomKeyGroups,
                     onEditCustomActions = { showCustomActionEditor = true },
                 )

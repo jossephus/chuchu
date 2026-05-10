@@ -47,6 +47,7 @@ import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuCard
 import com.jossephus.chuchu.ui.components.ChuText
+import com.jossephus.chuchu.ui.components.ChuSwitch
 import com.jossephus.chuchu.ui.terminal.AccessoryKeyItem
 import com.jossephus.chuchu.ui.terminal.KeyboardAccessoryBar
 import com.jossephus.chuchu.ui.terminal.ModifierState
@@ -60,6 +61,8 @@ import kotlin.math.roundToInt
 internal fun TerminalSettings(
     currentAccessoryLayoutIds: List<String>,
     onEditAccessoryLayout: () -> Unit,
+    accessoryBarSingleRow: Boolean,
+    onAccessoryBarSingleRowChanged: (Boolean) -> Unit,
     currentTerminalCustomKeyGroups: List<TerminalCustomKeyGroup>,
     onEditCustomActions: () -> Unit,
 ) {
@@ -107,6 +110,28 @@ internal fun TerminalSettings(
                     }
                 }
 
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        ChuText("single-row accessory bar", style = typography.label)
+                        ChuText(
+                            "off = two rows (default), on = one horizontal row",
+                            style = typography.bodySmall,
+                            color = colors.textMuted,
+                        )
+                    }
+                    ChuSwitch(
+                        checked = accessoryBarSingleRow,
+                        onCheckedChange = onAccessoryBarSingleRowChanged,
+                    )
+                }
+
                 if (selectedItems.isEmpty()) {
                     ChuText(
                         "choose the accessory keys you want in the terminal bar.",
@@ -123,6 +148,7 @@ internal fun TerminalSettings(
                             items = selectedItems,
                             modifierState = ModifierState(),
                             onAction = {},
+                            useSingleRow = accessoryBarSingleRow,
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }

@@ -93,17 +93,20 @@ fun ApplicationNavController() {
             val appLockEnabled by settingsRepo.appLockEnabled.collectAsStateWithLifecycle()
             val requireAuthOnConnect by settingsRepo.requireAuthOnConnect.collectAsStateWithLifecycle()
             val accessoryLayoutIds by settingsRepo.accessoryLayoutIds.collectAsStateWithLifecycle()
+            val accessoryBarSingleRow by settingsRepo.accessoryBarSingleRow.collectAsStateWithLifecycle()
             val customKeyGroups by settingsRepo.terminalCustomKeyGroups.collectAsStateWithLifecycle()
             SettingsScreen(
                 currentTheme = themeName,
                 appLockEnabled = appLockEnabled,
                 requireAuthOnConnect = requireAuthOnConnect,
                 currentAccessoryLayoutIds = accessoryLayoutIds,
+                accessoryBarSingleRow = accessoryBarSingleRow,
                 currentTerminalCustomKeyGroups = customKeyGroups,
                 onThemeSelected = settingsRepo::setTheme,
                 onAppLockEnabledChanged = settingsRepo::setAppLockEnabled,
                 onRequireAuthOnConnectChanged = settingsRepo::setRequireAuthOnConnect,
                 onAccessoryLayoutChanged = settingsRepo::setAccessoryLayoutIds,
+                onAccessoryBarSingleRowChanged = settingsRepo::setAccessoryBarSingleRow,
                 onTerminalCustomActionsChanged = settingsRepo::setTerminalCustomKeyGroups,
                 onBack = {
                     val currentRoute = navController.currentBackStackEntry?.destination?.route

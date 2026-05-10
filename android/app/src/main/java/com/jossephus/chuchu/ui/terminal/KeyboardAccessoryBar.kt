@@ -2,6 +2,8 @@ package com.jossephus.chuchu.ui.terminal
 
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,6 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
@@ -20,6 +23,7 @@ import com.jossephus.chuchu.ui.screens.Files.FolderIcon
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun KeyboardAccessoryBar(
     items: List<AccessoryKeyItem>,
@@ -27,64 +31,137 @@ fun KeyboardAccessoryBar(
     onAction: (AccessoryAction) -> Unit,
     onSettings: (() -> Unit)? = null,
     onOpenFiles: (() -> Unit)? = null,
+    useSingleRow: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val buttonHeight = 30.dp
     val buttonPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 3.dp, bottom = 3.dp)
-    val typography = ChuTypography.current
 
-    Row(
+    if (useSingleRow) {
+        Row(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 6.dp)
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            items.forEach { item ->
+                AccessoryButton(
+                    item = item,
+                    modifierState = modifierState,
+                    onAction = onAction,
+                    buttonHeight = buttonHeight,
+                    buttonPadding = buttonPadding,
+                )
+            }
+            FilesButton(
+                onOpenFiles = onOpenFiles,
+                buttonHeight = buttonHeight,
+                buttonPadding = buttonPadding,
+            )
+            SettingsButton(
+                onSettings = onSettings,
+                buttonHeight = buttonHeight,
+                buttonPadding = buttonPadding,
+            )
+        }
+        return
+    }
+
+    FlowRow(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 6.dp)
-            .horizontalScroll(rememberScrollState()),
+            .padding(horizontal = 8.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        maxLines = 2,
     ) {
         items.forEach { item ->
-            val toggleModifier = (item.action as? AccessoryAction.ToggleModifier)?.modifier
-            if (toggleModifier != null) {
-                ToggleButton(
-                    label = item.label,
-                    enabled = modifierState.isEnabled(toggleModifier),
-                    onClick = { onAction(item.action) },
-                    modifier = Modifier.height(buttonHeight),
-                    contentPadding = buttonPadding,
-                )
-            } else {
-                ChuButton(
-                    onClick = { onAction(item.action) },
-                    variant = ChuButtonVariant.Outlined,
-                    modifier = Modifier.height(buttonHeight),
-                    contentPadding = buttonPadding,
-                ) {
-                    ChuText(item.label, style = typography.label)
-                }
-            }
+            AccessoryButton(
+                item = item,
+                modifierState = modifierState,
+                onAction = onAction,
+                buttonHeight = buttonHeight,
+                buttonPadding = buttonPadding,
+            )
         }
+        FilesButton(
+            onOpenFiles = onOpenFiles,
+            buttonHeight = buttonHeight,
+            buttonPadding = buttonPadding,
+        )
+        SettingsButton(
+            onSettings = onSettings,
+            buttonHeight = buttonHeight,
+            buttonPadding = buttonPadding,
+        )
+    }
+}
 
-        if (onOpenFiles != null) {
-            val colors = ChuColors.current
-            ChuButton(
-                onClick = onOpenFiles,
-                variant = ChuButtonVariant.Outlined,
-                modifier = Modifier.height(buttonHeight),
-                contentPadding = buttonPadding,
-            ) {
-                FolderIcon(color = colors.accent, modifier = Modifier.size(18.dp))
-            }
+@Composable
+private fun AccessoryButton(
+    item: AccessoryKeyItem,
+    modifierState: ModifierState,
+    onAction: (AccessoryAction) -> Unit,
+    buttonHeight: Dp,
+    buttonPadding: PaddingValues,
+) {
+    val typography = ChuTypography.current
+    val toggleModifier = (item.action as? AccessoryAction.ToggleModifier)?.modifier
+    if (toggleModifier != null) {
+        ToggleButton(
+            label = item.label,
+            enabled = modifierState.isEnabled(toggleModifier),
+            onClick = { onAction(item.action) },
+            modifier = Modifier.height(buttonHeight),
+            contentPadding = buttonPadding,
+        )
+    } else {
+        ChuButton(
+            onClick = { onAction(item.action) },
+            variant = ChuButtonVariant.Outlined,
+            modifier = Modifier.height(buttonHeight),
+            contentPadding = buttonPadding,
+        ) {
+            ChuText(item.label, style = typography.label)
         }
+    }
+}
 
-        if (onSettings != null) {
-            ChuButton(
-                onClick = onSettings,
-                variant = ChuButtonVariant.Outlined,
-                modifier = Modifier.height(buttonHeight),
-                contentPadding = buttonPadding,
-            ) {
-                ChuText("\u2699", style = typography.label)
-            }
-        }
+@Composable
+private fun FilesButton(
+    onOpenFiles: (() -> Unit)?,
+    buttonHeight: Dp,
+    buttonPadding: PaddingValues,
+) {
+    val colors = ChuColors.current
+    if (onOpenFiles == null) return
+    ChuButton(
+        onClick = onOpenFiles,
+        variant = ChuButtonVariant.Outlined,
+        modifier = Modifier.height(buttonHeight),
+        contentPadding = buttonPadding,
+    ) {
+        FolderIcon(color = colors.accent, modifier = Modifier.size(18.dp))
+    }
+}
+
+@Composable
+private fun SettingsButton(
+    onSettings: (() -> Unit)?,
+    buttonHeight: Dp,
+    buttonPadding: PaddingValues,
+) {
+    val typography = ChuTypography.current
+    if (onSettings == null) return
+    ChuButton(
+        onClick = onSettings,
+        variant = ChuButtonVariant.Outlined,
+        modifier = Modifier.height(buttonHeight),
+        contentPadding = buttonPadding,
+    ) {
+        ChuText("⚙", style = typography.label)
     }
 }
 
