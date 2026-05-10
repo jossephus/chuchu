@@ -181,19 +181,21 @@ fun FileBrowserScreen(
                             onGoUp()
                         }
                     },
+                    variant = ChuButtonVariant.Ghost,
                     bracketed = true,
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                 ) {
-                    ChuText("\u2190", style = typography.label)
+                    ChuText("\u2190", style = typography.label, color = colors.textSecondary)
                 }
 
                 Box {
                     ChuButton(
                         onClick = { showSortDropdown = true },
+                        variant = ChuButtonVariant.Ghost,
                         bracketed = true,
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                     ) {
-                        ChuText("\u21C5", style = typography.label, color = colors.textMuted)
+                        ChuText("\u21C5", style = typography.label, color = colors.textSecondary)
                     }
                     if (showSortDropdown) {
                         Popup(
@@ -236,7 +238,7 @@ fun FileBrowserScreen(
                     bracketed = true,
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                 ) {
-                    ChuText("\u2191", style = typography.label, color = colors.textMuted)
+                    ChuText("\u2191", style = typography.label, color = colors.textSecondary)
                 }
             }
 
