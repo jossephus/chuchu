@@ -3,6 +3,7 @@ package com.jossephus.chuchu.data.repository
 import android.content.Context
 import android.content.SharedPreferences
 import com.jossephus.chuchu.ui.terminal.TerminalAccessoryLayoutStore
+import com.jossephus.chuchu.ui.theme.ChuFontOption
 import com.jossephus.chuchu.ui.terminal.TerminalCustomActionStore
 import com.jossephus.chuchu.ui.terminal.TerminalCustomKeyGroup
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,6 +17,11 @@ class SettingsRepository(context: Context) {
 
     private val _themeName = MutableStateFlow(prefs.getString(KEY_THEME, DEFAULT_THEME) ?: DEFAULT_THEME)
     val themeName: StateFlow<String> = _themeName.asStateFlow()
+
+    private val _fontName = MutableStateFlow(
+        ChuFontOption.fromId(prefs.getString(KEY_FONT, DEFAULT_FONT)).id,
+    )
+    val fontName: StateFlow<String> = _fontName.asStateFlow()
 
     private val _accessoryLayoutIds = MutableStateFlow(loadAccessoryLayoutIds())
     val accessoryLayoutIds: StateFlow<List<String>> = _accessoryLayoutIds.asStateFlow()
@@ -35,6 +41,12 @@ class SettingsRepository(context: Context) {
     fun setTheme(name: String) {
         prefs.edit().putString(KEY_THEME, name).apply()
         _themeName.value = name
+    }
+
+    fun setFont(name: String) {
+        val normalized = ChuFontOption.fromId(name).id
+        prefs.edit().putString(KEY_FONT, normalized).apply()
+        _fontName.value = normalized
     }
 
     fun setAccessoryLayoutIds(ids: List<String>) {
@@ -83,12 +95,14 @@ class SettingsRepository(context: Context) {
 
     companion object {
         private const val KEY_THEME = "theme_name"
+        private const val KEY_FONT = "font_name"
         private const val KEY_ACCESSORY_LAYOUT = "terminal_accessory_layout"
         private const val KEY_TERMINAL_CUSTOM_ACTIONS = "terminal_custom_actions"
         private const val KEY_ACCESSORY_BAR_SINGLE_ROW = "terminal_accessory_bar_single_row"
         private const val KEY_APP_LOCK_ENABLED = "app_lock_enabled"
         private const val KEY_REQUIRE_AUTH_ON_CONNECT = "require_auth_on_connect"
         const val DEFAULT_THEME = "Catppuccin Mocha"
+        const val DEFAULT_FONT = "jetbrains_mono"
 
         @Volatile
         private var instance: SettingsRepository? = null

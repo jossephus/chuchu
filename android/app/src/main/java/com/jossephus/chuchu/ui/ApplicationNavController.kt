@@ -90,6 +90,7 @@ fun ApplicationNavController() {
         composable("settings") {
             val settingsRepo = SettingsRepository.getInstance(application)
             val themeName by settingsRepo.themeName.collectAsStateWithLifecycle()
+            val fontName by settingsRepo.fontName.collectAsStateWithLifecycle()
             val appLockEnabled by settingsRepo.appLockEnabled.collectAsStateWithLifecycle()
             val requireAuthOnConnect by settingsRepo.requireAuthOnConnect.collectAsStateWithLifecycle()
             val accessoryLayoutIds by settingsRepo.accessoryLayoutIds.collectAsStateWithLifecycle()
@@ -97,12 +98,14 @@ fun ApplicationNavController() {
             val customKeyGroups by settingsRepo.terminalCustomKeyGroups.collectAsStateWithLifecycle()
             SettingsScreen(
                 currentTheme = themeName,
+                currentFont = fontName,
                 appLockEnabled = appLockEnabled,
                 requireAuthOnConnect = requireAuthOnConnect,
                 currentAccessoryLayoutIds = accessoryLayoutIds,
                 accessoryBarSingleRow = accessoryBarSingleRow,
                 currentTerminalCustomKeyGroups = customKeyGroups,
                 onThemeSelected = settingsRepo::setTheme,
+                onFontSelected = settingsRepo::setFont,
                 onAppLockEnabledChanged = settingsRepo::setAppLockEnabled,
                 onRequireAuthOnConnectChanged = settingsRepo::setRequireAuthOnConnect,
                 onAccessoryLayoutChanged = settingsRepo::setAccessoryLayoutIds,

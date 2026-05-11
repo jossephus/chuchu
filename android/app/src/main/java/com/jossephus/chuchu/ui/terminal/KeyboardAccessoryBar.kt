@@ -21,6 +21,7 @@ import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.theme.ChuColors
+import com.jossephus.chuchu.ui.theme.ChuSymbolsFontFamily
 import com.jossephus.chuchu.ui.theme.ChuTypography
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -147,7 +148,7 @@ private fun FilesButton(
         ChuText(
             text = "",
             style = TextStyle(
-                fontFamily = typography.label.fontFamily,
+                fontFamily = ChuSymbolsFontFamily,
                 fontWeight = typography.label.fontWeight,
                 fontStyle = typography.label.fontStyle,
                 fontSize = 16.sp,

@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.sp
 import com.jossephus.chuchu.service.terminal.TerminalSnapshot
+import com.jossephus.chuchu.ui.theme.LocalChuFont
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
@@ -65,6 +66,7 @@ fun TerminalCanvas(
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
     val density = LocalDensity.current
+    val fontOption = LocalChuFont.current
     val fontSizePx = with(density) { fontSizeSp.sp.toPx() }
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
     var lastResizedGrid by remember { mutableStateOf(Pair(0, 0)) }
@@ -76,18 +78,32 @@ fun TerminalCanvas(
     val longPressTimeoutMillis = remember { ViewConfiguration.getLongPressTimeout().toLong() }
     val doubleTapTimeoutMillis = remember { ViewConfiguration.getDoubleTapTimeout().toLong() }
     val doubleTapSlopPx = remember(androidViewConfiguration) { androidViewConfiguration.scaledDoubleTapSlop.toFloat() }
-    val typeface = remember {
+    val primaryTypeface = remember(context, fontOption) {
         runCatching {
-            ResourcesCompat.getFont(context, R.font.fira_code_nerd_font_regular)
+            ResourcesCompat.getFont(context, fontOption.regularFontResId)
                 ?: Typeface.MONOSPACE
         }.getOrDefault(Typeface.MONOSPACE)
     }
-    val textPaint = remember(typeface, fontSizePx) {
+    val symbolsTypeface = remember(context) {
+        runCatching {
+            ResourcesCompat.getFont(context, R.font.symbols_nerd_font_mono_regular)
+                ?: Typeface.MONOSPACE
+        }.getOrDefault(Typeface.MONOSPACE)
+    }
+    val primaryTextPaint = remember(primaryTypeface, fontSizePx) {
         Paint().apply {
             isAntiAlias = true
             textAlign = Paint.Align.LEFT
             textSize = fontSizePx
-            this.typeface = typeface
+            typeface = primaryTypeface
+        }
+    }
+    val symbolsTextPaint = remember(symbolsTypeface, fontSizePx) {
+        Paint().apply {
+            isAntiAlias = true
+            textAlign = Paint.Align.LEFT
+            textSize = fontSizePx
+            typeface = symbolsTypeface
         }
     }
     val bgPaint = remember {
@@ -110,10 +126,11 @@ fun TerminalCanvas(
         }
     }
     val drawBuffer = remember { StringBuilder(256) }
-    val fontMetrics = textPaint.fontMetrics
+    val symbolFallbackCache = remember(primaryTypeface, symbolsTypeface) { HashMap<Int, Boolean>(256) }
+    val fontMetrics = primaryTextPaint.fontMetrics
     val measuredHeight = fontMetrics.descent - fontMetrics.ascent
     val cellHeightPx = if (measuredHeight > 1f) measuredHeight else 16f
-    val measuredWidth = textPaint.measureText("M")
+    val measuredWidth = primaryTextPaint.measureText("M")
     val cellWidthPx = if (measuredWidth > 1f) measuredWidth else 8f
     val baselineOffset = -fontMetrics.ascent
     val cellWidthInt = max(1, ceil(cellWidthPx).toInt())
@@ -388,6 +405,10 @@ fun TerminalCanvas(
                     } else {
                         snapshot.fgArgb[i]
                     }
+                    val firstGlyph = glyphCache.getOrPut(cp) { String(Character.toChars(cp)) }
+                    val useSymbols = symbolFallbackCache.getOrPut(cp) {
+                        !primaryTextPaint.hasGlyph(firstGlyph) && symbolsTextPaint.hasGlyph(firstGlyph)
+                    }
                     sb.setLength(0)
                     val startCol = i - rowStart
 
@@ -398,14 +419,21 @@ fun TerminalCanvas(
                         } else {
                             snapshot.fgArgb[i]
                         }
-                        if ((c == 0 || c == 32) || nextFg != fg) break
+                        if (c == 0 || c == 32 || nextFg != fg) break
+
                         val glyph = glyphCache.getOrPut(c) { String(Character.toChars(c)) }
+                        val nextUseSymbols = symbolFallbackCache.getOrPut(c) {
+                            !primaryTextPaint.hasGlyph(glyph) && symbolsTextPaint.hasGlyph(glyph)
+                        }
+                        if (nextUseSymbols != useSymbols) break
+
                         sb.append(glyph)
                         i++
                     }
 
-                    textPaint.color = fg
-                    nCanvas.drawText(sb.toString(), startCol * cellWidth, baseline, textPaint)
+                    val paint = if (useSymbols) symbolsTextPaint else primaryTextPaint
+                    paint.color = fg
+                    nCanvas.drawText(sb.toString(), startCol * cellWidth, baseline, paint)
                 }
             }
 
@@ -440,12 +468,16 @@ fun TerminalCanvas(
                         val glyph = glyphCache.getOrPut(codepoint) {
                             String(Character.toChars(codepoint))
                         }
-                        textPaint.color = cursorTextColorArgb
+                        val useSymbols = symbolFallbackCache.getOrPut(codepoint) {
+                            !primaryTextPaint.hasGlyph(glyph) && symbolsTextPaint.hasGlyph(glyph)
+                        }
+                        val paint = if (useSymbols) symbolsTextPaint else primaryTextPaint
+                        paint.color = cursorTextColorArgb
                         nCanvas.drawText(
                             glyph,
                             cursorLeft,
                             cursorTop + baselineOffset,
-                            textPaint,
+                            paint,
                         )
                     }
                 }

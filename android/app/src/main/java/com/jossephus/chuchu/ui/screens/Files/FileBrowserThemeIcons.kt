@@ -13,6 +13,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.sp
 import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.theme.ChuColors
+import com.jossephus.chuchu.ui.theme.ChuSymbolsFontFamily
 import com.jossephus.chuchu.ui.theme.ChuTypography
 
 private typealias IconMap = Map<String, Pair<String, Color>>
@@ -77,7 +78,11 @@ fun FileEntryIcon(entry: FileBrowserEntry, modifier: Modifier = Modifier) {
         ChuText(
             text = glyph,
             modifier = Modifier.fillMaxSize(),
-            style = ChuTypography.current.body.copy(fontSize = 15.sp, lineHeight = 16.sp),
+            style = ChuTypography.current.body.copy(
+                fontFamily = ChuSymbolsFontFamily,
+                fontSize = 15.sp,
+                lineHeight = 16.sp,
+            ),
             color = color,
         )
     }
