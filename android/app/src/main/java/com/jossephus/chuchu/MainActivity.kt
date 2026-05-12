@@ -38,8 +38,9 @@ fun AppRoot() {
     GhosttyThemeRegistry.init(context)
     val settings = SettingsRepository.getInstance(context)
     val themeName by settings.themeName.collectAsStateWithLifecycle()
+    val fontName by settings.fontName.collectAsStateWithLifecycle()
 
-    ChuTheme(themeName = themeName) {
+    ChuTheme(themeName = themeName, fontName = fontName) {
         Box(
             modifier = Modifier
                 .fillMaxSize()

@@ -39,12 +39,14 @@ enum class SettingsCategory(val label: String) {
 @Composable
 fun SettingsScreen(
     currentTheme: String,
+    currentFont: String,
     appLockEnabled: Boolean,
     requireAuthOnConnect: Boolean,
     currentAccessoryLayoutIds: List<String>,
     accessoryBarSingleRow: Boolean,
     currentTerminalCustomKeyGroups: List<TerminalCustomKeyGroup>,
     onThemeSelected: (String) -> Unit,
+    onFontSelected: (String) -> Unit,
     onAppLockEnabledChanged: (Boolean) -> Unit,
     onRequireAuthOnConnectChanged: (Boolean) -> Unit,
     onAccessoryLayoutChanged: (List<String>) -> Unit,
@@ -125,7 +127,9 @@ fun SettingsScreen(
             when (selectedCategory) {
                 SettingsCategory.General -> GeneralSettings(
                     currentTheme = currentTheme,
+                    currentFont = currentFont,
                     onThemeSelected = onThemeSelected,
+                    onFontSelected = onFontSelected,
                     appLockEnabled = appLockEnabled,
                     requireAuthOnConnect = requireAuthOnConnect,
                     onAppLockEnabledChanged = onAppLockEnabledChanged,
@@ -164,7 +168,9 @@ fun SettingsScreen(
 @Composable
 private fun GeneralSettings(
     currentTheme: String,
+    currentFont: String,
     onThemeSelected: (String) -> Unit,
+    onFontSelected: (String) -> Unit,
     appLockEnabled: Boolean,
     requireAuthOnConnect: Boolean,
     onAppLockEnabledChanged: (Boolean) -> Unit,
@@ -175,6 +181,11 @@ private fun GeneralSettings(
     ThemeSelectorSection(
         currentTheme = currentTheme,
         onThemeSelected = onThemeSelected,
+    )
+    Spacer(modifier = Modifier.height(16.dp))
+    FontSelectorSection(
+        currentFont = currentFont,
+        onFontSelected = onFontSelected,
     )
     Spacer(modifier = Modifier.height(16.dp))
     Row(verticalAlignment = Alignment.CenterVertically) {
