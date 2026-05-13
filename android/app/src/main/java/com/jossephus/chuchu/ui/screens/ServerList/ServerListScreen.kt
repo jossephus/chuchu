@@ -369,9 +369,7 @@ private fun HostCard(
                     modifier = Modifier
                         .fillMaxSize()
                         .combinedClickable(
-                            onClick = {
-                                if (isConnected) onDisconnect() else onConnect()
-                            },
+                            onClick = onConnect,
                             onLongClick = onLongPress,
                         ),
                     background = colors.surfaceVariant,
