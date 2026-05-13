@@ -21,6 +21,7 @@ class TerminalSessionRepository private constructor(
         val username: String,
         val authMethod: AuthMethod,
         val transport: Transport,
+        val displayName: String = "",
     )
 
     private val appContext = application.applicationContext
@@ -46,12 +47,11 @@ class TerminalSessionRepository private constructor(
     init {
         scope.launch {
             engine.state.collectLatest { state ->
-                val shouldRunInBackground = attachedClients == 0 && (
-                    state.status == SessionStatus.Connecting ||
-                        state.status == SessionStatus.Connected
-                    )
-                if (shouldRunInBackground) {
-                    SessionForegroundService.start(appContext)
+                val sessionAlive = state.status == SessionStatus.Connecting ||
+                    state.status == SessionStatus.Connected ||
+                    state.status == SessionStatus.Reconnecting
+                if (sessionAlive) {
+                    SessionForegroundService.start(appContext, currentNotificationLabel())
                 } else {
                     SessionForegroundService.stop(appContext)
                 }
@@ -61,21 +61,17 @@ class TerminalSessionRepository private constructor(
 
     fun attachClient() {
         attachedClients += 1
-        if (attachedClients == 1) {
-            SessionForegroundService.stop(appContext)
-        }
     }
 
     fun detachClient() {
         attachedClients = (attachedClients - 1).coerceAtLeast(0)
-        val state = sessionState.value
-        val shouldRunInBackground = attachedClients == 0 && (
-            state.status == SessionStatus.Connecting ||
-                state.status == SessionStatus.Connected
-            )
-        if (shouldRunInBackground) {
-            SessionForegroundService.start(appContext)
-        }
+    }
+
+    private fun currentNotificationLabel(): String {
+        val spec = activeConnectionSpec ?: return "Active session"
+        val nickname = spec.displayName.takeIf { it.isNotBlank() }
+        val target = "${spec.username}@${spec.host}:${spec.port}"
+        return if (nickname != null) "$nickname  ·  $target" else target
     }
 
     fun connect(
@@ -89,6 +85,7 @@ class TerminalSessionRepository private constructor(
         keyPassphrase: String,
         transport: Transport,
         sessionKey: String,
+        hostLabel: String = "",
     ) {
         val requestedSpec = ConnectionSpec(
             host = host,
@@ -96,6 +93,7 @@ class TerminalSessionRepository private constructor(
             username = username,
             authMethod = authMethod,
             transport = transport,
+            displayName = hostLabel,
         )
         val state = sessionState.value.status
         val alreadyActive = state == SessionStatus.Connecting || state == SessionStatus.Connected

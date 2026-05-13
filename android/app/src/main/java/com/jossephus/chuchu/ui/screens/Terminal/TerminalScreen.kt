@@ -227,6 +227,7 @@ fun TerminalScreen(
     vm: TerminalViewModel,
     hostId: Long?,
     onOpenSettings: () -> Unit,
+    onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val sessionState by vm.sessionState.collectAsStateWithLifecycle()
@@ -268,6 +269,7 @@ fun TerminalScreen(
         val db = AppDatabase.getInstance(context)
         val host = HostRepository(db.hostProfileDao()).getById(hostId) ?: return@LaunchedEffect
         val key = host.keyId?.let { SshKeyRepository(db.sshKeyDao()).getById(it) }
+        vm.updateDisplayName(host.name)
         vm.updateHost(host.host)
         vm.updatePort(host.port.toString())
         vm.updateUsername(host.username)
@@ -321,6 +323,14 @@ fun TerminalScreen(
                 if (previous != SessionStatus.Error) {
                     val message = sessionState.error ?: "Connection failed"
                     Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                }
+            }
+            SessionStatus.Disconnected -> {
+                val wasActive = previous == SessionStatus.Connected ||
+                    previous == SessionStatus.Connecting ||
+                    previous == SessionStatus.Reconnecting
+                if (wasActive) {
+                    onBack()
                 }
             }
             else -> Unit

@@ -217,6 +217,10 @@ class TerminalViewModel(
         _connectForm.value = _connectForm.value.copy(keyPassphrase = keyPassphrase)
     }
 
+    fun updateDisplayName(displayName: String) {
+        _connectForm.value = _connectForm.value.copy(displayName = displayName)
+    }
+
     fun refreshTailscaleStatus() {
         _tailscaleActive.value = tailscaleStatusChecker.isActive()
     }
@@ -237,6 +241,7 @@ class TerminalViewModel(
             keyPassphrase = form.keyPassphrase,
             transport = form.transport,
             sessionKey = sessionKey,
+            hostLabel = form.displayName.ifBlank { "${form.username}@${form.host}:$port" },
         )
     }
 
@@ -371,4 +376,5 @@ data class ConnectForm(
     val publicKeyOpenSsh: String = "",
     val keyPassphrase: String = "",
     val transport: Transport = Transport.SSH,
+    val displayName: String = "",
 )

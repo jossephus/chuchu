@@ -1,6 +1,9 @@
 package com.jossephus.chuchu.ui.screens.ServerList
 
+import android.Manifest
 import android.app.Application
+import android.content.pm.PackageManager
+import android.os.Build
 import android.widget.Toast
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
@@ -22,6 +25,8 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
@@ -38,6 +43,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
@@ -75,6 +81,16 @@ fun ServerListScreen(
         sessionState.status == SessionStatus.Reconnecting
 
     var selectedHostId by remember { mutableStateOf<Long?>(null) }
+    var pendingConnectHostId by remember { mutableStateOf<Long?>(null) }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) {
+        val hostId = pendingConnectHostId
+        pendingConnectHostId = null
+        if (hostId != null) {
+            onConnectServer(hostId)
+        }
+    }
     LaunchedEffect(hosts, selectedHostId) {
         val selected_id = selectedHostId
         if (selected_id != null && hosts.none { it.id == selected_id }) {
@@ -151,7 +167,18 @@ fun ServerListScreen(
                             onConnect = {
                                 selectedHostId = null
                                 if (!hasActiveSession || activeSessionKey == targetSessionKey) {
-                                    onConnectServer(host.id)
+                                    val needsNotificationPermission =
+                                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                            ContextCompat.checkSelfPermission(
+                                                context,
+                                                Manifest.permission.POST_NOTIFICATIONS,
+                                            ) != PackageManager.PERMISSION_GRANTED
+                                    if (needsNotificationPermission) {
+                                        pendingConnectHostId = host.id
+                                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                    } else {
+                                        onConnectServer(host.id)
+                                    }
                                 } else {
                                     Toast.makeText(
                                         context,

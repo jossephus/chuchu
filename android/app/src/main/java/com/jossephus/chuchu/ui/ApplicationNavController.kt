@@ -147,6 +147,7 @@ fun ApplicationNavController() {
                 vm = vm,
                 hostId = id,
                 onOpenSettings = { navController.navigate("settings") },
+                onBack = { navController.popBackStack() },
             )
         }
     }
