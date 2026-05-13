@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Notification small icon for foreground service.
+  Must be a single-color (white) silhouette on a transparent background:
+  Android tints the alpha mask with the channel/system color, so any
+  full-color art (like our launcher mipmap) renders as a generic dot.
+
+  Design mirrors the launcher: a double-line right chevron with a
+  trailing terminal-cursor square in the bottom-right.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Outer chevron stroke -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M5.6,4.4 L7.4,2.6 L15.6,10.8 L15.6,13.2 L7.4,21.4 L5.6,19.6 L12.6,12.6 L5.6,4.4 Z" />
+    <!-- Inner chevron stroke -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M9.4,4.4 L11.2,2.6 L19.4,10.8 L19.4,13.2 L11.2,21.4 L9.4,19.6 L16.4,12.6 L9.4,4.4 Z" />
+    <!-- Trailing cursor square -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M18.5,18.5 h3.5 v3.5 h-3.5 z" />
+</vector>

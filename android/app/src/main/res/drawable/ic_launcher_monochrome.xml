@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Monochrome adaptive icon layer for Android themed icons (Pixel, Android 13+).
+  Keep transparent background + single solid glyph.
+
+  Uses the Chuchu logo mark (double chevron + cursor square).
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Outer chevron -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M25.2,21.6 L33.3,13.5 L60.3,40.5 L60.3,48.6 L33.3,75.6 L25.2,67.5 L47.7,44.55 L25.2,21.6 Z" />
+    <!-- Inner chevron -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M42.3,21.6 L50.4,13.5 L77.4,40.5 L77.4,48.6 L50.4,75.6 L42.3,67.5 L64.8,44.55 L42.3,21.6 Z" />
+    <!-- Cursor square -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M73.8,73.8 h14.2 v14.2 h-14.2 z" />
+</vector>
