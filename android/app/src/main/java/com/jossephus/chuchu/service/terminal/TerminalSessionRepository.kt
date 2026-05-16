@@ -1,29 +1,28 @@
 package com.jossephus.chuchu.service.terminal
 
 import android.app.Application
-import com.jossephus.chuchu.model.AuthMethod
-import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.ssh.HostKeyStore
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.util.UUID
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class TerminalSessionRepository private constructor(
     application: Application,
 ) {
-    private data class ConnectionSpec(
-        val host: String,
-        val port: Int,
-        val username: String,
-        val authMethod: AuthMethod,
-        val transport: Transport,
-        val displayName: String = "",
-    )
-
     private val appContext = application.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -31,26 +30,62 @@ class TerminalSessionRepository private constructor(
         appContext.getSharedPreferences("host_keys", Application.MODE_PRIVATE),
     )
     private val tailscaleStatusChecker = TailscaleStatusChecker(appContext)
-    private val engine = TerminalSessionEngine(
-        scope,
-        appContext.filesDir.toPath(),
-        hostKeyStore,
-        tailscaleStatusChecker,
-    )
+
+    private val _tabs = MutableStateFlow<List<TabSession>>(emptyList())
+    val tabs: StateFlow<List<TabSession>> = _tabs.asStateFlow()
+
+    private val _activeTabId = MutableStateFlow<String?>(null)
+    val activeTabId: StateFlow<String?> = _activeTabId.asStateFlow()
+
+    val activeTab: StateFlow<TabSession?> = combine(_tabs, _activeTabId) { tabs, id ->
+        tabs.firstOrNull { it.id == id }
+    }.stateIn(scope, SharingStarted.Eagerly, null)
+
+    val sessionState: StateFlow<SessionState> = activeTab
+        .flatMapLatest { tab -> tab?.sessionState ?: flowOf(SessionState()) }
+        .stateIn(scope, SharingStarted.Eagerly, SessionState())
+
+    val hostKeyPrompt: StateFlow<HostKeyPrompt?> = activeTab
+        .flatMapLatest { tab -> tab?.hostKeyPrompt ?: flowOf(null) }
+        .stateIn(scope, SharingStarted.Eagerly, null)
+
+    val connectedHostIds: StateFlow<Set<Long>> = _tabs
+        .flatMapLatest { tabs ->
+            if (tabs.isEmpty()) {
+                flowOf(emptyList())
+            } else {
+                combine(tabs.map { tab -> tab.sessionState.map { state -> tab to state } }) { it.toList() }
+            }
+        }
+        .map { pairs ->
+            pairs.asSequence()
+                .filter { (_, state) ->
+                    state.status == SessionStatus.Connecting ||
+                        state.status == SessionStatus.Connected ||
+                        state.status == SessionStatus.Reconnecting
+                }
+                .mapNotNull { (tab, _) -> tab.spec.hostId }
+                .toSet()
+        }
+        .stateIn(scope, SharingStarted.Eagerly, emptySet())
 
     private var attachedClients = 0
-    private var activeConnectionSpec: ConnectionSpec? = null
-
-    val sessionState: StateFlow<SessionState> = engine.state
-    val hostKeyPrompt: StateFlow<HostKeyPrompt?> = engine.hostKeyPrompt
 
     init {
         scope.launch {
-            engine.state.collectLatest { state ->
-                val sessionAlive = state.status == SessionStatus.Connecting ||
-                    state.status == SessionStatus.Connected ||
-                    state.status == SessionStatus.Reconnecting
-                if (sessionAlive) {
+            _tabs.flatMapLatest { tabs ->
+                if (tabs.isEmpty()) {
+                    flowOf(emptyList())
+                } else {
+                    combine(tabs.map { tab -> tab.sessionState.map { tab to it } }) { it.toList() }
+                }
+            }.collect { pairs ->
+                val anyAlive = pairs.any { (_, state) ->
+                    state.status == SessionStatus.Connecting ||
+                        state.status == SessionStatus.Connected ||
+                        state.status == SessionStatus.Reconnecting
+                }
+                if (anyAlive) {
                     SessionForegroundService.start(appContext, currentNotificationLabel())
                 } else {
                     SessionForegroundService.stop(appContext)
@@ -68,58 +103,87 @@ class TerminalSessionRepository private constructor(
     }
 
     private fun currentNotificationLabel(): String {
-        val spec = activeConnectionSpec ?: return "Active session"
-        val nickname = spec.displayName.takeIf { it.isNotBlank() }
-        val target = "${spec.username}@${spec.host}:${spec.port}"
-        return if (nickname != null) "$nickname  ·  $target" else target
+        val tabs = _tabs.value
+        if (tabs.isEmpty()) return "Active session"
+        val active = activeTab.value ?: tabs.first()
+        if (tabs.size == 1) return active.spec.notificationLabel
+        return "${tabs.size} sessions  ·  ${active.spec.notificationLabel}"
     }
 
-    fun connect(
-        host: String,
-        port: Int,
-        username: String,
-        password: String,
-        authMethod: AuthMethod,
-        publicKeyOpenSsh: String,
-        privateKeyPem: String,
-        keyPassphrase: String,
-        transport: Transport,
-        sessionKey: String,
-        hostLabel: String = "",
-    ) {
-        val requestedSpec = ConnectionSpec(
-            host = host,
-            port = port,
-            username = username,
-            authMethod = authMethod,
-            transport = transport,
-            displayName = hostLabel,
+    fun tabsForHost(hostId: Long?): List<TabSession> =
+        _tabs.value.filter { it.spec.hostId == hostId }
+
+    fun openTab(spec: TabSpec): TabSession {
+        val id = UUID.randomUUID().toString()
+        val engine = TerminalSessionEngine(
+            scope,
+            appContext.filesDir.toPath(),
+            hostKeyStore,
+            tailscaleStatusChecker,
         )
-        val state = sessionState.value.status
-        val alreadyActive = state == SessionStatus.Connecting || state == SessionStatus.Connected
-        if (alreadyActive && activeConnectionSpec == requestedSpec) {
-            return
-        }
-        activeConnectionSpec = requestedSpec
+        val tab = TabSession(id, spec, engine)
+        _tabs.value = _tabs.value + tab
+        _activeTabId.value = id
         engine.connect(
-            host = host,
-            port = port,
-            username = username,
-            password = password,
-            authMethod = authMethod,
-            publicKeyOpenSsh = publicKeyOpenSsh,
-            privateKeyPem = privateKeyPem,
-            keyPassphrase = keyPassphrase,
-            transport = transport,
-            sessionKey = sessionKey,
+            host = spec.host,
+            port = spec.port,
+            username = spec.username,
+            password = spec.password,
+            authMethod = spec.authMethod,
+            publicKeyOpenSsh = spec.publicKeyOpenSsh,
+            privateKeyPem = spec.privateKeyPem,
+            keyPassphrase = spec.keyPassphrase,
+            transport = spec.transport,
+            sessionKey = spec.sessionKey,
+        )
+        return tab
+    }
+
+    fun selectTab(id: String) {
+        if (_tabs.value.any { it.id == id }) {
+            _activeTabId.value = id
+        }
+    }
+
+    fun closeTab(id: String) {
+        val tab = _tabs.value.firstOrNull { it.id == id } ?: return
+        val remaining = _tabs.value.filterNot { it.id == id }
+        _tabs.value = remaining
+        if (_activeTabId.value == id) {
+            val nextSameHost = remaining.firstOrNull { it.spec.hostId == tab.spec.hostId }
+            _activeTabId.value = nextSameHost?.id ?: remaining.firstOrNull()?.id
+        }
+        tab.engine.disconnect()
+    }
+
+    fun reconnectActive() {
+        val tab = activeTab.value ?: return
+        val spec = tab.spec
+        tab.engine.connect(
+            host = spec.host,
+            port = spec.port,
+            username = spec.username,
+            password = spec.password,
+            authMethod = spec.authMethod,
+            publicKeyOpenSsh = spec.publicKeyOpenSsh,
+            privateKeyPem = spec.privateKeyPem,
+            keyPassphrase = spec.keyPassphrase,
+            transport = spec.transport,
+            sessionKey = spec.sessionKey,
         )
     }
 
     fun disconnect() {
-        engine.disconnect()
-        activeConnectionSpec = null
-        SessionForegroundService.stop(appContext)
+        val tabs = _tabs.value
+        _tabs.value = emptyList()
+        _activeTabId.value = null
+        tabs.forEach { it.engine.disconnect() }
     }
+
+    private fun activeEngine(): TerminalSessionEngine? = activeTab.value?.engine
+
+    private fun engineForTab(tabId: String): TerminalSessionEngine? =
+        _tabs.value.firstOrNull { it.id == tabId }?.engine
 
     fun resize(
         cols: Int,
@@ -128,18 +192,29 @@ class TerminalSessionRepository private constructor(
         cellHeight: Int,
         screenWidth: Int,
         screenHeight: Int,
-    ) = engine.resize(cols, rows, cellWidth, cellHeight, screenWidth, screenHeight)
+    ) {
+        activeEngine()?.resize(cols, rows, cellWidth, cellHeight, screenWidth, screenHeight)
+    }
 
-    fun scroll(delta: Int) = engine.scroll(delta)
+    fun scroll(delta: Int) {
+        activeEngine()?.scroll(delta)
+    }
 
-    fun scrollToActive() = engine.scrollToActive()
+    fun scrollToActive() {
+        activeEngine()?.scrollToActive()
+    }
 
-    fun writeKey(key: Int, codepoint: Int, mods: Int, action: Int, utf8: String? = null) =
-        engine.writeKey(key, codepoint, mods, action, utf8)
+    fun writeKey(key: Int, codepoint: Int, mods: Int, action: Int, utf8: String? = null) {
+        activeEngine()?.writeKey(key, codepoint, mods, action, utf8)
+    }
 
-    fun writeText(text: String) = engine.writeText(text)
+    fun writeText(text: String) {
+        activeEngine()?.writeText(text)
+    }
 
-    fun sendFocusEvent(focused: Boolean) = engine.sendFocusEvent(focused)
+    fun sendFocusEvent(focused: Boolean) {
+        activeEngine()?.sendFocusEvent(focused)
+    }
 
     fun sendMouseEvent(
         action: Int,
@@ -149,20 +224,55 @@ class TerminalSessionRepository private constructor(
         y: Float,
         anyButtonPressed: Boolean,
         trackLastCell: Boolean,
-    ) = engine.sendMouseEvent(action, button, mods, x, y, anyButtonPressed, trackLastCell)
+    ) {
+        activeEngine()?.sendMouseEvent(action, button, mods, x, y, anyButtonPressed, trackLastCell)
+    }
 
-    fun setColorScheme(isDark: Boolean) = engine.setColorScheme(isDark)
+    fun setColorScheme(isDark: Boolean) {
+        _tabs.value.forEach { it.engine.setColorScheme(isDark) }
+    }
 
-    fun setDefaultColors(fg: IntArray?, bg: IntArray?, cursor: IntArray?, palette: ByteArray?) =
-        engine.setDefaultColors(fg, bg, cursor, palette)
+    fun setDefaultColors(fg: IntArray?, bg: IntArray?, cursor: IntArray?, palette: ByteArray?) {
+        _tabs.value.forEach { it.engine.setDefaultColors(fg, bg, cursor, palette) }
+    }
 
-    fun respondToHostKey(accepted: Boolean) = engine.respondToHostKey(accepted)
+    fun respondToHostKey(accepted: Boolean) {
+        activeEngine()?.respondToHostKey(accepted)
+    }
 
-    suspend fun sftpListDirectory(path: String): List<String> = engine.sftpListDirectory(path)
-    suspend fun sftpRealpath(path: String): String = engine.sftpRealpath(path)
-    suspend fun sftpOpenWrite(path: String) = engine.sftpOpenWrite(path)
-    suspend fun sftpWriteChunk(data: ByteArray): Int = engine.sftpWriteChunk(data)
-    suspend fun sftpCloseWrite() = engine.sftpCloseWrite()
+    suspend fun sftpListDirectory(path: String): List<String> =
+        activeEngine()?.sftpListDirectory(path) ?: emptyList()
+
+    suspend fun sftpListDirectory(tabId: String, path: String): List<String> =
+        engineForTab(tabId)?.sftpListDirectory(path) ?: emptyList()
+
+    suspend fun sftpRealpath(path: String): String =
+        activeEngine()?.sftpRealpath(path) ?: "/"
+
+    suspend fun sftpRealpath(tabId: String, path: String): String =
+        engineForTab(tabId)?.sftpRealpath(path) ?: "/"
+
+    suspend fun sftpOpenWrite(path: String) {
+        activeEngine()?.sftpOpenWrite(path)
+    }
+
+    suspend fun sftpOpenWrite(tabId: String, path: String) {
+        engineForTab(tabId)?.sftpOpenWrite(path)
+    }
+
+    suspend fun sftpWriteChunk(data: ByteArray): Int =
+        activeEngine()?.sftpWriteChunk(data) ?: 0
+
+    suspend fun sftpWriteChunk(tabId: String, data: ByteArray): Int =
+        engineForTab(tabId)?.sftpWriteChunk(data) ?: 0
+
+    suspend fun sftpCloseWrite() {
+        activeEngine()?.sftpCloseWrite()
+    }
+
+    suspend fun sftpCloseWrite(tabId: String) {
+        engineForTab(tabId)?.sftpCloseWrite()
+    }
 
     companion object {
         @Volatile

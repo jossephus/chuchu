@@ -5,11 +5,11 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.jossephus.chuchu.model.AuthMethod
-import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
 import com.jossephus.chuchu.service.terminal.HostKeyPrompt
 import com.jossephus.chuchu.service.terminal.SessionState
+import com.jossephus.chuchu.service.terminal.TabSession
+import com.jossephus.chuchu.service.terminal.TabSpec
 import com.jossephus.chuchu.service.terminal.TerminalSessionRepository
 import com.jossephus.chuchu.ui.screens.Files.ConnectionTab
 import com.jossephus.chuchu.ui.screens.Files.FileBrowserEntry
@@ -20,15 +20,22 @@ import com.jossephus.chuchu.ui.screens.Files.UploadProgress
 import com.jossephus.chuchu.ui.terminal.GhosttyKeyAction
 import com.jossephus.chuchu.ui.terminal.TerminalSpecialKey
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class TerminalViewModel(
     application: Application,
 ) : AndroidViewModel(application) {
@@ -38,6 +45,9 @@ class TerminalViewModel(
     private val _tailscaleActive = MutableStateFlow(tailscaleStatusChecker.isActive())
     val tailscaleActive: StateFlow<Boolean> = _tailscaleActive.asStateFlow()
 
+    val tabs: StateFlow<List<TabSession>> = sessionRepository.tabs
+    val activeTabId: StateFlow<String?> = sessionRepository.activeTabId
+    val activeTab: StateFlow<TabSession?> = sessionRepository.activeTab
     val sessionState: StateFlow<SessionState> = sessionRepository.sessionState
     val hostKeyPrompt: StateFlow<HostKeyPrompt?> = sessionRepository.hostKeyPrompt
 
@@ -45,54 +55,108 @@ class TerminalViewModel(
         sessionRepository.attachClient()
     }
 
-    private val _connectForm = MutableStateFlow(ConnectForm())
-    val connectForm: StateFlow<ConnectForm> = _connectForm.asStateFlow()
-    private var selectedHostId: Long? = null
-    private val tabByHostKey = mutableMapOf<String, ConnectionTab>()
-    private val fileHomeByHostKey = mutableMapOf<String, String>()
-    private val _selectedTab = MutableStateFlow(ConnectionTab.Terminal)
-    val selectedTab: StateFlow<ConnectionTab> = _selectedTab.asStateFlow()
-    private val _fileBrowserState = MutableStateFlow(FileBrowserUiState())
-    val fileBrowserState: StateFlow<FileBrowserUiState> = _fileBrowserState.asStateFlow()
+    private val _connectionTabByTab = MutableStateFlow<Map<String, ConnectionTab>>(emptyMap())
+    private val _fileBrowserStateByTab = MutableStateFlow<Map<String, FileBrowserUiState>>(emptyMap())
+    private val fileHomeByTab = mutableMapOf<String, String>()
 
-    fun setSelectedHostId(hostId: Long?) {
-        selectedHostId = hostId
-        _selectedTab.value = tabByHostKey[hostKey()] ?: ConnectionTab.Terminal
+    val selectedTab: StateFlow<ConnectionTab> = combine(activeTabId, _connectionTabByTab) { id, map ->
+        if (id == null) ConnectionTab.Terminal else map[id] ?: ConnectionTab.Terminal
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, ConnectionTab.Terminal)
+
+    val fileBrowserState: StateFlow<FileBrowserUiState> = combine(activeTabId, _fileBrowserStateByTab) { id, map ->
+        if (id == null) FileBrowserUiState() else map[id] ?: FileBrowserUiState()
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, FileBrowserUiState())
+
+    fun selectTabForHost(hostId: Long?): TabSession? {
+        val existing = sessionRepository.tabsForHost(hostId)
+        if (existing.isEmpty()) return null
+        val activeId = sessionRepository.activeTabId.value
+        val target = existing.firstOrNull { it.id == activeId } ?: existing.last()
+        sessionRepository.selectTab(target.id)
+        return target
     }
 
-    fun selectTab(tab: ConnectionTab) {
-        _selectedTab.value = tab
-        tabByHostKey[hostKey()] = tab
-        if (tab == ConnectionTab.Files && _fileBrowserState.value.entries.isEmpty()) {
-            resolveInitialFilePathAndRefresh()
+    fun openTab(spec: TabSpec): TabSession {
+        refreshTailscaleStatus()
+        return sessionRepository.openTab(spec)
+    }
+
+    fun duplicateActiveTab(): TabSession? {
+        val current = sessionRepository.activeTab.value ?: return null
+        return openTab(current.spec)
+    }
+
+    fun selectTab(id: String) {
+        sessionRepository.selectTab(id)
+    }
+
+    fun closeTab(id: String) {
+        _connectionTabByTab.value = _connectionTabByTab.value - id
+        _fileBrowserStateByTab.value = _fileBrowserStateByTab.value - id
+        fileHomeByTab.remove(id)
+        sessionRepository.closeTab(id)
+    }
+
+    fun reconnect() {
+        refreshTailscaleStatus()
+        sessionRepository.reconnectActive()
+    }
+
+    fun selectConnectionTab(tab: ConnectionTab) {
+        val id = activeTabId.value ?: return
+        _connectionTabByTab.value = _connectionTabByTab.value + (id to tab)
+        if (tab == ConnectionTab.Files) {
+            val state = _fileBrowserStateByTab.value[id]
+            if (state == null || state.entries.isEmpty()) {
+                resolveInitialFilePathAndRefresh(id)
+            }
         }
     }
 
-    private fun resolveInitialFilePathAndRefresh() {
-        val key = hostKey()
-        val cachedHome = fileHomeByHostKey[key]
+    private fun updateFileBrowserState(
+        id: String,
+        transform: (FileBrowserUiState) -> FileBrowserUiState,
+    ) {
+        val current = _fileBrowserStateByTab.value
+        val previous = current[id] ?: FileBrowserUiState()
+        _fileBrowserStateByTab.value = current + (id to transform(previous))
+    }
+
+    private fun resolveInitialFilePathAndRefresh(tabId: String) {
+        val cachedHome = fileHomeByTab[tabId]
         if (cachedHome != null) {
-            _fileBrowserState.value = _fileBrowserState.value.copy(currentPath = cachedHome)
-            refreshFileBrowser()
+            updateFileBrowserState(tabId) { it.copy(currentPath = cachedHome) }
+            refreshFileBrowser(tabId)
             return
         }
         viewModelScope.launch(Dispatchers.IO) {
-            val fallback = sessionState.value.pwd?.takeIf { it.isNotBlank() } ?: "/"
-            val resolved = runCatching { sessionRepository.sftpRealpath("~") }.getOrNull()
+            val tabState = sessionRepository.tabs.value.firstOrNull { it.id == tabId }
+            val fallback = tabState?.engine?.state?.value?.pwd?.takeIf { it.isNotBlank() } ?: "/"
+            val resolved = runCatching { sessionRepository.sftpRealpath(tabId, "~") }.getOrNull()
             val initial = resolved?.takeIf { it.isNotBlank() } ?: fallback
-            fileHomeByHostKey[key] = initial
-            _fileBrowserState.value = _fileBrowserState.value.copy(currentPath = initial, resolvedHomePath = initial)
-            refreshFileBrowser()
+            fileHomeByTab[tabId] = initial
+            updateFileBrowserState(tabId) { it.copy(currentPath = initial, resolvedHomePath = initial) }
+            refreshFileBrowser(tabId)
         }
     }
 
     fun refreshFileBrowser() {
-        val pwd = sessionState.value.pwd?.takeIf { it.isNotBlank() } ?: "/"
-        val targetPath = _fileBrowserState.value.currentPath.ifBlank { pwd }
-        _fileBrowserState.value = _fileBrowserState.value.copy(currentPath = targetPath, isLoading = true, error = null)
+        val tabId = activeTabId.value ?: return
+        refreshFileBrowser(tabId)
+    }
+
+    private fun refreshFileBrowser(tabId: String) {
+        val pwd = sessionRepository.tabs.value
+            .firstOrNull { it.id == tabId }
+            ?.sessionState
+            ?.value
+            ?.pwd
+            ?.takeIf { it.isNotBlank() } ?: "/"
+        val targetPath = (_fileBrowserStateByTab.value[tabId]?.currentPath?.ifBlank { pwd }) ?: pwd
+        updateFileBrowserState(tabId) { it.copy(currentPath = targetPath, isLoading = true, error = null) }
         viewModelScope.launch(Dispatchers.IO) {
             runCatching {
-                sessionRepository.sftpListDirectory(targetPath)
+                sessionRepository.sftpListDirectory(tabId, targetPath)
             }.onSuccess { rows ->
                 val entries = rows.map { row ->
                     val parts = row.split('\t')
@@ -115,138 +179,77 @@ class TerminalViewModel(
                         modifiedAtText = mtime?.takeIf { it > 0L }?.let { formatMtime(it) },
                     )
                 }
-                val sortedEntries = when (_fileBrowserState.value.sort) {
+                val current = _fileBrowserStateByTab.value[tabId] ?: FileBrowserUiState()
+                val sortedEntries = when (current.sort) {
                     FileSort.Name -> entries.sortedBy { it.name.lowercase() }
                     FileSort.Size -> entries.sortedByDescending { it.sizeBytes ?: -1L }
                     FileSort.Modified -> entries.sortedByDescending { it.modifiedAtText ?: "" }
                 }
-                // Only update if we're still looking at the same path
-                if (_fileBrowserState.value.currentPath == targetPath) {
-                    _fileBrowserState.value = _fileBrowserState.value.copy(entries = sortedEntries, isLoading = false, error = null)
+                if (current.currentPath == targetPath) {
+                    updateFileBrowserState(tabId) {
+                        it.copy(entries = sortedEntries, isLoading = false, error = null)
+                    }
                 }
             }.onFailure { err ->
-                if (_fileBrowserState.value.currentPath == targetPath) {
-                    _fileBrowserState.value = _fileBrowserState.value.copy(isLoading = false, error = err.message ?: "Failed to list directory")
+                val current = _fileBrowserStateByTab.value[tabId]
+                if (current?.currentPath == targetPath) {
+                    updateFileBrowserState(tabId) {
+                        it.copy(isLoading = false, error = err.message ?: "Failed to list directory")
+                    }
                 }
             }
         }
     }
 
     suspend fun beginUpload(fileName: String) {
-        val targetPath = _fileBrowserState.value.currentPath.trimEnd('/') + "/" + fileName
-        sessionRepository.sftpOpenWrite(targetPath)
+        val tabId = activeTabId.value ?: return
+        val current = _fileBrowserStateByTab.value[tabId] ?: return
+        val targetPath = current.currentPath.trimEnd('/') + "/" + fileName
+        sessionRepository.sftpOpenWrite(tabId, targetPath)
     }
 
     suspend fun writeUploadChunk(data: ByteArray) {
-        sessionRepository.sftpWriteChunk(data)
+        val tabId = activeTabId.value ?: return
+        sessionRepository.sftpWriteChunk(tabId, data)
     }
 
     suspend fun finishUpload() {
-        sessionRepository.sftpCloseWrite()
+        val tabId = activeTabId.value ?: return
+        sessionRepository.sftpCloseWrite(tabId)
         refreshFileBrowser()
     }
 
     fun setUploadProgress(progress: UploadProgress?) {
-        _fileBrowserState.value = _fileBrowserState.value.copy(uploadProgress = progress)
+        val tabId = activeTabId.value ?: return
+        updateFileBrowserState(tabId) { it.copy(uploadProgress = progress) }
     }
 
     fun goUpDirectory() {
-        val current = _fileBrowserState.value.currentPath
+        val tabId = activeTabId.value ?: return
+        val current = _fileBrowserStateByTab.value[tabId]?.currentPath ?: return
         val parent = current.substringBeforeLast('/', "").ifBlank { "/" }
         openPath(parent)
     }
 
     fun openPath(path: String) {
-        _fileBrowserState.value = _fileBrowserState.value.copy(currentPath = path)
+        val tabId = activeTabId.value ?: return
+        updateFileBrowserState(tabId) { it.copy(currentPath = path) }
         refreshFileBrowser()
     }
 
     fun selectFileSort(sort: FileSort) {
-        _fileBrowserState.value = _fileBrowserState.value.copy(sort = sort)
+        val tabId = activeTabId.value ?: return
+        updateFileBrowserState(tabId) { it.copy(sort = sort) }
         refreshFileBrowser()
     }
-
-    private fun hostKey(): String = selectedHostId?.toString() ?: "adhoc"
 
     private fun formatMtime(epochSeconds: Long): String {
         val formatter = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
         return formatter.format(Date(epochSeconds * 1000L))
     }
 
-    fun updateHost(host: String) {
-        _connectForm.value = _connectForm.value.copy(host = host)
-    }
-
-    fun updatePort(port: String) {
-        _connectForm.value = _connectForm.value.copy(port = port)
-    }
-
-    fun updateUsername(username: String) {
-        _connectForm.value = _connectForm.value.copy(username = username)
-    }
-
-    fun updatePassword(password: String) {
-        _connectForm.value = _connectForm.value.copy(password = password)
-    }
-
-    fun updateTransport(transport: Transport) {
-        val current = _connectForm.value
-        val nextAuthMethod = when {
-            transport == Transport.SSH && current.authMethod == AuthMethod.None -> AuthMethod.Password
-            else -> current.authMethod
-        }
-        _connectForm.value = current.copy(transport = transport, authMethod = nextAuthMethod)
-    }
-
-    fun updateAuthMethod(authMethod: AuthMethod) {
-        val transport = _connectForm.value.transport
-        if (transport == Transport.SSH && authMethod == AuthMethod.None) {
-            return
-        }
-        _connectForm.value = _connectForm.value.copy(authMethod = authMethod)
-    }
-
-    fun updatePrivateKey(privateKeyPem: String, publicKeyOpenSsh: String = "") {
-        _connectForm.value = _connectForm.value.copy(
-            privateKeyPem = privateKeyPem,
-            publicKeyOpenSsh = publicKeyOpenSsh,
-        )
-    }
-
-    fun updateKeyPassphrase(keyPassphrase: String) {
-        _connectForm.value = _connectForm.value.copy(keyPassphrase = keyPassphrase)
-    }
-
-    fun updateDisplayName(displayName: String) {
-        _connectForm.value = _connectForm.value.copy(displayName = displayName)
-    }
-
     fun refreshTailscaleStatus() {
         _tailscaleActive.value = tailscaleStatusChecker.isActive()
-    }
-
-    fun connect() {
-        val form = _connectForm.value
-        val port = form.port.toIntOrNull() ?: 22
-        val sessionKey = selectedHostId?.let { "host:$it" } ?: "${form.transport.name}:${form.username}@${form.host}:$port"
-        refreshTailscaleStatus()
-        sessionRepository.connect(
-            host = form.host,
-            port = port,
-            username = form.username,
-            password = form.password,
-            authMethod = form.authMethod,
-            publicKeyOpenSsh = form.publicKeyOpenSsh,
-            privateKeyPem = form.privateKeyPem,
-            keyPassphrase = form.keyPassphrase,
-            transport = form.transport,
-            sessionKey = sessionKey,
-            hostLabel = form.displayName.ifBlank { "${form.username}@${form.host}:$port" },
-        )
-    }
-
-    fun disconnect() {
-        sessionRepository.disconnect()
     }
 
     fun onCanvasSizeChanged(
@@ -301,8 +304,6 @@ class TerminalViewModel(
     }
 
     fun onSpecialKeyInput(key: TerminalSpecialKey, mods: Int) {
-        // Send press followed by release so terminal apps that track key state
-        // see a complete key cycle.
         sessionRepository.scrollToActive()
         sessionRepository.writeKey(key.engineKey, 0, mods, GhosttyKeyAction.Press)
         sessionRepository.writeKey(key.engineKey, 0, mods, GhosttyKeyAction.Release)
@@ -365,16 +366,3 @@ private object GhosttyMouseAction {
 private object GhosttyMouseButton {
     const val Left = 1
 }
-
-data class ConnectForm(
-    val host: String = "",
-    val port: String = "22",
-    val username: String = "",
-    val password: String = "",
-    val authMethod: AuthMethod = AuthMethod.Password,
-    val privateKeyPem: String = "",
-    val publicKeyOpenSsh: String = "",
-    val keyPassphrase: String = "",
-    val transport: Transport = Transport.SSH,
-    val displayName: String = "",
-)

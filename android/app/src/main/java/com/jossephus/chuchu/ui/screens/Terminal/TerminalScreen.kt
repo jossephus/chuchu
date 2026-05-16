@@ -5,7 +5,6 @@ import android.content.ClipData
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
-import android.util.Log
 import android.widget.Toast
 import android.view.inputmethod.InputMethodManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -13,6 +12,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -46,6 +48,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.alpha
 
@@ -68,6 +71,8 @@ import com.jossephus.chuchu.data.repository.HostRepository
 import com.jossephus.chuchu.data.repository.SshKeyRepository
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.service.terminal.SessionStatus
+import com.jossephus.chuchu.service.terminal.TabSession
+import com.jossephus.chuchu.service.terminal.TabSpec
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuDialog
@@ -231,7 +236,13 @@ fun TerminalScreen(
     modifier: Modifier = Modifier,
 ) {
     val sessionState by vm.sessionState.collectAsStateWithLifecycle()
-    val connectForm by vm.connectForm.collectAsStateWithLifecycle()
+    val tabs by vm.tabs.collectAsStateWithLifecycle()
+    val activeTabId by vm.activeTabId.collectAsStateWithLifecycle()
+    val activeTab by vm.activeTab.collectAsStateWithLifecycle()
+    val tabsForHost = remember(tabs, hostId) { tabs.filter { it.spec.hostId == hostId } }
+    val activeTabForHost = remember(activeTab, hostId) {
+        activeTab?.takeIf { it.spec.hostId == hostId }
+    }
     val selectedTab by vm.selectedTab.collectAsStateWithLifecycle()
     val fileBrowserState by vm.fileBrowserState.collectAsStateWithLifecycle()
     val hostKeyPrompt by vm.hostKeyPrompt.collectAsStateWithLifecycle()
@@ -260,31 +271,51 @@ fun TerminalScreen(
     var selectionResetKey by remember { mutableStateOf(0) }
     var showPassphrasePrompt by remember { mutableStateOf(false) }
     var passphraseInput by remember { mutableStateOf("") }
+    var pendingTabSpec by remember { mutableStateOf<TabSpec?>(null) }
+    var showTabSheet by remember { mutableStateOf(false) }
+    var hasSeenTabsForHost by remember(hostId) { mutableStateOf(false) }
 
     LaunchedEffect(hostId) {
-        vm.setSelectedHostId(hostId)
-        if (hostId == null) return@LaunchedEffect
         showPassphrasePrompt = false
         passphraseInput = ""
+        pendingTabSpec = null
+        if (hostId == null) return@LaunchedEffect
+        val existing = vm.selectTabForHost(hostId)
+        if (existing != null) {
+            return@LaunchedEffect
+        }
         val db = AppDatabase.getInstance(context)
         val host = HostRepository(db.hostProfileDao()).getById(hostId) ?: return@LaunchedEffect
         val key = host.keyId?.let { SshKeyRepository(db.sshKeyDao()).getById(it) }
-        vm.updateDisplayName(host.name)
-        vm.updateHost(host.host)
-        vm.updatePort(host.port.toString())
-        vm.updateUsername(host.username)
-        vm.updatePassword(host.password)
-        vm.updateTransport(host.transport)
-        vm.updateAuthMethod(host.authMethod)
-        if (key != null) {
-            vm.updatePrivateKey(key.privateKeyPem, key.publicKeyOpenSsh)
-        }
         vm.refreshTailscaleStatus()
+        val baseSpec = TabSpec(
+            hostId = host.id,
+            displayName = host.name,
+            host = host.host,
+            port = host.port,
+            username = host.username,
+            password = host.password,
+            authMethod = host.authMethod,
+            publicKeyOpenSsh = key?.publicKeyOpenSsh.orEmpty(),
+            privateKeyPem = key?.privateKeyPem.orEmpty(),
+            keyPassphrase = "",
+            transport = host.transport,
+        )
         if (host.authMethod == AuthMethod.KeyWithPassphrase && key != null) {
+            pendingTabSpec = baseSpec
             showPassphrasePrompt = true
         } else {
-            vm.updateKeyPassphrase("")
-            vm.connect()
+            vm.openTab(baseSpec)
+        }
+    }
+
+    LaunchedEffect(tabsForHost.isNotEmpty(), hostId) {
+        if (tabsForHost.isNotEmpty()) hasSeenTabsForHost = true
+    }
+
+    LaunchedEffect(hasSeenTabsForHost, tabsForHost.isEmpty()) {
+        if (hasSeenTabsForHost && tabsForHost.isEmpty()) {
+            onBack()
         }
     }
 
@@ -293,14 +324,19 @@ fun TerminalScreen(
             title = "Key passphrase",
             confirmLabel = "Connect",
             onConfirm = {
-                vm.updateKeyPassphrase(passphraseInput)
+                val spec = pendingTabSpec
                 showPassphrasePrompt = false
+                if (spec != null) {
+                    vm.openTab(spec.copy(keyPassphrase = passphraseInput))
+                }
                 passphraseInput = ""
-                vm.connect()
+                pendingTabSpec = null
             },
             onDismiss = {
                 showPassphrasePrompt = false
                 passphraseInput = ""
+                pendingTabSpec = null
+                onBack()
             },
         ) {
             ChuTextField(
@@ -317,23 +353,9 @@ fun TerminalScreen(
     LaunchedEffect(sessionState.status, sessionState.error) {
         val previous = lastSessionStatus
         lastSessionStatus = sessionState.status
-        when (sessionState.status) {
-            SessionStatus.Connected -> Unit
-            SessionStatus.Error -> {
-                if (previous != SessionStatus.Error) {
-                    val message = sessionState.error ?: "Connection failed"
-                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
-                }
-            }
-            SessionStatus.Disconnected -> {
-                val wasActive = previous == SessionStatus.Connected ||
-                    previous == SessionStatus.Connecting ||
-                    previous == SessionStatus.Reconnecting
-                if (wasActive) {
-                    onBack()
-                }
-            }
-            else -> Unit
+        if (sessionState.status == SessionStatus.Error && previous != SessionStatus.Error) {
+            val message = sessionState.error ?: "Connection failed"
+            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
         }
     }
 
@@ -371,7 +393,7 @@ fun TerminalScreen(
                     ChuText(sessionState.error!!, color = colors.error, style = typography.body)
                     Spacer(modifier = Modifier.height(16.dp))
                     ChuButton(
-                        onClick = vm::connect,
+                        onClick = vm::reconnect,
                         modifier = Modifier.fillMaxWidth(),
                         variant = ChuButtonVariant.Filled,
                     ) {
@@ -386,7 +408,10 @@ fun TerminalScreen(
                 modifier = screenInsetsModifier.fillMaxSize().padding(16.dp),
                 verticalArrangement = Arrangement.Center,
             ) {
-                ChuText("Connecting to ${connectForm.host}...", style = typography.body)
+                ChuText(
+                    "Connecting to ${activeTabForHost?.spec?.host ?: ""}...",
+                    style = typography.body,
+                )
             }
         }
 
@@ -565,7 +590,6 @@ fun TerminalScreen(
                                 } catch (e: Exception) {
                                     failed++
                                     lastError = e.message ?: e.javaClass.simpleName
-                                    Log.e("Upload", "Failed to upload $fileName", e)
                                     runCatching { vm.finishUpload() }
                                 } finally {
                                     vm.setUploadProgress(null)
@@ -589,6 +613,7 @@ fun TerminalScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
+                            .blur(if (showTabSheet) 10.dp else 0.dp)
                             .imePadding(),
                     ) {
                     if (selectedTab == ConnectionTab.Files) {
@@ -598,7 +623,7 @@ fun TerminalScreen(
                             onRefresh = vm::refreshFileBrowser,
                             onSelectSort = vm::selectFileSort,
                             onOpenPath = vm::openPath,
-                            onBackToTerminal = { vm.selectTab(ConnectionTab.Terminal) },
+                            onBackToTerminal = { vm.selectConnectionTab(ConnectionTab.Terminal) },
                             onCopyPath = { path ->
                                 clipboard?.setPrimaryClip(ClipData.newPlainText("path", path))
                                 Toast.makeText(context, "Copied path", Toast.LENGTH_SHORT).show()
@@ -649,6 +674,14 @@ fun TerminalScreen(
                             }
                             if (pwdText != null) {
                                 ChuText(text = pwdText, style = typography.labelSmall, color = colors.textPrimary.copy(alpha = 0.7f))
+                            }
+                            ChuButton(
+                                onClick = { showTabSheet = true },
+                                variant = ChuButtonVariant.Outlined,
+                                bracketed = true,
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            ) {
+                                ChuText("+", style = typography.label, color = colors.accent)
                             }
                         }
 
@@ -750,7 +783,7 @@ fun TerminalScreen(
                             modifierState = modifierState,
                             onAction = ::dispatchAccessoryAction,
                             onSettings = onOpenSettings,
-                            onOpenFiles = { vm.selectTab(ConnectionTab.Files) },
+                            onOpenFiles = { vm.selectConnectionTab(ConnectionTab.Files) },
                             useSingleRow = useSingleRowAccessoryBar,
                             modifier = Modifier.padding(bottom = 2.dp),
                         )
@@ -763,13 +796,29 @@ fun TerminalScreen(
                 if (uploadProgress != null) {
                     UploadProgressDialog(progress = uploadProgress)
                 }
+                if (showTabSheet) {
+                    TabSwitcherOverlay(
+                        tabs = tabsForHost,
+                        activeTabId = activeTabId,
+                        onSelectTab = {
+                            vm.selectTab(it)
+                            showTabSheet = false
+                        },
+                        onCloseTab = vm::closeTab,
+                        onAddTab = {
+                            vm.duplicateActiveTab()
+                            showTabSheet = false
+                        },
+                        onDismiss = { showTabSheet = false },
+                    )
+                }
             } else {
                 Column(
                     modifier = screenInsetsModifier.fillMaxSize().padding(16.dp),
                     verticalArrangement = Arrangement.Center,
                 ) {
                     val message = if (isReconnecting) {
-                        "Reconnecting to ${connectForm.host}..."
+                        "Reconnecting to ${activeTabForHost?.spec?.host ?: ""}..."
                     } else {
                         "Preparing terminal..."
                     }
@@ -778,6 +827,162 @@ fun TerminalScreen(
             }
         }
     }
+}
+
+@Composable
+private fun TabSwitcherOverlay(
+    tabs: List<TabSession>,
+    activeTabId: String?,
+    onSelectTab: (String) -> Unit,
+    onCloseTab: (String) -> Unit,
+    onAddTab: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+    val labeledTabs = remember(tabs) {
+        tabs.map { tab -> tab to tabAlias(tab) }
+    }
+    AnimatedVisibility(visible = true, enter = fadeIn() + slideInVertically { it / 5 }, exit = fadeOut() + slideOutVertically { it / 4 }) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(colors.background)
+                .clickable { onDismiss() },
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .padding(12.dp)
+                    .clickable(enabled = false) {},
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    ChuText("tabs", style = typography.title)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        ChuButton(onClick = onDismiss, variant = ChuButtonVariant.Outlined, bracketed = true, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)) {
+                            ChuText("done", style = typography.label, color = colors.textMuted)
+                        }
+                        ChuButton(onClick = onAddTab, variant = ChuButtonVariant.Outlined, bracketed = true, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)) {
+                            ChuText("+", style = typography.label, color = colors.accent)
+                        }
+                    }
+                }
+
+                val rows = remember(labeledTabs) { labeledTabs.chunked(2) }
+                androidx.compose.foundation.lazy.LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(rows.size) { rowIndex ->
+                        val row = rows[rowIndex]
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                            row.forEach { (tab, label) ->
+                                val isActive = tab.id == activeTabId
+                                val state = tab.sessionState.value
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .background(if (isActive) colors.surface else colors.surfaceVariant)
+                                        .border(
+                                            2.dp,
+                                            if (isActive) colors.accent else colors.border.copy(alpha = 0.55f),
+                                        )
+                                        .clickable { onSelectTab(tab.id) },
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        ChuText(label, style = typography.label, color = colors.textPrimary)
+                                        if (tabs.size > 1) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(26.dp)
+                                                    .clickable { onCloseTab(tab.id) },
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                ChuText("x", style = typography.label, color = colors.textMuted)
+                                            }
+                                        }
+                                    }
+                                    val previewBackground = if (isActive) {
+                                        colors.background.copy(alpha = 0.9f)
+                                    } else {
+                                        colors.background.copy(alpha = 0.75f)
+                                    }
+                                    val snapshot = state.snapshot
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(150.dp)
+                                            .background(previewBackground)
+                                            .clickable { onSelectTab(tab.id) },
+                                    ) {
+                                        if (snapshot != null) {
+                                            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                                                val widthDp = maxWidth.value.coerceAtLeast(1f)
+                                                val heightDp = maxHeight.value.coerceAtLeast(1f)
+                                                val cols = snapshot.cols.coerceAtLeast(1)
+                                                val rows = snapshot.rows.coerceAtLeast(1)
+                                                val charAspect = 2.05f
+                                                val byWidth = widthDp / cols.toFloat()
+                                                val byHeight = (heightDp / rows.toFloat()) / charAspect
+                                                val previewFontSizeSp = minOf(byWidth, byHeight).coerceIn(2.8f, 6.5f)
+                                                TerminalCanvas(
+                                                    snapshot = snapshot,
+                                                    fontSizeSp = previewFontSizeSp,
+                                                    cursorColor = Color.Transparent,
+                                                    selectionBackgroundColor = Color.Transparent,
+                                                    onTap = { onSelectTab(tab.id) },
+                                                    onPrimaryClick = { _, _ -> onSelectTab(tab.id) },
+                                                    onScroll = {},
+                                                    onZoom = {},
+                                                    onSelectionChanged = { _, _, _, _ -> },
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .clip(RectangleShape),
+                                                )
+                                            }
+                                        } else {
+                                            Column(
+                                                modifier = Modifier.padding(8.dp),
+                                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                            ) {
+                                                ChuText(tab.spec.notificationLabel, style = typography.labelSmall, color = colors.textMuted)
+                                                ChuText("status: ${state.status}", style = typography.bodySmall, color = colors.textSecondary)
+                                                state.title?.let { ChuText(it, style = typography.bodySmall, color = colors.textPrimary) }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if (row.size == 1) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun tabAlias(tab: TabSession): String {
+    val adjectives = listOf(
+        "amber", "brisk", "cedar", "delta", "ember", "frost", "golden", "hazel",
+        "indigo", "jade", "kilo", "lunar", "mango", "nova", "onyx", "pluto",
+    )
+    val nouns = listOf(
+        "otter", "falcon", "pine", "river", "comet", "harbor", "meadow", "quartz",
+        "signal", "orbit", "anchor", "summit", "thunder", "voyager", "willow", "zenith",
+    )
+    val seed = tab.id.hashCode().let { if (it == Int.MIN_VALUE) 0 else kotlin.math.abs(it) }
+    val adjective = adjectives[seed % adjectives.size]
+    val noun = nouns[(seed / adjectives.size) % nouns.size]
+    return "$adjective-$noun"
 }
 
 @Composable
@@ -854,4 +1059,3 @@ private fun UploadProgressDialog(progress: UploadProgress) {
         }
     }
 }
-
