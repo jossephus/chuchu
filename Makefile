@@ -7,3 +7,10 @@ app:
 	cd android && ./gradlew assembleDebug
 	cd android && ./gradlew installDebug
 	adb shell am start -n com.jossephus.chuchu/.MainActivity
+
+fmt:
+	ktfmt --kotlinlang-style $(shell find $(KT_SRC) -name '*.kt')
+
+lint:
+	ktlint --editorconfig=android/.editorconfig "android/app/src/**/*.kt" "android/**/*.gradle.kts"
+

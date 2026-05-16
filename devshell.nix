@@ -35,6 +35,7 @@ with pkgs;
       gradle
       jdk21
       zigpkgs."0.15.2"
-      nasm
+      ktfmt
+      ktlint
     ];
   }

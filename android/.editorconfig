@@ -1,0 +1,110 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{kt,kts}]
+# ktfmt owns line length / wrapping
+max_line_length = off
+ij_kotlin_allow_trailing_comma = true
+ij_kotlin_allow_trailing_comma_on_call_site = true
+
+ktlint_code_style = intellij_idea
+ktlint_standard = enabled
+ktlint_experimental = enabled
+
+# ---- DISABLED: ktfmt already enforces these (would just fight) ----
+ktlint_standard_indent = disabled
+ktlint_standard_no-wildcard-imports = enabled          # keep: real lint
+ktlint_standard_import-ordering = disabled             # ktfmt sorts imports
+ktlint_standard_no-unused-imports = enabled            # keep: real lint
+ktlint_standard_trailing-comma-on-call-site = disabled
+ktlint_standard_trailing-comma-on-declaration-site = disabled
+ktlint_standard_wrapping = disabled
+ktlint_standard_argument-list-wrapping = disabled
+ktlint_standard_parameter-list-wrapping = disabled
+ktlint_standard_parameter-wrapping = disabled
+ktlint_standard_property-wrapping = disabled
+ktlint_standard_chain-wrapping = disabled
+ktlint_standard_chain-method-continuation = disabled
+ktlint_standard_function-signature = disabled
+ktlint_standard_multiline-expression-wrapping = disabled
+ktlint_standard_string-template-indent = disabled
+ktlint_standard_max-line-length = disabled
+ktlint_standard_no-blank-line-before-rbrace = disabled
+ktlint_standard_no-consecutive-blank-lines = disabled
+ktlint_standard_blank-line-before-declaration = disabled
+ktlint_standard_blank-line-between-when-conditions = disabled
+ktlint_standard_spacing-around-colon = disabled
+ktlint_standard_spacing-around-comma = disabled
+ktlint_standard_spacing-around-curly = disabled
+ktlint_standard_spacing-around-dot = disabled
+ktlint_standard_spacing-around-keyword = disabled
+ktlint_standard_spacing-around-operators = disabled
+ktlint_standard_spacing-around-parens = disabled
+ktlint_standard_spacing-around-range-operator = disabled
+ktlint_standard_spacing-around-unary-operator = disabled
+ktlint_standard_spacing-between-declarations-with-annotations = disabled
+ktlint_standard_spacing-between-declarations-with-comments = disabled
+ktlint_standard_function-start-of-body-spacing = disabled
+ktlint_standard_function-return-type-spacing = disabled
+ktlint_standard_function-type-reference-spacing = disabled
+ktlint_standard_modifier-list-spacing = disabled
+ktlint_standard_nullable-type-spacing = disabled
+ktlint_standard_parameter-list-spacing = disabled
+ktlint_standard_type-argument-list-spacing = disabled
+ktlint_standard_type-parameter-list-spacing = disabled
+ktlint_standard_curly-spacing = disabled
+ktlint_standard_comma-spacing = disabled
+ktlint_standard_colon-spacing = disabled
+ktlint_standard_dot-spacing = disabled
+ktlint_standard_keyword-spacing = disabled
+ktlint_standard_op-spacing = disabled
+ktlint_standard_paren-spacing = disabled
+ktlint_standard_range-spacing = disabled
+ktlint_standard_unary-op-spacing = disabled
+ktlint_standard_statement-wrapping = disabled
+ktlint_standard_if-else-wrapping = disabled
+ktlint_standard_if-else-bracing = disabled
+
+# ---- KEPT: actual lint rules (catch bugs / bad style) ----
+# These are all on by default; listing the important ones so you know what you're getting:
+# ktlint_standard_class-naming                  PascalCase classes
+# ktlint_standard_property-naming               camelCase / SCREAMING_SNAKE for top-level const
+# ktlint_standard_package-name                  lowercase package, no underscores
+# ktlint_standard_no-empty-class-body
+# ktlint_standard_no-empty-file
+# ktlint_standard_no-empty-first-line-in-class-body
+# ktlint_standard_no-empty-first-line-in-method-block
+# ktlint_standard_no-line-break-after-else
+# ktlint_standard_no-line-break-before-assignment
+# ktlint_standard_no-multi-spaces
+# ktlint_standard_no-semi                       no needless semicolons
+# ktlint_standard_no-trailing-spaces
+# ktlint_standard_no-unit-return                fun foo(): Unit -> fun foo()
+# ktlint_standard_unnecessary-parentheses-before-trailing-lambda
+# ktlint_standard_string-template               redundant ${x} -> $x
+# ktlint_standard_enum-entry-name-case
+# ktlint_standard_enum-wrapping                 catches one-line enums with bodies
+# ktlint_standard_modifier-order                public override fun -> override fun
+# ktlint_standard_no-consecutive-comments
+# ktlint_standard_no-single-line-block-comment
+# ktlint_standard_kdoc-wrapping
+# ktlint_standard_value-argument-comment
+# ktlint_standard_value-parameter-comment
+# ktlint_standard_discouraged-comment-location
+# ktlint_standard_backing-property-naming
+# ktlint_standard_function-expression-body
+# ktlint_standard_no-blank-line-in-list
+# ktlint_standard_when-entry-bracing
+
+# Android / Compose-friendly tweaks
+ktlint_standard_filename = disabled            # multi-decl files are normal
+ktlint_standard_function-naming = disabled     # @Composable is PascalCase
+ktlint_function_naming_ignore_when_annotated_with = Composable,Test,ParameterizedTest
+
+# Enable Compose rules if you add the Twitter/Mrmans0n ruleset jar
+ktlint_compose = enabled
