@@ -207,43 +207,45 @@ fun FileBrowserScreen(
                                                         .padding(4.dp),
                                                 verticalArrangement = Arrangement.spacedBy(2.dp),
                                             ) {
-                                                ChuButton(
-                                                    onClick = {
-                                                        onOpenFile(entry)
-                                                        optionsEntryPath = null
-                                                    },
-                                                    variant = ChuButtonVariant.Ghost,
-                                                    bracketed = true,
-                                                    contentPadding =
-                                                        PaddingValues(
-                                                            horizontal = 10.dp,
-                                                            vertical = 6.dp,
-                                                        ),
-                                                ) {
-                                                    ChuText(
-                                                        "open",
-                                                        style = typography.label,
-                                                        color = colors.textMuted,
-                                                    )
-                                                }
-                                                ChuButton(
-                                                    onClick = {
-                                                        onDownloadFile(entry)
-                                                        optionsEntryPath = null
-                                                    },
-                                                    variant = ChuButtonVariant.Ghost,
-                                                    bracketed = true,
-                                                    contentPadding =
-                                                        PaddingValues(
-                                                            horizontal = 10.dp,
-                                                            vertical = 6.dp,
-                                                        ),
-                                                ) {
-                                                    ChuText(
-                                                        "download",
-                                                        style = typography.label,
-                                                        color = colors.textMuted,
-                                                    )
+                                                if (entry.type != FileEntryType.Directory) {
+                                                    ChuButton(
+                                                        onClick = {
+                                                            onOpenFile(entry)
+                                                            optionsEntryPath = null
+                                                        },
+                                                        variant = ChuButtonVariant.Ghost,
+                                                        bracketed = true,
+                                                        contentPadding =
+                                                            PaddingValues(
+                                                                horizontal = 10.dp,
+                                                                vertical = 6.dp,
+                                                            ),
+                                                    ) {
+                                                        ChuText(
+                                                            "open",
+                                                            style = typography.label,
+                                                            color = colors.textMuted,
+                                                        )
+                                                    }
+                                                    ChuButton(
+                                                        onClick = {
+                                                            onDownloadFile(entry)
+                                                            optionsEntryPath = null
+                                                        },
+                                                        variant = ChuButtonVariant.Ghost,
+                                                        bracketed = true,
+                                                        contentPadding =
+                                                            PaddingValues(
+                                                                horizontal = 10.dp,
+                                                                vertical = 6.dp,
+                                                            ),
+                                                    ) {
+                                                        ChuText(
+                                                            "download",
+                                                            style = typography.label,
+                                                            color = colors.textMuted,
+                                                        )
+                                                    }
                                                 }
                                                 ChuButton(
                                                     onClick = {

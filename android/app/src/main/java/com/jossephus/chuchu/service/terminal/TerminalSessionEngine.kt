@@ -14,6 +14,7 @@ import java.nio.file.Path
 import java.util.concurrent.Executors
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.currentCoroutineContext
@@ -73,11 +74,12 @@ class TerminalSessionEngine(
         val transport: Transport,
     )
 
-    private val dispatcher =
+    private val dispatcher: ExecutorCoroutineDispatcher =
         Executors.newSingleThreadExecutor { r ->
                 Thread(r, "terminal-session").apply { isDaemon = true }
             }
             .asCoroutineDispatcher()
+    @Volatile private var disposed = false
 
     private val bridge = GhosttyBridge()
     private val nativeSsh = NativeSshService(hostKeyPolicy = ::verifyHostKey)
@@ -405,6 +407,13 @@ class TerminalSessionEngine(
                     sessionKey = _state.value.sessionKey,
                 )
         }
+    }
+
+    fun dispose() {
+        if (disposed) return
+        disposed = true
+        disconnect()
+        dispatcher.close()
     }
 
     fun respondToHostKey(accepted: Boolean) {

@@ -162,7 +162,7 @@ class TerminalSessionRepository private constructor(application: Application) {
             val nextSameHost = remaining.firstOrNull { it.spec.hostId == tab.spec.hostId }
             _activeTabId.value = nextSameHost?.id ?: remaining.firstOrNull()?.id
         }
-        tab.engine.disconnect()
+        tab.engine.dispose()
     }
 
     fun reconnectActive() {
@@ -186,7 +186,7 @@ class TerminalSessionRepository private constructor(application: Application) {
         val tabs = _tabs.value
         _tabs.value = emptyList()
         _activeTabId.value = null
-        tabs.forEach { it.engine.disconnect() }
+        tabs.forEach { it.engine.dispose() }
     }
 
     private fun activeEngine(): TerminalSessionEngine? = activeTab.value?.engine
