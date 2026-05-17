@@ -2,9 +2,8 @@ package com.jossephus.chuchu.service.ssh
 
 class NativeSshBridge {
     companion object {
-        private val loadError: Throwable? = runCatching {
-            System.loadLibrary("chuchu_jni")
-        }.exceptionOrNull()
+        private val loadError: Throwable? =
+            runCatching { System.loadLibrary("chuchu_jni") }.exceptionOrNull()
     }
 
     fun isLoaded(): Boolean = loadError == null
@@ -19,23 +18,66 @@ class NativeSshBridge {
     }
 
     external fun nativeCreateSession(): Long
+
     external fun nativeDestroySession(handle: Long)
+
     external fun nativeConnect(handle: Long, host: String, port: Int, username: String): Boolean
+
     external fun nativeGetLastError(handle: Long): String?
+
     external fun nativeGetHostKey(handle: Long): ByteArray?
+
     external fun nativeGetHostKeyAlgorithm(handle: Long): String?
+
     external fun nativeAuthenticateNone(handle: Long): Boolean
+
     external fun nativeAuthenticatePassword(handle: Long, password: String): Boolean
-    external fun nativeAuthenticatePublicKeyMemory(handle: Long, publicKeyOpenSsh: String?, privateKeyPem: String, passphrase: String?): Boolean
-    external fun nativeOpenShell(handle: Long, cols: Int, rows: Int, widthPx: Int, heightPx: Int, term: String): Boolean
-    external fun nativeResize(handle: Long, cols: Int, rows: Int, widthPx: Int, heightPx: Int): Boolean
+
+    external fun nativeAuthenticatePublicKeyMemory(
+        handle: Long,
+        publicKeyOpenSsh: String?,
+        privateKeyPem: String,
+        passphrase: String?,
+    ): Boolean
+
+    external fun nativeOpenShell(
+        handle: Long,
+        cols: Int,
+        rows: Int,
+        widthPx: Int,
+        heightPx: Int,
+        term: String,
+    ): Boolean
+
+    external fun nativeResize(
+        handle: Long,
+        cols: Int,
+        rows: Int,
+        widthPx: Int,
+        heightPx: Int,
+    ): Boolean
+
     external fun nativeIpcExchange(handle: Long, request: ByteArray): ByteArray?
+
     external fun nativeSftpInit(handle: Long): Boolean
+
     external fun nativeSftpListDirectory(handle: Long, path: String): Array<String>?
+
     external fun nativeSftpRealpath(handle: Long, path: String): String?
+
     external fun nativeSftpOpenWrite(handle: Long, path: String): Boolean
+
     external fun nativeSftpWriteChunk(handle: Long, data: ByteArray): Int
+
     external fun nativeSftpCloseWrite(handle: Long): Boolean
+
+    external fun nativeSftpReadFile(handle: Long, path: String, maxBytes: Int): ByteArray?
+
+    external fun nativeSftpDeleteFile(handle: Long, path: String): Boolean
+
+    external fun nativeSftpDeleteDirectory(handle: Long, path: String): Boolean
+
     external fun nativeClose(handle: Long)
+
     external fun nativeGenerateEd25519Key(comment: String, passphrase: String?): Array<String>?
 }

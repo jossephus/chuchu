@@ -19,6 +19,9 @@ import com.jossephus.chuchu.ui.screens.Files.FileSort
 import com.jossephus.chuchu.ui.screens.Files.UploadProgress
 import com.jossephus.chuchu.ui.terminal.GhosttyKeyAction
 import com.jossephus.chuchu.ui.terminal.TerminalSpecialKey
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
@@ -27,18 +30,12 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class TerminalViewModel(
-    application: Application,
-) : AndroidViewModel(application) {
+class TerminalViewModel(application: Application) : AndroidViewModel(application) {
     private val tailscaleStatusChecker = TailscaleStatusChecker(application)
     private val sessionRepository = TerminalSessionRepository.getInstance(application)
 
@@ -56,16 +53,21 @@ class TerminalViewModel(
     }
 
     private val _connectionTabByTab = MutableStateFlow<Map<String, ConnectionTab>>(emptyMap())
-    private val _fileBrowserStateByTab = MutableStateFlow<Map<String, FileBrowserUiState>>(emptyMap())
+    private val _fileBrowserStateByTab =
+        MutableStateFlow<Map<String, FileBrowserUiState>>(emptyMap())
     private val fileHomeByTab = mutableMapOf<String, String>()
 
-    val selectedTab: StateFlow<ConnectionTab> = combine(activeTabId, _connectionTabByTab) { id, map ->
-        if (id == null) ConnectionTab.Terminal else map[id] ?: ConnectionTab.Terminal
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, ConnectionTab.Terminal)
+    val selectedTab: StateFlow<ConnectionTab> =
+        combine(activeTabId, _connectionTabByTab) { id, map ->
+                if (id == null) ConnectionTab.Terminal else map[id] ?: ConnectionTab.Terminal
+            }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, ConnectionTab.Terminal)
 
-    val fileBrowserState: StateFlow<FileBrowserUiState> = combine(activeTabId, _fileBrowserStateByTab) { id, map ->
-        if (id == null) FileBrowserUiState() else map[id] ?: FileBrowserUiState()
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, FileBrowserUiState())
+    val fileBrowserState: StateFlow<FileBrowserUiState> =
+        combine(activeTabId, _fileBrowserStateByTab) { id, map ->
+                if (id == null) FileBrowserUiState() else map[id] ?: FileBrowserUiState()
+            }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, FileBrowserUiState())
 
     fun selectTabForHost(hostId: Long?): TabSession? {
         val existing = sessionRepository.tabsForHost(hostId)
@@ -135,7 +137,9 @@ class TerminalViewModel(
             val resolved = runCatching { sessionRepository.sftpRealpath(tabId, "~") }.getOrNull()
             val initial = resolved?.takeIf { it.isNotBlank() } ?: fallback
             fileHomeByTab[tabId] = initial
-            updateFileBrowserState(tabId) { it.copy(currentPath = initial, resolvedHomePath = initial) }
+            updateFileBrowserState(tabId) {
+                it.copy(currentPath = initial, resolvedHomePath = initial)
+            }
             refreshFileBrowser(tabId)
         }
     }
@@ -146,58 +150,70 @@ class TerminalViewModel(
     }
 
     private fun refreshFileBrowser(tabId: String) {
-        val pwd = sessionRepository.tabs.value
-            .firstOrNull { it.id == tabId }
-            ?.sessionState
-            ?.value
-            ?.pwd
-            ?.takeIf { it.isNotBlank() } ?: "/"
+        val pwd =
+            sessionRepository.tabs.value
+                .firstOrNull { it.id == tabId }
+                ?.sessionState
+                ?.value
+                ?.pwd
+                ?.takeIf { it.isNotBlank() } ?: "/"
         val targetPath = (_fileBrowserStateByTab.value[tabId]?.currentPath?.ifBlank { pwd }) ?: pwd
-        updateFileBrowserState(tabId) { it.copy(currentPath = targetPath, isLoading = true, error = null) }
+        updateFileBrowserState(tabId) {
+            it.copy(currentPath = targetPath, isLoading = true, error = null)
+        }
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching {
-                sessionRepository.sftpListDirectory(tabId, targetPath)
-            }.onSuccess { rows ->
-                val entries = rows.map { row ->
-                    val parts = row.split('\t')
-                    val name = parts.getOrNull(0).orEmpty()
-                    val kind = parts.getOrNull(1).orEmpty()
-                    val size = parts.getOrNull(2)?.toLongOrNull()
-                    val mtime = parts.getOrNull(3)?.toLongOrNull()
-                    val normalizedBase = targetPath.trimEnd('/').ifEmpty { "/" }
-                    val type = when (kind) {
-                        "dir" -> FileEntryType.Directory
-                        "file" -> FileEntryType.File
-                        "link" -> FileEntryType.Symlink
-                        else -> FileEntryType.Other
+            runCatching { sessionRepository.sftpListDirectory(tabId, targetPath) }
+                .onSuccess { rows ->
+                    val entries =
+                        rows.map { row ->
+                            val parts = row.split('\t')
+                            val name = parts.getOrNull(0).orEmpty()
+                            val kind = parts.getOrNull(1).orEmpty()
+                            val size = parts.getOrNull(2)?.toLongOrNull()
+                            val mtime = parts.getOrNull(3)?.toLongOrNull()
+                            val normalizedBase = targetPath.trimEnd('/').ifEmpty { "/" }
+                            val type =
+                                when (kind) {
+                                    "dir" -> FileEntryType.Directory
+                                    "file" -> FileEntryType.File
+                                    "link" -> FileEntryType.Symlink
+                                    else -> FileEntryType.Other
+                                }
+                            FileBrowserEntry(
+                                name = name,
+                                path =
+                                    if (normalizedBase == "/") "/$name"
+                                    else "$normalizedBase/$name",
+                                type = type,
+                                sizeBytes = if (size == null || size <= 0L) null else size,
+                                modifiedAtText = mtime?.takeIf { it > 0L }?.let { formatMtime(it) },
+                            )
+                        }
+                    val current = _fileBrowserStateByTab.value[tabId] ?: FileBrowserUiState()
+                    val sortedEntries =
+                        when (current.sort) {
+                            FileSort.Name -> entries.sortedBy { it.name.lowercase() }
+                            FileSort.Size -> entries.sortedByDescending { it.sizeBytes ?: -1L }
+                            FileSort.Modified ->
+                                entries.sortedByDescending { it.modifiedAtText ?: "" }
+                        }
+                    if (current.currentPath == targetPath) {
+                        updateFileBrowserState(tabId) {
+                            it.copy(entries = sortedEntries, isLoading = false, error = null)
+                        }
                     }
-                    FileBrowserEntry(
-                        name = name,
-                        path = if (normalizedBase == "/") "/$name" else "$normalizedBase/$name",
-                        type = type,
-                        sizeBytes = if (size == null || size <= 0L) null else size,
-                        modifiedAtText = mtime?.takeIf { it > 0L }?.let { formatMtime(it) },
-                    )
                 }
-                val current = _fileBrowserStateByTab.value[tabId] ?: FileBrowserUiState()
-                val sortedEntries = when (current.sort) {
-                    FileSort.Name -> entries.sortedBy { it.name.lowercase() }
-                    FileSort.Size -> entries.sortedByDescending { it.sizeBytes ?: -1L }
-                    FileSort.Modified -> entries.sortedByDescending { it.modifiedAtText ?: "" }
-                }
-                if (current.currentPath == targetPath) {
-                    updateFileBrowserState(tabId) {
-                        it.copy(entries = sortedEntries, isLoading = false, error = null)
+                .onFailure { err ->
+                    val current = _fileBrowserStateByTab.value[tabId]
+                    if (current?.currentPath == targetPath) {
+                        updateFileBrowserState(tabId) {
+                            it.copy(
+                                isLoading = false,
+                                error = err.message ?: "Failed to list directory",
+                            )
+                        }
                     }
                 }
-            }.onFailure { err ->
-                val current = _fileBrowserStateByTab.value[tabId]
-                if (current?.currentPath == targetPath) {
-                    updateFileBrowserState(tabId) {
-                        it.copy(isLoading = false, error = err.message ?: "Failed to list directory")
-                    }
-                }
-            }
         }
     }
 
@@ -241,6 +257,17 @@ class TerminalViewModel(
         val tabId = activeTabId.value ?: return
         updateFileBrowserState(tabId) { it.copy(sort = sort) }
         refreshFileBrowser()
+    }
+
+    suspend fun deleteFile(entry: FileBrowserEntry) {
+        val tabId = activeTabId.value ?: return
+        sessionRepository.sftpDelete(tabId, entry.path, entry.type == FileEntryType.Directory)
+        withContext(Dispatchers.Main) { refreshFileBrowser() }
+    }
+
+    suspend fun readFile(entry: FileBrowserEntry, maxBytes: Int): ByteArray {
+        val tabId = activeTabId.value ?: return ByteArray(0)
+        return sessionRepository.sftpReadFile(tabId, entry.path, maxBytes)
     }
 
     private fun formatMtime(epochSeconds: Long): String {
@@ -294,7 +321,9 @@ class TerminalViewModel(
         if (!isRelease) {
             sessionRepository.scrollToActive()
         }
-        val utf8 = if (codepoint > 0 && !hasNonTextModifier && !isRelease) codepoint.toChar().toString() else null
+        val utf8 =
+            if (codepoint > 0 && !hasNonTextModifier && !isRelease) codepoint.toChar().toString()
+            else null
         sessionRepository.writeKey(key, codepoint, mods, action, utf8)
     }
 
@@ -332,7 +361,12 @@ class TerminalViewModel(
         sessionRepository.setColorScheme(isDark)
     }
 
-    fun onDefaultColorsChanged(fg: IntArray?, bg: IntArray?, cursor: IntArray?, palette: ByteArray?) {
+    fun onDefaultColorsChanged(
+        fg: IntArray?,
+        bg: IntArray?,
+        cursor: IntArray?,
+        palette: ByteArray?,
+    ) {
         sessionRepository.setDefaultColors(fg, bg, cursor, palette)
     }
 

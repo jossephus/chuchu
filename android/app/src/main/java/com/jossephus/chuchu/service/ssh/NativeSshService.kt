@@ -39,7 +39,11 @@ class NativeSshService(
         }
 
         fun encodeRead(maxBytes: Int): ByteArray {
-            val payload = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(maxBytes.coerceAtLeast(1)).array()
+            val payload =
+                ByteBuffer.allocate(4)
+                    .order(ByteOrder.LITTLE_ENDIAN)
+                    .putInt(maxBytes.coerceAtLeast(1))
+                    .array()
             val frame = ByteArray(HEADER_SIZE + payload.size)
             val buffer = ByteBuffer.wrap(frame).order(ByteOrder.LITTLE_ENDIAN)
             buffer.put(VERSION)
@@ -77,9 +81,14 @@ class NativeSshService(
             return payload.toString(Charsets.UTF_8)
         }
 
-        val tagAck: Byte get() = TAG_ACK
-        val tagData: Byte get() = TAG_DATA
-        val tagError: Byte get() = TAG_ERROR
+        val tagAck: Byte
+            get() = TAG_ACK
+
+        val tagData: Byte
+            get() = TAG_DATA
+
+        val tagError: Byte
+            get() = TAG_ERROR
     }
 
     private var handle: Long = 0L
@@ -102,13 +111,17 @@ class NativeSshService(
         check(handle != 0L) { "Failed to create native SSH session" }
 
         if (!bridge.nativeConnect(handle, host, port, username)) {
-            throw IllegalStateException(bridge.nativeGetLastError(handle) ?: "Native SSH connect failed")
+            throw IllegalStateException(
+                bridge.nativeGetLastError(handle) ?: "Native SSH connect failed"
+            )
         }
 
-        val algorithm = bridge.nativeGetHostKeyAlgorithm(handle)
-            ?: throw IllegalStateException("Missing server host key algorithm")
-        val keyBytes = bridge.nativeGetHostKey(handle)
-            ?: throw IllegalStateException("Missing server host key")
+        val algorithm =
+            bridge.nativeGetHostKeyAlgorithm(handle)
+                ?: throw IllegalStateException("Missing server host key algorithm")
+        val keyBytes =
+            bridge.nativeGetHostKey(handle)
+                ?: throw IllegalStateException("Missing server host key")
         if (!hostKeyPolicy.verify(host, port, algorithm, keyBytes)) {
             throw IllegalStateException("Host key rejected")
         }
@@ -117,37 +130,63 @@ class NativeSshService(
             AuthMethod.None -> {
                 if (!bridge.nativeAuthenticateNone(handle)) {
                     throw IllegalStateException(
-                        bridge.nativeGetLastError(handle) ?: "Server did not accept none authentication",
+                        bridge.nativeGetLastError(handle)
+                            ?: "Server did not accept none authentication"
                     )
                 }
             }
             AuthMethod.Password -> {
                 if (!bridge.nativeAuthenticatePassword(handle, password)) {
-                    throw IllegalStateException(passwordAuthErrorMessage(bridge.nativeGetLastError(handle)))
+                    throw IllegalStateException(
+                        passwordAuthErrorMessage(bridge.nativeGetLastError(handle))
+                    )
                 }
             }
             AuthMethod.Key -> {
                 check(privateKeyPem.isNotBlank()) { "Missing in-app private key for key auth" }
-                val ok = bridge.nativeAuthenticatePublicKeyMemory(handle, publicKeyOpenSsh.ifBlank { null }, privateKeyPem, null)
+                val ok =
+                    bridge.nativeAuthenticatePublicKeyMemory(
+                        handle,
+                        publicKeyOpenSsh.ifBlank { null },
+                        privateKeyPem,
+                        null,
+                    )
                 if (!ok) {
-                    throw IllegalStateException(bridge.nativeGetLastError(handle) ?: "Native SSH public key auth failed")
+                    throw IllegalStateException(
+                        bridge.nativeGetLastError(handle) ?: "Native SSH public key auth failed"
+                    )
                 }
             }
             AuthMethod.KeyWithPassphrase -> {
                 check(privateKeyPem.isNotBlank()) { "Missing in-app private key for key auth" }
-                check(keyPassphrase.isNotBlank()) { "Missing key passphrase for encrypted private key" }
-                val ok = bridge.nativeAuthenticatePublicKeyMemory(handle, publicKeyOpenSsh.ifBlank { null }, privateKeyPem, keyPassphrase)
+                check(keyPassphrase.isNotBlank()) {
+                    "Missing key passphrase for encrypted private key"
+                }
+                val ok =
+                    bridge.nativeAuthenticatePublicKeyMemory(
+                        handle,
+                        publicKeyOpenSsh.ifBlank { null },
+                        privateKeyPem,
+                        keyPassphrase,
+                    )
                 if (!ok) {
                     val nativeError = bridge.nativeGetLastError(handle)
-                    val hint = if (
-                        nativeError?.contains("Callback returned error", ignoreCase = true) == true ||
-                        nativeError?.contains("Public key memory auth failed", ignoreCase = true) == true
-                    ) {
-                        "Encrypted key authentication failed. Verify you entered the key passphrase (not the server account password)."
-                    } else {
-                        null
-                    }
-                    throw IllegalStateException(hint ?: nativeError ?: "Native SSH public key auth failed")
+                    val hint =
+                        if (
+                            nativeError?.contains("Callback returned error", ignoreCase = true) ==
+                                true ||
+                                nativeError?.contains(
+                                    "Public key memory auth failed",
+                                    ignoreCase = true,
+                                ) == true
+                        ) {
+                            "Encrypted key authentication failed. Verify you entered the key passphrase (not the server account password)."
+                        } else {
+                            null
+                        }
+                    throw IllegalStateException(
+                        hint ?: nativeError ?: "Native SSH public key auth failed"
+                    )
                 }
             }
         }
@@ -156,14 +195,18 @@ class NativeSshService(
     fun openShell(cols: Int, rows: Int, widthPx: Int, heightPx: Int) {
         check(handle != 0L) { "Not connected" }
         if (!bridge.nativeOpenShell(handle, cols, rows, widthPx, heightPx, "xterm-ghostty")) {
-            throw IllegalStateException(bridge.nativeGetLastError(handle) ?: "Native SSH shell open failed")
+            throw IllegalStateException(
+                bridge.nativeGetLastError(handle) ?: "Native SSH shell open failed"
+            )
         }
     }
 
     fun resize(cols: Int, rows: Int, widthPx: Int, heightPx: Int) {
         if (handle == 0L) return
         if (!bridge.nativeResize(handle, cols, rows, widthPx, heightPx)) {
-            throw IllegalStateException(bridge.nativeGetLastError(handle) ?: "Native SSH resize failed")
+            throw IllegalStateException(
+                bridge.nativeGetLastError(handle) ?: "Native SSH resize failed"
+            )
         }
     }
 
@@ -173,14 +216,21 @@ class NativeSshService(
         var stalledWrites = 0
         while (offset < data.size) {
             val chunk = if (offset == 0) data else data.copyOfRange(offset, data.size)
-            val response = bridge.nativeIpcExchange(handle, Ipc.encodeWrite(chunk))
-                ?: throw IllegalStateException(bridge.nativeGetLastError(handle) ?: "Native SSH write failed")
+            val response =
+                bridge.nativeIpcExchange(handle, Ipc.encodeWrite(chunk))
+                    ?: throw IllegalStateException(
+                        bridge.nativeGetLastError(handle) ?: "Native SSH write failed"
+                    )
             val decoded = Ipc.decode(response)
-            val written = when (decoded.tag) {
-                Ipc.tagAck -> Ipc.parseAckWritten(decoded.payload)
-                Ipc.tagError -> throw IllegalStateException(Ipc.parseError(decoded.payload))
-                else -> throw IllegalStateException("Unexpected IPC write response tag: ${decoded.tag}")
-            }
+            val written =
+                when (decoded.tag) {
+                    Ipc.tagAck -> Ipc.parseAckWritten(decoded.payload)
+                    Ipc.tagError -> throw IllegalStateException(Ipc.parseError(decoded.payload))
+                    else ->
+                        throw IllegalStateException(
+                            "Unexpected IPC write response tag: ${decoded.tag}"
+                        )
+                }
             if (written == 0) {
                 stalledWrites += 1
                 if (stalledWrites > 64) {
@@ -208,29 +258,42 @@ class NativeSshService(
     fun sftpListDirectory(path: String): List<String> {
         check(handle != 0L) { "Not connected" }
         if (!bridge.nativeSftpInit(handle)) {
-            throw IllegalStateException(bridge.nativeGetLastError(handle) ?: "Native SFTP init failed")
+            throw IllegalStateException(
+                bridge.nativeGetLastError(handle) ?: "Native SFTP init failed"
+            )
         }
-        val names = bridge.nativeSftpListDirectory(handle, path)
-            ?: throw IllegalStateException(bridge.nativeGetLastError(handle) ?: "Native SFTP list failed")
+        val names =
+            bridge.nativeSftpListDirectory(handle, path)
+                ?: throw IllegalStateException(
+                    bridge.nativeGetLastError(handle) ?: "Native SFTP list failed"
+                )
         return names.toList()
     }
 
     fun sftpRealpath(path: String): String {
         check(handle != 0L) { "Not connected" }
         if (!bridge.nativeSftpInit(handle)) {
-            throw IllegalStateException(bridge.nativeGetLastError(handle) ?: "Native SFTP init failed")
+            throw IllegalStateException(
+                bridge.nativeGetLastError(handle) ?: "Native SFTP init failed"
+            )
         }
         return bridge.nativeSftpRealpath(handle, path)
-            ?: throw IllegalStateException(bridge.nativeGetLastError(handle) ?: "Native SFTP realpath failed")
+            ?: throw IllegalStateException(
+                bridge.nativeGetLastError(handle) ?: "Native SFTP realpath failed"
+            )
     }
 
     fun sftpOpenWrite(path: String) {
         check(handle != 0L) { "Not connected" }
         if (!bridge.nativeSftpInit(handle)) {
-            throw IllegalStateException(bridge.nativeGetLastError(handle) ?: "Native SFTP init failed")
+            throw IllegalStateException(
+                bridge.nativeGetLastError(handle) ?: "Native SFTP init failed"
+            )
         }
         if (!bridge.nativeSftpOpenWrite(handle, path)) {
-            throw IllegalStateException(bridge.nativeGetLastError(handle) ?: "Native SFTP open failed")
+            throw IllegalStateException(
+                bridge.nativeGetLastError(handle) ?: "Native SFTP open failed"
+            )
         }
     }
 
@@ -238,7 +301,9 @@ class NativeSshService(
         check(handle != 0L) { "Not connected" }
         val written = bridge.nativeSftpWriteChunk(handle, data)
         if (written < 0) {
-            throw IllegalStateException(bridge.nativeGetLastError(handle) ?: "Native SFTP write failed")
+            throw IllegalStateException(
+                bridge.nativeGetLastError(handle) ?: "Native SFTP write failed"
+            )
         }
         return written
     }
@@ -246,7 +311,50 @@ class NativeSshService(
     fun sftpCloseWrite() {
         check(handle != 0L) { "Not connected" }
         if (!bridge.nativeSftpCloseWrite(handle)) {
-            throw IllegalStateException(bridge.nativeGetLastError(handle) ?: "Native SFTP close failed")
+            throw IllegalStateException(
+                bridge.nativeGetLastError(handle) ?: "Native SFTP close failed"
+            )
+        }
+    }
+
+    fun sftpReadFile(path: String, maxBytes: Int = 4 * 1024 * 1024): ByteArray {
+        check(handle != 0L) { "Not connected" }
+        if (!bridge.nativeSftpInit(handle)) {
+            throw IllegalStateException(
+                bridge.nativeGetLastError(handle) ?: "Native SFTP init failed"
+            )
+        }
+        return bridge.nativeSftpReadFile(handle, path, maxBytes)
+            ?: throw IllegalStateException(
+                bridge.nativeGetLastError(handle) ?: "Native SFTP read failed"
+            )
+    }
+
+    fun sftpDeleteFile(path: String) {
+        check(handle != 0L) { "Not connected" }
+        if (!bridge.nativeSftpInit(handle)) {
+            throw IllegalStateException(
+                bridge.nativeGetLastError(handle) ?: "Native SFTP init failed"
+            )
+        }
+        if (!bridge.nativeSftpDeleteFile(handle, path)) {
+            throw IllegalStateException(
+                bridge.nativeGetLastError(handle) ?: "Native SFTP delete file failed"
+            )
+        }
+    }
+
+    fun sftpDeleteDirectory(path: String) {
+        check(handle != 0L) { "Not connected" }
+        if (!bridge.nativeSftpInit(handle)) {
+            throw IllegalStateException(
+                bridge.nativeGetLastError(handle) ?: "Native SFTP init failed"
+            )
+        }
+        if (!bridge.nativeSftpDeleteDirectory(handle, path)) {
+            throw IllegalStateException(
+                bridge.nativeGetLastError(handle) ?: "Native SFTP delete directory failed"
+            )
         }
     }
 

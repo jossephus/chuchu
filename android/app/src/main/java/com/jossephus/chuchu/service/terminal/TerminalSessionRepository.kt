@@ -3,6 +3,7 @@ package com.jossephus.chuchu.service.terminal
 import android.app.Application
 import com.jossephus.chuchu.service.ssh.HostKeyStore
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
+import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -17,18 +18,14 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.util.UUID
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class TerminalSessionRepository private constructor(
-    application: Application,
-) {
+class TerminalSessionRepository private constructor(application: Application) {
     private val appContext = application.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-    private val hostKeyStore = HostKeyStore(
-        appContext.getSharedPreferences("host_keys", Application.MODE_PRIVATE),
-    )
+    private val hostKeyStore =
+        HostKeyStore(appContext.getSharedPreferences("host_keys", Application.MODE_PRIVATE))
     private val tailscaleStatusChecker = TailscaleStatusChecker(appContext)
 
     private val _tabs = MutableStateFlow<List<TabSession>>(emptyList())
@@ -37,60 +34,71 @@ class TerminalSessionRepository private constructor(
     private val _activeTabId = MutableStateFlow<String?>(null)
     val activeTabId: StateFlow<String?> = _activeTabId.asStateFlow()
 
-    val activeTab: StateFlow<TabSession?> = combine(_tabs, _activeTabId) { tabs, id ->
-        tabs.firstOrNull { it.id == id }
-    }.stateIn(scope, SharingStarted.Eagerly, null)
+    val activeTab: StateFlow<TabSession?> =
+        combine(_tabs, _activeTabId) { tabs, id -> tabs.firstOrNull { it.id == id } }
+            .stateIn(scope, SharingStarted.Eagerly, null)
 
-    val sessionState: StateFlow<SessionState> = activeTab
-        .flatMapLatest { tab -> tab?.sessionState ?: flowOf(SessionState()) }
-        .stateIn(scope, SharingStarted.Eagerly, SessionState())
+    val sessionState: StateFlow<SessionState> =
+        activeTab
+            .flatMapLatest { tab -> tab?.sessionState ?: flowOf(SessionState()) }
+            .stateIn(scope, SharingStarted.Eagerly, SessionState())
 
-    val hostKeyPrompt: StateFlow<HostKeyPrompt?> = activeTab
-        .flatMapLatest { tab -> tab?.hostKeyPrompt ?: flowOf(null) }
-        .stateIn(scope, SharingStarted.Eagerly, null)
+    val hostKeyPrompt: StateFlow<HostKeyPrompt?> =
+        activeTab
+            .flatMapLatest { tab -> tab?.hostKeyPrompt ?: flowOf(null) }
+            .stateIn(scope, SharingStarted.Eagerly, null)
 
-    val connectedHostIds: StateFlow<Set<Long>> = _tabs
-        .flatMapLatest { tabs ->
-            if (tabs.isEmpty()) {
-                flowOf(emptyList())
-            } else {
-                combine(tabs.map { tab -> tab.sessionState.map { state -> tab to state } }) { it.toList() }
-            }
-        }
-        .map { pairs ->
-            pairs.asSequence()
-                .filter { (_, state) ->
-                    state.status == SessionStatus.Connecting ||
-                        state.status == SessionStatus.Connected ||
-                        state.status == SessionStatus.Reconnecting
+    val connectedHostIds: StateFlow<Set<Long>> =
+        _tabs
+            .flatMapLatest { tabs ->
+                if (tabs.isEmpty()) {
+                    flowOf(emptyList())
+                } else {
+                    combine(tabs.map { tab -> tab.sessionState.map { state -> tab to state } }) {
+                        it.toList()
+                    }
                 }
-                .mapNotNull { (tab, _) -> tab.spec.hostId }
-                .toSet()
-        }
-        .stateIn(scope, SharingStarted.Eagerly, emptySet())
+            }
+            .map { pairs ->
+                pairs
+                    .asSequence()
+                    .filter { (_, state) ->
+                        state.status == SessionStatus.Connecting ||
+                            state.status == SessionStatus.Connected ||
+                            state.status == SessionStatus.Reconnecting
+                    }
+                    .mapNotNull { (tab, _) -> tab.spec.hostId }
+                    .toSet()
+            }
+            .stateIn(scope, SharingStarted.Eagerly, emptySet())
 
     private var attachedClients = 0
 
     init {
         scope.launch {
-            _tabs.flatMapLatest { tabs ->
-                if (tabs.isEmpty()) {
-                    flowOf(emptyList())
-                } else {
-                    combine(tabs.map { tab -> tab.sessionState.map { tab to it } }) { it.toList() }
+            _tabs
+                .flatMapLatest { tabs ->
+                    if (tabs.isEmpty()) {
+                        flowOf(emptyList())
+                    } else {
+                        combine(tabs.map { tab -> tab.sessionState.map { tab to it } }) {
+                            it.toList()
+                        }
+                    }
                 }
-            }.collect { pairs ->
-                val anyAlive = pairs.any { (_, state) ->
-                    state.status == SessionStatus.Connecting ||
-                        state.status == SessionStatus.Connected ||
-                        state.status == SessionStatus.Reconnecting
+                .collect { pairs ->
+                    val anyAlive =
+                        pairs.any { (_, state) ->
+                            state.status == SessionStatus.Connecting ||
+                                state.status == SessionStatus.Connected ||
+                                state.status == SessionStatus.Reconnecting
+                        }
+                    if (anyAlive) {
+                        SessionForegroundService.start(appContext, currentNotificationLabel())
+                    } else {
+                        SessionForegroundService.stop(appContext)
+                    }
                 }
-                if (anyAlive) {
-                    SessionForegroundService.start(appContext, currentNotificationLabel())
-                } else {
-                    SessionForegroundService.stop(appContext)
-                }
-            }
         }
     }
 
@@ -115,12 +123,13 @@ class TerminalSessionRepository private constructor(
 
     fun openTab(spec: TabSpec): TabSession {
         val id = UUID.randomUUID().toString()
-        val engine = TerminalSessionEngine(
-            scope,
-            appContext.filesDir.toPath(),
-            hostKeyStore,
-            tailscaleStatusChecker,
-        )
+        val engine =
+            TerminalSessionEngine(
+                scope,
+                appContext.filesDir.toPath(),
+                hostKeyStore,
+                tailscaleStatusChecker,
+            )
         val tab = TabSession(id, spec, engine)
         _tabs.value = _tabs.value + tab
         _activeTabId.value = id
@@ -246,8 +255,7 @@ class TerminalSessionRepository private constructor(
     suspend fun sftpListDirectory(tabId: String, path: String): List<String> =
         engineForTab(tabId)?.sftpListDirectory(path) ?: emptyList()
 
-    suspend fun sftpRealpath(path: String): String =
-        activeEngine()?.sftpRealpath(path) ?: "/"
+    suspend fun sftpRealpath(path: String): String = activeEngine()?.sftpRealpath(path) ?: "/"
 
     suspend fun sftpRealpath(tabId: String, path: String): String =
         engineForTab(tabId)?.sftpRealpath(path) ?: "/"
@@ -260,8 +268,7 @@ class TerminalSessionRepository private constructor(
         engineForTab(tabId)?.sftpOpenWrite(path)
     }
 
-    suspend fun sftpWriteChunk(data: ByteArray): Int =
-        activeEngine()?.sftpWriteChunk(data) ?: 0
+    suspend fun sftpWriteChunk(data: ByteArray): Int = activeEngine()?.sftpWriteChunk(data) ?: 0
 
     suspend fun sftpWriteChunk(tabId: String, data: ByteArray): Int =
         engineForTab(tabId)?.sftpWriteChunk(data) ?: 0
@@ -274,16 +281,24 @@ class TerminalSessionRepository private constructor(
         engineForTab(tabId)?.sftpCloseWrite()
     }
 
+    suspend fun sftpReadFile(tabId: String, path: String, maxBytes: Int): ByteArray =
+        engineForTab(tabId)?.sftpReadFile(path, maxBytes) ?: ByteArray(0)
+
+    suspend fun sftpDelete(tabId: String, path: String, isDirectory: Boolean) {
+        engineForTab(tabId)?.sftpDelete(path, isDirectory)
+    }
+
     companion object {
-        @Volatile
-        private var instance: TerminalSessionRepository? = null
+        @Volatile private var instance: TerminalSessionRepository? = null
 
         fun getInstance(application: Application): TerminalSessionRepository {
-            return instance ?: synchronized(this) {
-                instance ?: TerminalSessionRepository(application).also { created ->
-                    instance = created
+            return instance
+                ?: synchronized(this) {
+                    instance
+                        ?: TerminalSessionRepository(application).also { created ->
+                            instance = created
+                        }
                 }
-            }
         }
     }
 }

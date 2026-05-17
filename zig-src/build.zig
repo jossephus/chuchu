@@ -166,18 +166,18 @@ pub fn build(b: *std.Build) void {
             const native_lib = buildNativeLibrary(b, resolved_target, optimize);
             native_step.dependOn(&native_lib.step);
 
-        const abi_name = ndk.getOutputDir(resolved_target.result) catch unreachable;
-        const jni_lib_dir = b.fmt("../android/app/src/main/jniLibs/{s}", .{abi_name});
+            const abi_name = ndk.getOutputDir(resolved_target.result) catch unreachable;
+            const jni_lib_dir = b.fmt("../android/app/src/main/jniLibs/{s}", .{abi_name});
 
-        const mkdir_jni_libs = b.addSystemCommand(&.{ "mkdir", "-p", jni_lib_dir });
-        mkdir_jni_libs.step.dependOn(&native_lib.step);
+            const mkdir_jni_libs = b.addSystemCommand(&.{ "mkdir", "-p", jni_lib_dir });
+            mkdir_jni_libs.step.dependOn(&native_lib.step);
 
-        const copy_to_jni_libs = b.addSystemCommand(&.{"cp"});
-        copy_to_jni_libs.step.dependOn(&mkdir_jni_libs.step);
-        copy_to_jni_libs.addFileArg(native_lib.getEmittedBin());
-        _ = copy_to_jni_libs.addArg(b.fmt("{s}/libchuchu_jni.so", .{jni_lib_dir}));
+            const copy_to_jni_libs = b.addSystemCommand(&.{"cp"});
+            copy_to_jni_libs.step.dependOn(&mkdir_jni_libs.step);
+            copy_to_jni_libs.addFileArg(native_lib.getEmittedBin());
+            _ = copy_to_jni_libs.addArg(b.fmt("{s}/libchuchu_jni.so", .{jni_lib_dir}));
 
-        jni_step.dependOn(&copy_to_jni_libs.step);
+            jni_step.dependOn(&copy_to_jni_libs.step);
         }
     }
 

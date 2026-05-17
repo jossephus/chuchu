@@ -1,5 +1,6 @@
 package com.jossephus.chuchu.service.terminal
 
+import android.util.Log
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.mosh.MoshBootstrapParser
@@ -9,24 +10,22 @@ import com.jossephus.chuchu.service.mosh.NativeMoshService
 import com.jossephus.chuchu.service.ssh.HostKeyStore
 import com.jossephus.chuchu.service.ssh.NativeSshService
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
+import java.nio.file.Path
+import java.util.concurrent.Executors
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
-import java.nio.file.Path
-import java.util.concurrent.Executors
-import android.util.Log
 
 enum class SessionStatus {
     Disconnected,
@@ -74,9 +73,11 @@ class TerminalSessionEngine(
         val transport: Transport,
     )
 
-    private val dispatcher = Executors.newSingleThreadExecutor { r ->
-        Thread(r, "terminal-session").apply { isDaemon = true }
-    }.asCoroutineDispatcher()
+    private val dispatcher =
+        Executors.newSingleThreadExecutor { r ->
+                Thread(r, "terminal-session").apply { isDaemon = true }
+            }
+            .asCoroutineDispatcher()
 
     private val bridge = GhosttyBridge()
     private val nativeSsh = NativeSshService(hostKeyPolicy = ::verifyHostKey)
@@ -102,11 +103,12 @@ class TerminalSessionEngine(
     private var reconnectJob: Job? = null
     private var disconnectRequested = false
 
-    private val nativeVersion = if (bridge.isLoaded()) {
-        runCatching { bridge.nativeVersion() }.getOrNull()
-    } else {
-        null
-    }
+    private val nativeVersion =
+        if (bridge.isLoaded()) {
+            runCatching { bridge.nativeVersion() }.getOrNull()
+        } else {
+            null
+        }
 
     private val _state = MutableStateFlow(SessionState(nativeVersion = nativeVersion))
     val state: StateFlow<SessionState> = _state.asStateFlow()
@@ -135,76 +137,85 @@ class TerminalSessionEngine(
         sessionKey: String,
     ) {
         disconnectRequested = false
-        val params = ConnectionParams(
-            host = host,
-            port = port,
-            username = username,
-            password = password,
-            authMethod = authMethod,
-            publicKeyOpenSsh = publicKeyOpenSsh,
-            privateKeyPem = privateKeyPem,
-            keyPassphrase = keyPassphrase,
-            transport = transport,
-        )
+        val params =
+            ConnectionParams(
+                host = host,
+                port = port,
+                username = username,
+                password = password,
+                authMethod = authMethod,
+                publicKeyOpenSsh = publicKeyOpenSsh,
+                privateKeyPem = privateKeyPem,
+                keyPassphrase = keyPassphrase,
+                transport = transport,
+            )
         lastConnectionParams = params
         scope.launch(dispatcher) {
             reconnectJob?.cancel()
             reconnectJob = null
-            _state.value = _state.value.copy(
-                status = SessionStatus.Connecting,
-                error = null,
-                reconnectAttempt = 0,
-                sessionKey = sessionKey,
-            )
-            if (!bridge.isLoaded()) {
-                _state.value = SessionState(
-                    status = SessionStatus.Error,
-                    sessionKey = sessionKey,
-                    error = "Native terminal library ${bridge.nativeStatus()}. Check ABI/NDK build.",
-                )
-                return@launch
-            }
-            if (transport != Transport.Mosh && !nativeSsh.isAvailable()) {
-                _state.value = SessionState(
-                    status = SessionStatus.Error,
-                    sessionKey = sessionKey,
-                    error = "Native SSH unavailable. Check ABI/NDK build.",
-                )
-                return@launch
-            }
-            if (transport == Transport.Mosh && !moshService.isLoaded) {
-                _state.value = SessionState(
-                    status = SessionStatus.Error,
-                    sessionKey = sessionKey,
-                    error = "Native mosh unavailable. Check ABI/NDK build.",
-                )
-                return@launch
-            }
-            if (username.isBlank()) {
-                _state.value = SessionState(
-                    status = SessionStatus.Error,
-                    sessionKey = sessionKey,
-                    error = "Username required",
-                )
-                return@launch
-            }
-            try {
-                establishConnection(params, username)
-                _state.value = _state.value.copy(
-                    status = SessionStatus.Connected,
+            _state.value =
+                _state.value.copy(
+                    status = SessionStatus.Connecting,
                     error = null,
                     reconnectAttempt = 0,
                     sessionKey = sessionKey,
                 )
+            if (!bridge.isLoaded()) {
+                _state.value =
+                    SessionState(
+                        status = SessionStatus.Error,
+                        sessionKey = sessionKey,
+                        error =
+                            "Native terminal library ${bridge.nativeStatus()}. Check ABI/NDK build.",
+                    )
+                return@launch
+            }
+            if (transport != Transport.Mosh && !nativeSsh.isAvailable()) {
+                _state.value =
+                    SessionState(
+                        status = SessionStatus.Error,
+                        sessionKey = sessionKey,
+                        error = "Native SSH unavailable. Check ABI/NDK build.",
+                    )
+                return@launch
+            }
+            if (transport == Transport.Mosh && !moshService.isLoaded) {
+                _state.value =
+                    SessionState(
+                        status = SessionStatus.Error,
+                        sessionKey = sessionKey,
+                        error = "Native mosh unavailable. Check ABI/NDK build.",
+                    )
+                return@launch
+            }
+            if (username.isBlank()) {
+                _state.value =
+                    SessionState(
+                        status = SessionStatus.Error,
+                        sessionKey = sessionKey,
+                        error = "Username required",
+                    )
+                return@launch
+            }
+            try {
+                establishConnection(params, username)
+                _state.value =
+                    _state.value.copy(
+                        status = SessionStatus.Connected,
+                        error = null,
+                        reconnectAttempt = 0,
+                        sessionKey = sessionKey,
+                    )
                 requestSnapshot(force = true)
                 startReadLoop()
             } catch (e: Exception) {
                 Log.e("TerminalSession", "Connect failed", e)
-                _state.value = SessionState(
-                    status = SessionStatus.Error,
-                    sessionKey = sessionKey,
-                    error = "${e::class.simpleName}: ${e.message}",
-                )
+                _state.value =
+                    SessionState(
+                        status = SessionStatus.Error,
+                        sessionKey = sessionKey,
+                        error = "${e::class.simpleName}: ${e.message}",
+                    )
             }
         }
     }
@@ -212,7 +223,8 @@ class TerminalSessionEngine(
     fun writeKey(key: Int, codepoint: Int, mods: Int, action: Int, utf8: String? = null) {
         scope.launch(dispatcher) {
             if (handle == 0L) return@launch
-            val encoded = bridge.nativeEncodeKey(handle, key, codepoint, mods, action, utf8) ?: return@launch
+            val encoded =
+                bridge.nativeEncodeKey(handle, key, codepoint, mods, action, utf8) ?: return@launch
             if (encoded.isEmpty()) return@launch
             try {
                 writeRemote(encoded)
@@ -270,16 +282,17 @@ class TerminalSessionEngine(
     ) {
         scope.launch(dispatcher) {
             if (handle == 0L) return@launch
-            val encoded = bridge.nativeEncodeMouse(
-                handle,
-                action,
-                button,
-                mods,
-                x,
-                y,
-                anyButtonPressed,
-                trackLastCell,
-            ) ?: return@launch
+            val encoded =
+                bridge.nativeEncodeMouse(
+                    handle,
+                    action,
+                    button,
+                    mods,
+                    x,
+                    y,
+                    anyButtonPressed,
+                    trackLastCell,
+                ) ?: return@launch
             if (encoded.isEmpty()) return@launch
             try {
                 writeRemote(encoded)
@@ -342,25 +355,27 @@ class TerminalSessionEngine(
         }
     }
 
-    suspend fun sftpListDirectory(path: String): List<String> = withContext(dispatcher) {
-        nativeSsh.sftpListDirectory(path)
-    }
+    suspend fun sftpListDirectory(path: String): List<String> =
+        withContext(dispatcher) { nativeSsh.sftpListDirectory(path) }
 
-    suspend fun sftpRealpath(path: String): String = withContext(dispatcher) {
-        nativeSsh.sftpRealpath(path)
-    }
+    suspend fun sftpRealpath(path: String): String =
+        withContext(dispatcher) { nativeSsh.sftpRealpath(path) }
 
-    suspend fun sftpOpenWrite(path: String) = withContext(dispatcher) {
-        nativeSsh.sftpOpenWrite(path)
-    }
+    suspend fun sftpOpenWrite(path: String) =
+        withContext(dispatcher) { nativeSsh.sftpOpenWrite(path) }
 
-    suspend fun sftpWriteChunk(data: ByteArray): Int = withContext(dispatcher) {
-        nativeSsh.sftpWriteChunk(data)
-    }
+    suspend fun sftpWriteChunk(data: ByteArray): Int =
+        withContext(dispatcher) { nativeSsh.sftpWriteChunk(data) }
 
-    suspend fun sftpCloseWrite() = withContext(dispatcher) {
-        nativeSsh.sftpCloseWrite()
-    }
+    suspend fun sftpCloseWrite() = withContext(dispatcher) { nativeSsh.sftpCloseWrite() }
+
+    suspend fun sftpReadFile(path: String, maxBytes: Int): ByteArray =
+        withContext(dispatcher) { nativeSsh.sftpReadFile(path, maxBytes) }
+
+    suspend fun sftpDelete(path: String, isDirectory: Boolean) =
+        withContext(dispatcher) {
+            if (isDirectory) nativeSsh.sftpDeleteDirectory(path) else nativeSsh.sftpDeleteFile(path)
+        }
 
     fun disconnect() {
         disconnectRequested = true
@@ -383,11 +398,12 @@ class TerminalSessionEngine(
             hostKeyDecision?.cancel()
             hostKeyDecision = null
             _hostKeyPrompt.value = null
-            _state.value = SessionState(
-                status = SessionStatus.Disconnected,
-                nativeVersion = nativeVersion,
-                sessionKey = _state.value.sessionKey,
-            )
+            _state.value =
+                SessionState(
+                    status = SessionStatus.Disconnected,
+                    nativeVersion = nativeVersion,
+                    sessionKey = _state.value.sessionKey,
+                )
         }
     }
 
@@ -408,16 +424,19 @@ class TerminalSessionEngine(
 
         val previousFingerprint = existing?.let { hostKeyStore.fingerprintSha256(it) }
         val fingerprint = hostKeyStore.fingerprintSha256(keyBytes)
-        val deferred = hostKeyDecision ?: CompletableDeferred<Boolean>().also {
-            hostKeyDecision = it
-            _hostKeyPrompt.value = HostKeyPrompt(
-                host = host,
-                port = port,
-                algorithm = algorithm,
-                fingerprint = fingerprint,
-                previousFingerprint = previousFingerprint,
-            )
-        }
+        val deferred =
+            hostKeyDecision
+                ?: CompletableDeferred<Boolean>().also {
+                    hostKeyDecision = it
+                    _hostKeyPrompt.value =
+                        HostKeyPrompt(
+                            host = host,
+                            port = port,
+                            algorithm = algorithm,
+                            fingerprint = fingerprint,
+                            previousFingerprint = previousFingerprint,
+                        )
+                }
         val accepted = runBlocking { deferred.await() }
         if (accepted) {
             hostKeyStore.saveKey(host, port, algorithm, keyBytes)
@@ -426,18 +445,19 @@ class TerminalSessionEngine(
     }
 
     private fun startReadLoop() {
-        readJob = scope.launch(dispatcher) {
-            try {
-                if (lastConnectionParams?.transport == Transport.Mosh) {
-                    startMoshReadLoop()
-                } else {
-                    startSshReadLoop()
+        readJob =
+            scope.launch(dispatcher) {
+                try {
+                    if (lastConnectionParams?.transport == Transport.Mosh) {
+                        startMoshReadLoop()
+                    } else {
+                        startSshReadLoop()
+                    }
+                } catch (e: Exception) {
+                    Log.e("TerminalSession", "Read loop failed", e)
                 }
-            } catch (e: Exception) {
-                Log.e("TerminalSession", "Read loop failed", e)
+                scheduleReconnect("Connection interrupted")
             }
-            scheduleReconnect("Connection interrupted")
-        }
     }
 
     private suspend fun startSshReadLoop() {
@@ -598,15 +618,21 @@ class TerminalSessionEngine(
                 val result = MoshBootstrapParser.parse(params.host, outputBuffer.toString())
                 if (result is MoshBootstrapParser.ParseResult.Success) {
                     found = true
-                    Log.d("TerminalSession", "MOSH: Parsed endpoint host=${result.endpoint.host} port=${result.endpoint.port}")
+                    Log.d(
+                        "TerminalSession",
+                        "MOSH: Parsed endpoint host=${result.endpoint.host} port=${result.endpoint.port}",
+                    )
                     nativeSsh.close()
 
-                    val configJson = JSONObject().apply {
-                        put("host", result.endpoint.host)
-                        put("port", result.endpoint.port)
-                        put("keyBase64_22", result.endpoint.key)
-                        put("useNetworkCrypto", true)
-                    }.toString()
+                    val configJson =
+                        JSONObject()
+                            .apply {
+                                put("host", result.endpoint.host)
+                                put("port", result.endpoint.port)
+                                put("keyBase64_22", result.endpoint.key)
+                                put("useNetworkCrypto", true)
+                            }
+                            .toString()
                     Log.d("TerminalSession", "MOSH: Creating mosh client with JSON: $configJson")
                     if (!moshService.create(configJson)) {
                         throw IllegalStateException("Failed to create mosh client")
@@ -626,11 +652,12 @@ class TerminalSessionEngine(
         if (!found) {
             nativeSsh.close()
             val result = MoshBootstrapParser.parse(params.host, outputBuffer.toString())
-            val reason = if (result is MoshBootstrapParser.ParseResult.Error) {
-                result.reason
-            } else {
-                "Mosh bootstrap timeout"
-            }
+            val reason =
+                if (result is MoshBootstrapParser.ParseResult.Error) {
+                    result.reason
+                } else {
+                    "Mosh bootstrap timeout"
+                }
             Log.e("TerminalSession", "MOSH: Bootstrap failed: $reason")
             throw IllegalStateException(reason)
         }
@@ -642,63 +669,74 @@ class TerminalSessionEngine(
             _state.value = _state.value.copy(status = SessionStatus.Disconnected)
             return
         }
-        val params = lastConnectionParams ?: run {
-            _state.value = _state.value.copy(status = SessionStatus.Disconnected)
-            return
-        }
-        if (reconnectJob?.isActive == true) return
-        reconnectJob = scope.launch(dispatcher) {
-            readJob?.cancel()
-            readJob = null
-            var attempt = 0
-            while (currentCoroutineContext().isActive && !disconnectRequested) {
-                attempt += 1
-                _state.value = _state.value.copy(
-                    status = SessionStatus.Reconnecting,
-                    reconnectAttempt = attempt,
-                    error = reason,
-                )
-                val delayMs = (1_000L shl (attempt - 1).coerceAtMost(5)).coerceAtMost(60_000L)
-                delay(delayMs)
-                if (params.username.isBlank()) {
-                    _state.value = _state.value.copy(
-                        status = SessionStatus.Error,
-                        error = "Username required",
-                    )
-                    return@launch
+        val params =
+            lastConnectionParams
+                ?: run {
+                    _state.value = _state.value.copy(status = SessionStatus.Disconnected)
+                    return
                 }
-                try {
-                    establishConnection(params, params.username)
-                    _state.value = _state.value.copy(
-                        status = SessionStatus.Connected,
-                        reconnectAttempt = 0,
-                        error = null,
-                    )
-                    requestSnapshot(force = true)
-                    startReadLoop()
-                    return@launch
-                } catch (e: Exception) {
-                    Log.e("TerminalSession", "Reconnect attempt $attempt failed", e)
-                    if (attempt >= 8) {
-                        _state.value = _state.value.copy(
-                            status = SessionStatus.Error,
-                            error = "Reconnect failed: ${e.message}",
+        if (reconnectJob?.isActive == true) return
+        reconnectJob =
+            scope.launch(dispatcher) {
+                readJob?.cancel()
+                readJob = null
+                var attempt = 0
+                while (currentCoroutineContext().isActive && !disconnectRequested) {
+                    attempt += 1
+                    _state.value =
+                        _state.value.copy(
+                            status = SessionStatus.Reconnecting,
+                            reconnectAttempt = attempt,
+                            error = reason,
                         )
+                    val delayMs = (1_000L shl (attempt - 1).coerceAtMost(5)).coerceAtMost(60_000L)
+                    delay(delayMs)
+                    if (params.username.isBlank()) {
+                        _state.value =
+                            _state.value.copy(
+                                status = SessionStatus.Error,
+                                error = "Username required",
+                            )
                         return@launch
+                    }
+                    try {
+                        establishConnection(params, params.username)
+                        _state.value =
+                            _state.value.copy(
+                                status = SessionStatus.Connected,
+                                reconnectAttempt = 0,
+                                error = null,
+                            )
+                        requestSnapshot(force = true)
+                        startReadLoop()
+                        return@launch
+                    } catch (e: Exception) {
+                        Log.e("TerminalSession", "Reconnect attempt $attempt failed", e)
+                        if (attempt >= 8) {
+                            _state.value =
+                                _state.value.copy(
+                                    status = SessionStatus.Error,
+                                    error = "Reconnect failed: ${e.message}",
+                                )
+                            return@launch
+                        }
                     }
                 }
             }
-        }
     }
 
     private fun applyTerminalOptions() {
         val localHandle = handle
         if (localHandle == 0L) return
-        pendingColorScheme?.let { scheme ->
-            bridge.nativeSetColorScheme(localHandle, scheme)
-        }
+        pendingColorScheme?.let { scheme -> bridge.nativeSetColorScheme(localHandle, scheme) }
         pendingDefaultColors?.let { colors ->
-            bridge.nativeSetDefaultColors(localHandle, colors.fg, colors.bg, colors.cursor, colors.palette)
+            bridge.nativeSetDefaultColors(
+                localHandle,
+                colors.fg,
+                colors.bg,
+                colors.cursor,
+                colors.palette,
+            )
         }
         if (screenWidth > 0 && screenHeight > 0) {
             bridge.nativeSetMouseEncodingSize(
@@ -733,10 +771,11 @@ class TerminalSessionEngine(
             } catch (e: Exception) {
                 Log.e("TerminalSession", "flushPtyWrites failed: ${e.message}")
                 scope.launch(dispatcher) {
-                    _state.value = _state.value.copy(
-                        status = SessionStatus.Error,
-                        error = "Connection lost: ${e.message}"
-                    )
+                    _state.value =
+                        _state.value.copy(
+                            status = SessionStatus.Error,
+                            error = "Connection lost: ${e.message}",
+                        )
                 }
                 return
             }
@@ -790,13 +829,14 @@ class TerminalSessionEngine(
             if (nextPwd != null) {
                 pwd = nextPwd
             }
-            _state.value = _state.value.copy(
-                snapshot = snap,
-                title = title,
-                pwd = pwd,
-                bellCount = bellCount,
-                nativeVersion = nativeVersion,
-            )
+            _state.value =
+                _state.value.copy(
+                    snapshot = snap,
+                    title = title,
+                    pwd = pwd,
+                    bellCount = bellCount,
+                    nativeVersion = nativeVersion,
+                )
         } catch (e: Exception) {
             Log.e("TerminalSession", "emitSnapshot failed", e)
         }
