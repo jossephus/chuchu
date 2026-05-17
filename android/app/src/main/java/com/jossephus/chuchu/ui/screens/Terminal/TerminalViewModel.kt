@@ -259,14 +259,12 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         refreshFileBrowser()
     }
 
-    suspend fun deleteFile(entry: FileBrowserEntry) {
-        val tabId = activeTabId.value ?: return
+    suspend fun deleteFile(tabId: String, entry: FileBrowserEntry) {
         sessionRepository.sftpDelete(tabId, entry.path, entry.type == FileEntryType.Directory)
         withContext(Dispatchers.Main) { refreshFileBrowser() }
     }
 
-    suspend fun readFile(entry: FileBrowserEntry, maxBytes: Int): ByteArray {
-        val tabId = activeTabId.value ?: return ByteArray(0)
+    suspend fun readFile(tabId: String, entry: FileBrowserEntry, maxBytes: Int): ByteArray {
         return sessionRepository.sftpReadFile(tabId, entry.path, maxBytes)
     }
 

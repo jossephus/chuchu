@@ -1066,7 +1066,17 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeSftpReadFi
     const path_z = dupSentinel(path_bytes) orelse return null;
     defer allocator.free(path_z);
     const file = sftpOpenFile(session, sftp, path_z, c.LIBSSH2_FXF_READ, 0) orelse return null;
-    defer _ = c.libssh2_sftp_close_handle(file);
+    defer {
+        while (true) {
+            const rc = c.libssh2_sftp_close_handle(file);
+            if (rc == 0) break;
+            if (rc == c.LIBSSH2_ERROR_EAGAIN) {
+                if (waitSocket(session, io_wait_timeout_ms)) continue;
+            }
+            logInfo("SFTP close handle failed rc={}", .{rc});
+            break;
+        }
+    }
 
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(allocator);

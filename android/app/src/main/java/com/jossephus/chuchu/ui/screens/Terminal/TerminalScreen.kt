@@ -757,9 +757,10 @@ fun TerminalScreen(
                                 },
                                 onImportFile = { importFileLauncher.launch("*/*") },
                                 onOpenFile = { entry ->
+                                    val tabId = activeTabId ?: return@FileBrowserScreen
                                     scope.launch(Dispatchers.IO) {
                                         runCatching {
-                                                val bytes = vm.readFile(entry, 32 * 1024 * 1024)
+                                                val bytes = vm.readFile(tabId, entry, 32 * 1024 * 1024)
                                                 val safeName = entry.name.ifBlank { "remote_file" }
                                                 val outFile = File(context.cacheDir, safeName)
                                                 outFile.writeBytes(bytes)
@@ -805,8 +806,9 @@ fun TerminalScreen(
                                 },
                                 onDeleteFile = { entry -> pendingDeleteEntry = entry },
                                 onDownloadFile = { entry ->
+                                    val tabId = activeTabId ?: return@FileBrowserScreen
                                     scope.launch(Dispatchers.IO) {
-                                        runCatching { vm.readFile(entry, 16 * 1024 * 1024) }
+                                        runCatching { vm.readFile(tabId, entry, 16 * 1024 * 1024) }
                                             .onSuccess { bytes ->
                                                 pendingDownloadBytes = bytes
                                                 pendingDownloadName = entry.name
@@ -834,9 +836,13 @@ fun TerminalScreen(
                                     confirmLabel = "Delete",
                                     dismissLabel = "Cancel",
                                     onConfirm = {
+                                        val tabId = activeTabId ?: run {
+                                            pendingDeleteEntry = null
+                                            return@ChuDialog
+                                        }
                                         pendingDeleteEntry = null
                                         scope.launch(Dispatchers.IO) {
-                                            runCatching { vm.deleteFile(entry) }
+                                            runCatching { vm.deleteFile(tabId, entry) }
                                                 .onSuccess {
                                                     withContext(Dispatchers.Main) {
                                                         Toast.makeText(

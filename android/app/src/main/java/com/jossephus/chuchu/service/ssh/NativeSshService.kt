@@ -9,6 +9,10 @@ class NativeSshService(
     private val bridge: NativeSshBridge = NativeSshBridge(),
     private val hostKeyPolicy: HostKeyPolicy,
 ) : Closeable {
+    private companion object {
+        private const val MAX_SFTP_READ_BYTES = 4 * 1024 * 1024
+    }
+
     private fun passwordAuthErrorMessage(nativeError: String?): String {
         if (nativeError.isNullOrBlank()) return "Native SSH password auth failed"
         if (nativeError.contains("Keyboard-interactive auth failed", ignoreCase = true)) {
@@ -239,6 +243,12 @@ class NativeSshService(
                 Thread.sleep(4)
                 continue
             }
+            val remaining = data.size - offset
+            if (written < 0 || written > remaining) {
+                throw IllegalStateException(
+                    "Invalid native SSH ACK size: $written (remaining=$remaining)"
+                )
+            }
             stalledWrites = 0
             offset += written
         }
@@ -324,7 +334,9 @@ class NativeSshService(
                 bridge.nativeGetLastError(handle) ?: "Native SFTP init failed"
             )
         }
-        return bridge.nativeSftpReadFile(handle, path, maxBytes)
+        require(maxBytes > 0) { "maxBytes must be > 0" }
+        val boundedMaxBytes = minOf(maxBytes, MAX_SFTP_READ_BYTES)
+        return bridge.nativeSftpReadFile(handle, path, boundedMaxBytes)
             ?: throw IllegalStateException(
                 bridge.nativeGetLastError(handle) ?: "Native SFTP read failed"
             )
