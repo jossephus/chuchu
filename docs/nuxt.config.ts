@@ -9,11 +9,10 @@ export default defineNuxtConfig({
     preset: 'static',
   },
   app: {
-    // GitHub Pages serves the site at /chuchu/ — adjust if hosting from root.
     baseURL: process.env.NUXT_APP_BASE_URL || '/',
     head: {
-      title: 'Chuchu — Native Android SSH client',
-      htmlAttrs: { lang: 'en', class: 'dark' },
+      title: 'chuchu',
+      htmlAttrs: { lang: 'en' },
       bodyAttrs: { class: 'antialiased' },
       meta: [
         { charset: 'utf-8' },
@@ -21,14 +20,14 @@ export default defineNuxtConfig({
         {
           name: 'description',
           content:
-            'Chuchu is a modern, native Android SSH client powered by libghostty. Tailscale + SSH, kitty image protocol, 400+ themes.',
+            'chuchu is a modern, native Android SSH client powered by libghostty.',
         },
-        { name: 'theme-color', content: '#1a1b26' },
-        { property: 'og:title', content: 'Chuchu — Native Android SSH client' },
+        { name: 'theme-color', content: '#1E1E2E' },
+        { property: 'og:title', content: 'chuchu' },
         {
           property: 'og:description',
           content:
-            'A modern, native Android SSH client powered by libghostty. Tailscale + SSH, kitty image protocol, 400+ themes.',
+            'A modern, native Android SSH client powered by libghostty.',
         },
         { property: 'og:type', content: 'website' },
         { property: 'og:image', content: '/logo.png' },
@@ -46,7 +45,21 @@ export default defineNuxtConfig({
         },
         {
           rel: 'stylesheet',
-          href: 'https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap',
+          href: 'https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap',
+        },
+      ],
+      script: [
+        {
+          innerHTML: `
+            (function() {
+              var theme = localStorage.getItem('chuchu-theme');
+              if (theme === 'light' || (!theme && window.matchMedia('(prefers-color-scheme: light)').matches)) {
+                document.documentElement.setAttribute('data-theme', 'light');
+              }
+            })();
+          `,
+          type: 'text/javascript',
+          tagPosition: 'head',
         },
       ],
     },
