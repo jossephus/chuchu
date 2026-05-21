@@ -37,5 +37,8 @@ with pkgs;
       zigpkgs."0.15.2"
       ktfmt
       ktlint
+
+      nodejs
+      pnpm
     ];
   }

@@ -1,0 +1,206 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html {
+  color-scheme: dark;
+
+  /* Catppuccin Mocha */
+  --bg: #1E1E2E;
+  --surface: #313244;
+  --surfaceVar: #181825;
+  --fg: #CDD6F4;
+  --fgSec: #A6ADC8;
+  --muted: #6C7086;
+  --border: #45475A;
+  --accent: #B4BEFE;
+  --accentSec: #89B4FA;
+  --error: #F38BA8;
+  --success: #A6E3A1;
+  --warning: #FAB387;
+  --onAccent: #1E1E2E;
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+
+  /* Neobones Light — sage paper + deep olive ink.
+     Tokens derived the same way as the Android app's toChuColorPalette():
+     accent = foreground mixed toward bg (terminal "inverted text" button),
+     border bumped to ~28% contrast against bg so secondary controls remain
+     readable on a pale background. */
+  --bg:         #E5EDE6;
+  --surface:    #D7E0D8;
+  --surfaceVar: #DEE6DF;
+  --fg:         #202E18;
+  --fgSec:      #475142;
+  --muted:      #7B856D;
+  --border:     #A5ACA0;
+  --accent:     #2C3A22;
+  --accentSec:  #5E7F94;
+  --error:      #A8334C;
+  --success:    #567A30;
+  --warning:    #944927;
+  --onAccent:   #E5EDE6;
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--accentSec);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--accent);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+  color: var(--fg);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
+/* TUI section divider */
+.tui-rule {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 1.5rem 0 0.75rem;
+}
+.tui-rule::before {
+  content: '──';
+}
+.tui-rule::after {
+  content: '';
+  flex: 1;
+  border-top: 1px dashed var(--border);
+}
+
+/* ChuCard equivalent */
+.tui-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+/* ChuButton bracket style */
+.bracket-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.65rem;
+  font-size: 0.8rem;
+  line-height: 1;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.bracket-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.bracket-btn.accent {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--onAccent);
+}
+.bracket-btn.accent:hover {
+  background: var(--fg);
+  border-color: var(--fg);
+  color: var(--bg);
+}
+.bracket-btn .bracket {
+  color: var(--muted);
+}
+.bracket-btn:hover .bracket {
+  color: var(--accent);
+}
+.bracket-btn.accent .bracket {
+  color: var(--onAccent);
+}
+.bracket-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* TuiBadge equivalent */
+.tui-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.45rem;
+  font-size: 0.7rem;
+  line-height: 1.4;
+  border: 1px solid;
+}
+
+/* Inline chip — matches .seg rhythm for inline badges */
+.inline-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.7rem;
+  line-height: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  color: var(--accent);
+}
+
+/* Status bar segment */
+.seg {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.7rem;
+  line-height: 1;
+}
+.seg:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Status bar */
+.tui-bar {
+  background: var(--surfaceVar);
+  border-color: var(--border);
+}
+
+/* Feature list item */
+.feature-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--fgSec);
+}
+.feature-item::before {
+  content: '>';
+  color: var(--accent);
+  flex-shrink: 0;
+}
