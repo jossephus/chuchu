@@ -24,8 +24,6 @@ jobs:
 
       - name: Build docs
         run: nix develop -c sh -c 'cd docs && pnpm install && pnpm run generate'
-        env:
-          NUXT_APP_BASE_URL: /chuchu/
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
@@ -34,3 +32,4 @@ jobs:
           publish_dir: ./docs/.output/public
           publish_branch: gh-pages
           destination_dir: .
+          cname: chuchu.jossephus.et
