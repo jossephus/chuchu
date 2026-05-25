@@ -39,7 +39,7 @@ class SettingsRepository(context: Context) {
     private val _requireAuthOnConnect = MutableStateFlow(prefs.getBoolean(KEY_REQUIRE_AUTH_ON_CONNECT, false))
     val requireAuthOnConnect: StateFlow<Boolean> = _requireAuthOnConnect.asStateFlow()
 
-    private val _themeMode = MutableStateFlow(parseThemeMode(prefs.getString(KEY_THEME_MODE, ThemeMode.Manual.name)))
+    private val _themeMode = MutableStateFlow(parseThemeMode(prefs.getString(KEY_THEME_MODE, ThemeMode.Dark.name)))
     val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
 
     private val _lightThemeName = MutableStateFlow(
@@ -136,6 +136,6 @@ class SettingsRepository(context: Context) {
         }
 
         private fun parseThemeMode(value: String?): ThemeMode =
-            ThemeMode.entries.find { it.name == value } ?: ThemeMode.Manual
+            ThemeMode.entries.find { it.name == value } ?: ThemeMode.Dark
     }
 }

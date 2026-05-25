@@ -44,9 +44,8 @@ fun AppRoot() {
     val lightThemeName by settings.lightThemeName.collectAsStateWithLifecycle()
     val resolvedThemeName = resolveActiveThemeName(
         themeMode = themeMode,
-        manualThemeName = themeName,
-        autoDarkThemeName = themeName,
-        autoLightThemeName = lightThemeName,
+        darkThemeName = themeName,
+        lightThemeName = lightThemeName,
     )
 
     ChuTheme(themeName = resolvedThemeName, fontName = fontName) {

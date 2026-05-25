@@ -51,12 +51,12 @@ import com.jossephus.chuchu.ui.theme.ThemeMode
 
 @Composable
 internal fun ThemeSelectorSection(
-    currentTheme: String,
-    onThemeSelected: (String) -> Unit,
-    themeMode: ThemeMode,
-    onThemeModeChanged: (ThemeMode) -> Unit,
+    darkThemeName: String,
+    onDarkThemeSelected: (String) -> Unit,
     lightThemeName: String,
     onLightThemeSelected: (String) -> Unit,
+    themeMode: ThemeMode,
+    onThemeModeChanged: (ThemeMode) -> Unit,
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
@@ -74,43 +74,71 @@ internal fun ThemeSelectorSection(
     }
     Spacer(modifier = Modifier.height(12.dp))
 
-    // --- Mode toggle ---
+    ThemeModePills(themeMode = themeMode, onThemeModeChanged = onThemeModeChanged)
+    Spacer(modifier = Modifier.height(16.dp))
+
+    when (themeMode) {
+        ThemeMode.Dark -> SingleThemePicker(
+            currentTheme = darkThemeName,
+            onThemeSelected = onDarkThemeSelected,
+            themeByName = themeByName,
+        )
+        ThemeMode.Light -> SingleThemePicker(
+            currentTheme = lightThemeName,
+            onThemeSelected = onLightThemeSelected,
+            themeByName = themeByName,
+        )
+        ThemeMode.System -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            ChuText("dark", style = typography.labelSmall, color = colors.textMuted)
+            SingleThemePicker(
+                currentTheme = darkThemeName,
+                onThemeSelected = onDarkThemeSelected,
+                themeByName = themeByName,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            ChuText("light", style = typography.labelSmall, color = colors.textMuted)
+            SingleThemePicker(
+                currentTheme = lightThemeName,
+                onThemeSelected = onLightThemeSelected,
+                themeByName = themeByName,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ThemeModePills(
+    themeMode: ThemeMode,
+    onThemeModeChanged: (ThemeMode) -> Unit,
+) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(colors.surface),
     ) {
         ThemeMode.entries.forEach { mode ->
             val isSelected = mode == themeMode
-            ChuButton(
-                onClick = { onThemeModeChanged(mode) },
-                variant = ChuButtonVariant.Outlined,
-                borderColor = if (isSelected) colors.accent else colors.border,
-                backgroundColor = if (isSelected) colors.accent.copy(alpha = 0.12f) else null,
-                modifier = Modifier.weight(1f),
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .background(
+                        color = if (isSelected) colors.accent else Color.Transparent,
+                    )
+                    .clickable { onThemeModeChanged(mode) }
+                    .padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center,
             ) {
                 ChuText(
                     mode.label,
                     style = typography.label,
-                    color = if (isSelected) colors.accent else colors.textSecondary,
+                    color = if (isSelected) colors.background else colors.textSecondary,
                 )
             }
         }
-    }
-    Spacer(modifier = Modifier.height(16.dp))
-
-    when (themeMode) {
-        ThemeMode.Manual -> SingleThemePicker(
-            currentTheme = currentTheme,
-            onThemeSelected = onThemeSelected,
-            themeByName = themeByName,
-        )
-        ThemeMode.Auto -> DualThemePickers(
-            darkThemeName = currentTheme,
-            onDarkThemeSelected = onThemeSelected,
-            lightThemeName = lightThemeName,
-            onLightThemeSelected = onLightThemeSelected,
-            themeByName = themeByName,
-        )
     }
 }
 
@@ -164,118 +192,6 @@ private fun SingleThemePicker(
                 onThemeSelected = { onThemeSelected(it); expanded = false },
                 themeByName = themeByName,
             )
-        }
-    }
-}
-
-@Composable
-private fun DualThemePickers(
-    darkThemeName: String,
-    onDarkThemeSelected: (String) -> Unit,
-    lightThemeName: String,
-    onLightThemeSelected: (String) -> Unit,
-    themeByName: Map<String, GhosttyTheme?>,
-) {
-    val colors = ChuColors.current
-    val typography = ChuTypography.current
-
-    val darkTheme = remember(darkThemeName, themeByName) { themeByName[darkThemeName] }
-    val lightTheme = remember(lightThemeName, themeByName) { themeByName[lightThemeName] }
-
-    // Dark theme sub-section
-    ChuText("dark", style = typography.labelSmall, color = colors.textMuted)
-    Spacer(modifier = Modifier.height(8.dp))
-    ThemeSubPicker(
-        currentTheme = darkThemeName,
-        onThemeSelected = onDarkThemeSelected,
-        themeByName = themeByName,
-        label = "dark",
-        swatchColor = darkTheme?.let { it.background } ?: colors.textMuted,
-    )
-    Spacer(modifier = Modifier.height(16.dp))
-
-    // Light theme sub-section
-    ChuText("light", style = typography.labelSmall, color = colors.textMuted)
-    Spacer(modifier = Modifier.height(8.dp))
-    ThemeSubPicker(
-        currentTheme = lightThemeName,
-        onThemeSelected = onLightThemeSelected,
-        themeByName = themeByName,
-        label = "light",
-        swatchColor = lightTheme?.let { it.background } ?: colors.textMuted,
-    )
-}
-
-/**
- * Compact inline picker for one slot (dark or light). Always show the current
- * selection button; on expand show a filterable list.
- */
-@Composable
-private fun ThemeSubPicker(
-    currentTheme: String,
-    onThemeSelected: (String) -> Unit,
-    themeByName: Map<String, GhosttyTheme?>,
-    label: String,
-    swatchColor: Color,
-) {
-    val colors = ChuColors.current
-    val typography = ChuTypography.current
-    var query by rememberSaveable { mutableStateOf("") }
-    var expanded by rememberSaveable { mutableStateOf(false) }
-
-    val filteredThemes = remember(themeByName.keys, query) {
-        val q = query.trim()
-        if (q.isEmpty()) themeByName.keys.toList() else themeByName.keys.filter { it.contains(q, ignoreCase = true) }
-    }
-
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Box(
-            modifier = Modifier
-                .width(8.dp)
-                .height(8.dp)
-                .background(swatchColor),
-        )
-        ChuText(currentTheme, style = typography.labelSmall, color = colors.textPrimary)
-        ChuButton(
-            onClick = { expanded = !expanded },
-            variant = ChuButtonVariant.Ghost,
-            bracketed = true,
-            borderColor = colors.textMuted,
-        ) {
-            ChuText(if (expanded) "close" else "change", style = typography.labelSmall, color = colors.textMuted)
-        }
-    }
-
-    AnimatedVisibility(visible = expanded, enter = expandVertically(), exit = shrinkVertically()) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            ChuTextField(
-                value = query,
-                onValueChange = { query = it },
-                label = "Search $label themes",
-                placeholder = "Type to filter",
-                singleLine = true,
-                autoFocus = false,
-            )
-
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-                modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp),
-            ) {
-                items(filteredThemes, key = { it }) { themeName ->
-                    ThemePickerRow(
-                        themeName = themeName,
-                        currentTheme = currentTheme,
-                        rowTheme = themeByName[themeName],
-                        onThemeSelected = {
-                            onThemeSelected(themeName)
-                            expanded = false
-                        },
-                    )
-                }
-            }
         }
     }
 }
