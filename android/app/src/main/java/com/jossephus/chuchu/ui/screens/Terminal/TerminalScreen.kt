@@ -95,6 +95,7 @@ import com.jossephus.chuchu.ui.terminal.toGhosttyKey
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
 import com.jossephus.chuchu.ui.theme.GhosttyThemeRegistry
+import com.jossephus.chuchu.ui.theme.resolveActiveThemeName
 import com.jossephus.chuchu.ui.theme.toRgbIntArray
 import com.jossephus.chuchu.ui.theme.toTerminalPaletteBytes
 import java.io.File
@@ -255,6 +256,14 @@ fun TerminalScreen(
     val terminalPrefs =
         remember(context) { context.getSharedPreferences("chuchu_terminal", Context.MODE_PRIVATE) }
     val currentTheme by settingsRepo.themeName.collectAsStateWithLifecycle()
+    val themeMode by settingsRepo.themeMode.collectAsStateWithLifecycle()
+    val lightThemeName by settingsRepo.lightThemeName.collectAsStateWithLifecycle()
+    val resolvedThemeName = resolveActiveThemeName(
+        themeMode = themeMode,
+        manualThemeName = currentTheme,
+        autoDarkThemeName = currentTheme,
+        autoLightThemeName = lightThemeName,
+    )
     val currentAccessoryLayoutIds by settingsRepo.accessoryLayoutIds.collectAsStateWithLifecycle()
     val useSingleRowAccessoryBar by settingsRepo.accessoryBarSingleRow.collectAsStateWithLifecycle()
     val currentTerminalCustomKeyGroups by
@@ -264,7 +273,7 @@ fun TerminalScreen(
             TerminalAccessoryLayoutStore.resolveSelectedLayout(currentAccessoryLayoutIds)
         }
     val ghosttyTheme =
-        remember(context, currentTheme) { GhosttyThemeRegistry.getTheme(context, currentTheme) }
+        remember(context, resolvedThemeName) { GhosttyThemeRegistry.getTheme(context, resolvedThemeName) }
     val isDarkTheme = (ghosttyTheme?.background ?: colors.background).luminance() < 0.5f
     var selectedText by remember { mutableStateOf<String?>(null) }
     var hasSelectionActive by remember { mutableStateOf(false) }

@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.jossephus.chuchu.ui.terminal.TerminalAccessoryLayoutStore
 import com.jossephus.chuchu.ui.theme.ChuFontOption
+import com.jossephus.chuchu.ui.theme.ThemeMode
 import com.jossephus.chuchu.ui.terminal.TerminalCustomActionStore
 import com.jossephus.chuchu.ui.terminal.TerminalCustomKeyGroup
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,6 +38,14 @@ class SettingsRepository(context: Context) {
 
     private val _requireAuthOnConnect = MutableStateFlow(prefs.getBoolean(KEY_REQUIRE_AUTH_ON_CONNECT, false))
     val requireAuthOnConnect: StateFlow<Boolean> = _requireAuthOnConnect.asStateFlow()
+
+    private val _themeMode = MutableStateFlow(parseThemeMode(prefs.getString(KEY_THEME_MODE, ThemeMode.Manual.name)))
+    val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
+
+    private val _lightThemeName = MutableStateFlow(
+        prefs.getString(KEY_LIGHT_THEME, DEFAULT_LIGHT_THEME) ?: DEFAULT_LIGHT_THEME,
+    )
+    val lightThemeName: StateFlow<String> = _lightThemeName.asStateFlow()
 
     fun setTheme(name: String) {
         prefs.edit().putString(KEY_THEME, name).apply()
@@ -77,6 +86,16 @@ class SettingsRepository(context: Context) {
         _requireAuthOnConnect.value = enabled
     }
 
+    fun setThemeMode(mode: ThemeMode) {
+        prefs.edit().putString(KEY_THEME_MODE, mode.name).apply()
+        _themeMode.value = mode
+    }
+
+    fun setLightTheme(name: String) {
+        prefs.edit().putString(KEY_LIGHT_THEME, name).apply()
+        _lightThemeName.value = name
+    }
+
     private fun loadAccessoryLayoutIds(): List<String> {
         val stored = prefs.getString(KEY_ACCESSORY_LAYOUT, null)
             ?: return TerminalAccessoryLayoutStore.defaultLayoutIds()
@@ -101,7 +120,10 @@ class SettingsRepository(context: Context) {
         private const val KEY_ACCESSORY_BAR_SINGLE_ROW = "terminal_accessory_bar_single_row"
         private const val KEY_APP_LOCK_ENABLED = "app_lock_enabled"
         private const val KEY_REQUIRE_AUTH_ON_CONNECT = "require_auth_on_connect"
+        private const val KEY_THEME_MODE = "theme_mode"
+        private const val KEY_LIGHT_THEME = "light_theme_name"
         const val DEFAULT_THEME = "Catppuccin Mocha"
+        const val DEFAULT_LIGHT_THEME = "Catppuccin Latte"
         const val DEFAULT_FONT = "jetbrains_mono"
 
         @Volatile
@@ -112,5 +134,12 @@ class SettingsRepository(context: Context) {
                 instance ?: SettingsRepository(context.applicationContext).also { instance = it }
             }
         }
+
+        private fun parseThemeMode(value: String?): ThemeMode =
+            try {
+                ThemeMode.valueOf(value ?: ThemeMode.Manual.name)
+            } catch (_: IllegalArgumentException) {
+                ThemeMode.Manual
+            }
     }
 }

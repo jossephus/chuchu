@@ -6,8 +6,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -96,6 +96,8 @@ fun ApplicationNavController() {
             val accessoryLayoutIds by settingsRepo.accessoryLayoutIds.collectAsStateWithLifecycle()
             val accessoryBarSingleRow by settingsRepo.accessoryBarSingleRow.collectAsStateWithLifecycle()
             val customKeyGroups by settingsRepo.terminalCustomKeyGroups.collectAsStateWithLifecycle()
+            val themeMode by settingsRepo.themeMode.collectAsStateWithLifecycle()
+            val lightThemeName by settingsRepo.lightThemeName.collectAsStateWithLifecycle()
             SettingsScreen(
                 currentTheme = themeName,
                 currentFont = fontName,
@@ -104,7 +106,11 @@ fun ApplicationNavController() {
                 currentAccessoryLayoutIds = accessoryLayoutIds,
                 accessoryBarSingleRow = accessoryBarSingleRow,
                 currentTerminalCustomKeyGroups = customKeyGroups,
+                themeMode = themeMode,
+                lightThemeName = lightThemeName,
                 onThemeSelected = settingsRepo::setTheme,
+                onThemeModeChanged = settingsRepo::setThemeMode,
+                onLightThemeSelected = settingsRepo::setLightTheme,
                 onFontSelected = settingsRepo::setFont,
                 onAppLockEnabledChanged = settingsRepo::setAppLockEnabled,
                 onRequireAuthOnConnectChanged = settingsRepo::setRequireAuthOnConnect,

@@ -18,6 +18,7 @@ import com.jossephus.chuchu.ui.ApplicationNavController
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTheme
 import com.jossephus.chuchu.ui.theme.GhosttyThemeRegistry
+import com.jossephus.chuchu.ui.theme.resolveActiveThemeName
 
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -37,10 +38,18 @@ fun AppRoot() {
     val context = LocalContext.current
     GhosttyThemeRegistry.init(context)
     val settings = SettingsRepository.getInstance(context)
-    val themeName by settings.themeName.collectAsStateWithLifecycle()
     val fontName by settings.fontName.collectAsStateWithLifecycle()
+    val themeName by settings.themeName.collectAsStateWithLifecycle()
+    val themeMode by settings.themeMode.collectAsStateWithLifecycle()
+    val lightThemeName by settings.lightThemeName.collectAsStateWithLifecycle()
+    val resolvedThemeName = resolveActiveThemeName(
+        themeMode = themeMode,
+        manualThemeName = themeName,
+        autoDarkThemeName = themeName,
+        autoLightThemeName = lightThemeName,
+    )
 
-    ChuTheme(themeName = themeName, fontName = fontName) {
+    ChuTheme(themeName = resolvedThemeName, fontName = fontName) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
