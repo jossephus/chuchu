@@ -260,9 +260,8 @@ fun TerminalScreen(
     val lightThemeName by settingsRepo.lightThemeName.collectAsStateWithLifecycle()
     val resolvedThemeName = resolveActiveThemeName(
         themeMode = themeMode,
-        manualThemeName = currentTheme,
-        autoDarkThemeName = currentTheme,
-        autoLightThemeName = lightThemeName,
+        darkThemeName = currentTheme,
+        lightThemeName = lightThemeName,
     )
     val currentAccessoryLayoutIds by settingsRepo.accessoryLayoutIds.collectAsStateWithLifecycle()
     val useSingleRowAccessoryBar by settingsRepo.accessoryBarSingleRow.collectAsStateWithLifecycle()
