@@ -12,16 +12,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,11 +44,16 @@ import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
 import com.jossephus.chuchu.ui.theme.GhosttyTheme
 import com.jossephus.chuchu.ui.theme.GhosttyThemeRegistry
+import com.jossephus.chuchu.ui.theme.ThemeMode
 
 @Composable
 internal fun ThemeSelectorSection(
     currentTheme: String,
     onThemeSelected: (String) -> Unit,
+    themeMode: ThemeMode,
+    onThemeModeChanged: (ThemeMode) -> Unit,
+    lightThemeName: String,
+    onLightThemeSelected: (String) -> Unit,
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
@@ -61,24 +61,6 @@ internal fun ThemeSelectorSection(
     val availableThemes = remember { GhosttyThemeRegistry.availableThemeNames }
     val themeByName = remember(context, availableThemes) {
         availableThemes.associateWith { themeName -> GhosttyThemeRegistry.getTheme(context, themeName) }
-    }
-    var themeQuery by remember { mutableStateOf("") }
-    var expanded by remember { mutableStateOf(false) }
-    val themeListState = rememberLazyListState()
-    val filteredThemes = remember(availableThemes, themeQuery) {
-        val query = themeQuery.trim()
-        if (query.isEmpty()) availableThemes else availableThemes.filter { it.contains(query, ignoreCase = true) }
-    }
-    val previewTheme = remember(context, currentTheme) {
-        GhosttyThemeRegistry.getTheme(context, currentTheme)
-    }
-    var showPreview by rememberSaveable { mutableStateOf(false) }
-
-    LaunchedEffect(expanded, filteredThemes) {
-        if (expanded) {
-            val selectedIndex = filteredThemes.indexOf(currentTheme)
-            if (selectedIndex >= 0) themeListState.scrollToItem(selectedIndex)
-        }
     }
 
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -88,6 +70,64 @@ internal fun ThemeSelectorSection(
         Box(modifier = Modifier.height(1.dp).background(colors.textMuted).fillMaxWidth())
     }
     Spacer(modifier = Modifier.height(12.dp))
+
+    // --- Mode toggle ---
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        ThemeMode.entries.forEach { mode ->
+            val isSelected = mode == themeMode
+            ChuButton(
+                onClick = { onThemeModeChanged(mode) },
+                variant = ChuButtonVariant.Outlined,
+                borderColor = if (isSelected) colors.accent else colors.border,
+                backgroundColor = if (isSelected) colors.accent.copy(alpha = 0.12f) else null,
+                modifier = Modifier.weight(1f),
+            ) {
+                ChuText(
+                    mode.label,
+                    style = typography.label,
+                    color = if (isSelected) colors.accent else colors.textSecondary,
+                )
+            }
+        }
+    }
+    Spacer(modifier = Modifier.height(16.dp))
+
+    when (themeMode) {
+        ThemeMode.Manual -> SingleThemePicker(
+            currentTheme = currentTheme,
+            onThemeSelected = onThemeSelected,
+            themeByName = themeByName,
+        )
+        ThemeMode.Auto -> DualThemePickers(
+            darkThemeName = currentTheme,
+            onDarkThemeSelected = onThemeSelected,
+            lightThemeName = lightThemeName,
+            onLightThemeSelected = onLightThemeSelected,
+            themeByName = themeByName,
+        )
+    }
+}
+
+@Composable
+private fun SingleThemePicker(
+    currentTheme: String,
+    onThemeSelected: (String) -> Unit,
+    themeByName: Map<String, GhosttyTheme?>,
+) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+    var themeQuery by rememberSaveable { mutableStateOf("") }
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val filteredThemes = remember(themeByName.keys, themeQuery) {
+        val query = themeQuery.trim()
+        if (query.isEmpty()) themeByName.keys.toList() else themeByName.keys.filter { it.contains(query, ignoreCase = true) }
+    }
+    var showPreview by rememberSaveable { mutableStateOf(false) }
+
+    val previewTheme = remember(currentTheme, themeByName) { themeByName[currentTheme] }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(
@@ -106,70 +146,231 @@ internal fun ThemeSelectorSection(
 
         if (showPreview && previewTheme != null) ThemePreview(theme = previewTheme, name = currentTheme)
 
+        ThemePickerButton(
+            currentTheme = currentTheme,
+            expanded = expanded,
+            onToggle = { expanded = !expanded },
+        )
+
+        AnimatedVisibility(visible = expanded, enter = expandVertically(), exit = shrinkVertically()) {
+            ThemePickerDropdown(
+                query = themeQuery,
+                onQueryChange = { themeQuery = it },
+                filteredThemes = filteredThemes,
+                currentTheme = currentTheme,
+                onThemeSelected = { onThemeSelected(it); expanded = false },
+                themeByName = themeByName,
+            )
+        }
+    }
+}
+
+@Composable
+private fun DualThemePickers(
+    darkThemeName: String,
+    onDarkThemeSelected: (String) -> Unit,
+    lightThemeName: String,
+    onLightThemeSelected: (String) -> Unit,
+    themeByName: Map<String, GhosttyTheme?>,
+) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+
+    val darkTheme = remember(darkThemeName, themeByName) { themeByName[darkThemeName] }
+    val lightTheme = remember(lightThemeName, themeByName) { themeByName[lightThemeName] }
+
+    // Dark theme sub-section
+    ChuText("dark", style = typography.labelSmall, color = colors.textMuted)
+    Spacer(modifier = Modifier.height(8.dp))
+    ThemeSubPicker(
+        currentTheme = darkThemeName,
+        onThemeSelected = onDarkThemeSelected,
+        themeByName = themeByName,
+        label = "dark",
+        accentSwatch = darkTheme?.let { it.background } ?: colors.textMuted,
+    )
+    Spacer(modifier = Modifier.height(16.dp))
+
+    // Light theme sub-section
+    ChuText("light", style = typography.labelSmall, color = colors.textMuted)
+    Spacer(modifier = Modifier.height(8.dp))
+    ThemeSubPicker(
+        currentTheme = lightThemeName,
+        onThemeSelected = onLightThemeSelected,
+        themeByName = themeByName,
+        label = "light",
+        accentSwatch = lightTheme?.let { it.background } ?: colors.textMuted,
+    )
+}
+
+/**
+ * Compact inline picker for one slot (dark or light). Always show the current
+ * selection button; on expand show a filterable list.
+ */
+@Composable
+private fun ThemeSubPicker(
+    currentTheme: String,
+    onThemeSelected: (String) -> Unit,
+    themeByName: Map<String, GhosttyTheme?>,
+    label: String,
+    accentSwatch: Color,
+) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+    var query by rememberSaveable { mutableStateOf("") }
+    var expanded by rememberSaveable { mutableStateOf(false) }
+
+    val filteredThemes = remember(themeByName.keys, query) {
+        val q = query.trim()
+        if (q.isEmpty()) themeByName.keys.toList() else themeByName.keys.filter { it.contains(q, ignoreCase = true) }
+    }
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .width(8.dp)
+                .height(8.dp)
+                .background(accentSwatch),
+        )
+        ChuText(currentTheme, style = typography.labelSmall, color = colors.textPrimary)
         ChuButton(
             onClick = { expanded = !expanded },
-            variant = ChuButtonVariant.Outlined,
+            variant = ChuButtonVariant.Ghost,
             bracketed = true,
+            borderColor = colors.textMuted,
+        ) {
+            ChuText(if (expanded) "close" else "change", style = typography.labelSmall, color = colors.textMuted)
+        }
+    }
+
+    AnimatedVisibility(visible = expanded, enter = expandVertically(), exit = shrinkVertically()) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            ChuTextField(
+                value = query,
+                onValueChange = { query = it },
+                label = "Search $label themes",
+                placeholder = "Type to filter",
+                singleLine = true,
+                autoFocus = false,
+            )
+
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                filteredThemes.forEach { themeName ->
+                    ThemePickerRow(
+                        themeName = themeName,
+                        currentTheme = currentTheme,
+                        rowTheme = themeByName[themeName],
+                        onThemeSelected = {
+                            onThemeSelected(themeName)
+                            expanded = false
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ─── Shared widgets ─────────────────────────────────────────────────────────
+
+@Composable
+private fun ThemePickerButton(
+    currentTheme: String,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+    ChuButton(
+        onClick = onToggle,
+        variant = ChuButtonVariant.Outlined,
+        bracketed = true,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ChuText(currentTheme, style = typography.label)
+            ChuText(if (expanded) "▲" else "▼", style = typography.labelSmall, color = colors.textMuted)
+        }
+    }
+}
+
+@Composable
+private fun ThemePickerDropdown(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    filteredThemes: List<String>,
+    currentTheme: String,
+    onThemeSelected: (String) -> Unit,
+    themeByName: Map<String, GhosttyTheme?>,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        ChuTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            label = "Search themes",
+            placeholder = "Type to filter",
+            singleLine = true,
+            autoFocus = false,
+        )
+
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            filteredThemes.forEach { themeName ->
+                ThemePickerRow(
+                    themeName = themeName,
+                    currentTheme = currentTheme,
+                    rowTheme = themeByName[themeName],
+                    onThemeSelected = { onThemeSelected(themeName) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThemePickerRow(
+    themeName: String,
+    currentTheme: String,
+    rowTheme: GhosttyTheme?,
+    onThemeSelected: () -> Unit,
+) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+    val isSelected = themeName == currentTheme
+
+    Box(
+        modifier =
+            Modifier.fillMaxWidth()
+                .background(if (isSelected) colors.surface else colors.surfaceVariant)
+                .clickable(onClick = onThemeSelected)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Row(
             modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f),
             ) {
-                ChuText(currentTheme, style = typography.label)
-                ChuText(if (expanded) "▲" else "▼", style = typography.labelSmall, color = colors.textMuted)
-            }
-        }
-
-        AnimatedVisibility(visible = expanded, enter = expandVertically(), exit = shrinkVertically()) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                ChuTextField(
-                    value = themeQuery,
-                    onValueChange = { themeQuery = it },
-                    label = "Search themes",
-                    placeholder = "Type to filter",
-                    singleLine = true,
-                    autoFocus = false,
-                )
-
-                LazyColumn(
-                    state = themeListState,
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp),
-                ) {
-                    items(filteredThemes, key = { it }) { themeName ->
-                        val isSelected = themeName == currentTheme
-                        val rowTheme = themeByName[themeName]
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(if (isSelected) colors.surface else colors.surfaceVariant)
-                                .clickable { onThemeSelected(themeName) }
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.weight(1f),
-                                ) {
-                                    if (rowTheme != null) PaletteSwatchStrip(theme = rowTheme)
-                                    ChuText(
-                                        themeName,
-                                        style = typography.label,
-                                        color = if (isSelected) colors.accent else colors.textPrimary,
-                                    )
-                                }
-                                if (isSelected) ChuText("●", style = typography.label, color = colors.accent)
-                            }
-                        }
-                    }
+                if (isSelected) {
+                    Box(modifier = Modifier.width(3.dp).height(24.dp).background(colors.accent))
                 }
+                if (rowTheme != null) PaletteSwatchStrip(theme = rowTheme)
+                ChuText(
+                    themeName,
+                    style = typography.label,
+                    color = if (isSelected) colors.accent else colors.textPrimary,
+                )
             }
+            if (isSelected) ChuText("●", style = typography.label, color = colors.accent)
         }
     }
 }

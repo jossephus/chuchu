@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,6 +32,7 @@ import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.terminal.TerminalCustomKeyGroup
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
+import com.jossephus.chuchu.ui.theme.ThemeMode
 
 enum class SettingsCategory(val label: String) {
     General("general"),
@@ -45,7 +48,11 @@ fun SettingsScreen(
     currentAccessoryLayoutIds: List<String>,
     accessoryBarSingleRow: Boolean,
     currentTerminalCustomKeyGroups: List<TerminalCustomKeyGroup>,
+    themeMode: ThemeMode,
+    lightThemeName: String,
     onThemeSelected: (String) -> Unit,
+    onThemeModeChanged: (ThemeMode) -> Unit,
+    onLightThemeSelected: (String) -> Unit,
     onFontSelected: (String) -> Unit,
     onAppLockEnabledChanged: (Boolean) -> Unit,
     onRequireAuthOnConnectChanged: (Boolean) -> Unit,
@@ -124,25 +131,33 @@ fun SettingsScreen(
             }
             Spacer(modifier = Modifier.height(16.dp))
 
-            when (selectedCategory) {
-                SettingsCategory.General -> GeneralSettings(
-                    currentTheme = currentTheme,
-                    currentFont = currentFont,
-                    onThemeSelected = onThemeSelected,
-                    onFontSelected = onFontSelected,
-                    appLockEnabled = appLockEnabled,
-                    requireAuthOnConnect = requireAuthOnConnect,
-                    onAppLockEnabledChanged = onAppLockEnabledChanged,
-                    onRequireAuthOnConnectChanged = onRequireAuthOnConnectChanged,
-                )
-                SettingsCategory.Terminal -> TerminalSettings(
-                    currentAccessoryLayoutIds = currentAccessoryLayoutIds,
-                    onEditAccessoryLayout = { showAccessoryEditor = true },
-                    accessoryBarSingleRow = accessoryBarSingleRow,
-                    onAccessoryBarSingleRowChanged = onAccessoryBarSingleRowChanged,
-                    currentTerminalCustomKeyGroups = currentTerminalCustomKeyGroups,
-                    onEditCustomActions = { showCustomActionEditor = true },
-                )
+            Column(
+                modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()),
+            ) {
+                when (selectedCategory) {
+                    SettingsCategory.General -> GeneralSettings(
+                        currentTheme = currentTheme,
+                        currentFont = currentFont,
+                        onThemeSelected = onThemeSelected,
+                        onThemeModeChanged = onThemeModeChanged,
+                        themeMode = themeMode,
+                        lightThemeName = lightThemeName,
+                        onLightThemeSelected = onLightThemeSelected,
+                        onFontSelected = onFontSelected,
+                        appLockEnabled = appLockEnabled,
+                        requireAuthOnConnect = requireAuthOnConnect,
+                        onAppLockEnabledChanged = onAppLockEnabledChanged,
+                        onRequireAuthOnConnectChanged = onRequireAuthOnConnectChanged,
+                    )
+                    SettingsCategory.Terminal -> TerminalSettings(
+                        currentAccessoryLayoutIds = currentAccessoryLayoutIds,
+                        onEditAccessoryLayout = { showAccessoryEditor = true },
+                        accessoryBarSingleRow = accessoryBarSingleRow,
+                        onAccessoryBarSingleRowChanged = onAccessoryBarSingleRowChanged,
+                        currentTerminalCustomKeyGroups = currentTerminalCustomKeyGroups,
+                        onEditCustomActions = { showCustomActionEditor = true },
+                    )
+                }
             }
         }
 
@@ -170,6 +185,10 @@ private fun GeneralSettings(
     currentTheme: String,
     currentFont: String,
     onThemeSelected: (String) -> Unit,
+    onThemeModeChanged: (ThemeMode) -> Unit,
+    themeMode: ThemeMode,
+    lightThemeName: String,
+    onLightThemeSelected: (String) -> Unit,
     onFontSelected: (String) -> Unit,
     appLockEnabled: Boolean,
     requireAuthOnConnect: Boolean,
@@ -181,6 +200,10 @@ private fun GeneralSettings(
     ThemeSelectorSection(
         currentTheme = currentTheme,
         onThemeSelected = onThemeSelected,
+        themeMode = themeMode,
+        onThemeModeChanged = onThemeModeChanged,
+        lightThemeName = lightThemeName,
+        onLightThemeSelected = onLightThemeSelected,
     )
     Spacer(modifier = Modifier.height(16.dp))
     FontSelectorSection(
