@@ -323,7 +323,6 @@ fn readChannel(alloc: std.mem.Allocator, session: *NativeSshSession, max_bytes: 
     const buf = alloc.alloc(u8, cap) catch return null;
     defer alloc.free(buf);
     var total_read: usize = 0;
-    var stalled_loops: u32 = 0;
     // Read both stdout and stderr — exec channels may send
     // diagnostics on stderr, blocking EOF if we ignore it.
     const streams = [_]c_int{ 0, 1 };
@@ -333,10 +332,7 @@ fn readChannel(alloc: std.mem.Allocator, session: *NativeSshSession, max_bytes: 
             const rc = c.libssh2_channel_read_ex(channel, stream_id, @ptrCast(buf.ptr + total_read), @intCast(buf.len - total_read));
             if (rc == c.LIBSSH2_ERROR_EAGAIN) {
                 session.empty_reads +%= 1;
-                stalled_loops +%= 1;
-                if (stalled_loops > 16) break;
-                if (!waitSocket(session, io_wait_timeout_ms)) break;
-                continue;
+                break;
             }
             if (rc == 0) {
                 break;
@@ -347,7 +343,6 @@ fn readChannel(alloc: std.mem.Allocator, session: *NativeSshSession, max_bytes: 
             }
             total_read += @intCast(rc);
             session.empty_reads = 0;
-            stalled_loops = 0;
         }
     }
     if (total_read == 0) {
