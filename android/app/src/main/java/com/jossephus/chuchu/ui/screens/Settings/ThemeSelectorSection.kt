@@ -12,8 +12,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
@@ -187,7 +190,7 @@ private fun DualThemePickers(
         onThemeSelected = onDarkThemeSelected,
         themeByName = themeByName,
         label = "dark",
-        accentSwatch = darkTheme?.let { it.background } ?: colors.textMuted,
+        swatchColor = darkTheme?.let { it.background } ?: colors.textMuted,
     )
     Spacer(modifier = Modifier.height(16.dp))
 
@@ -199,7 +202,7 @@ private fun DualThemePickers(
         onThemeSelected = onLightThemeSelected,
         themeByName = themeByName,
         label = "light",
-        accentSwatch = lightTheme?.let { it.background } ?: colors.textMuted,
+        swatchColor = lightTheme?.let { it.background } ?: colors.textMuted,
     )
 }
 
@@ -213,7 +216,7 @@ private fun ThemeSubPicker(
     onThemeSelected: (String) -> Unit,
     themeByName: Map<String, GhosttyTheme?>,
     label: String,
-    accentSwatch: Color,
+    swatchColor: Color,
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
@@ -233,7 +236,7 @@ private fun ThemeSubPicker(
             modifier = Modifier
                 .width(8.dp)
                 .height(8.dp)
-                .background(accentSwatch),
+                .background(swatchColor),
         )
         ChuText(currentTheme, style = typography.labelSmall, color = colors.textPrimary)
         ChuButton(
@@ -257,8 +260,11 @@ private fun ThemeSubPicker(
                 autoFocus = false,
             )
 
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                filteredThemes.forEach { themeName ->
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp),
+            ) {
+                items(filteredThemes, key = { it }) { themeName ->
                     ThemePickerRow(
                         themeName = themeName,
                         currentTheme = currentTheme,
@@ -319,8 +325,11 @@ private fun ThemePickerDropdown(
             autoFocus = false,
         )
 
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            filteredThemes.forEach { themeName ->
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp),
+        ) {
+            items(filteredThemes, key = { it }) { themeName ->
                 ThemePickerRow(
                     themeName = themeName,
                     currentTheme = currentTheme,

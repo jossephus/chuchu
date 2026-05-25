@@ -136,10 +136,6 @@ class SettingsRepository(context: Context) {
         }
 
         private fun parseThemeMode(value: String?): ThemeMode =
-            try {
-                ThemeMode.valueOf(value ?: ThemeMode.Manual.name)
-            } catch (_: IllegalArgumentException) {
-                ThemeMode.Manual
-            }
+            ThemeMode.entries.find { it.name == value } ?: ThemeMode.Manual
     }
 }
