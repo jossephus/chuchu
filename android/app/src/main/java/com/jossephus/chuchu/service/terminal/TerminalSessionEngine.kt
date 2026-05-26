@@ -46,6 +46,7 @@ data class SessionState(
     val nativeVersion: String? = null,
     val reconnectAttempt: Int = 0,
     val error: String? = null,
+    val handle: Long = 0,
 )
 
 data class HostKeyPrompt(
@@ -867,6 +868,7 @@ class TerminalSessionEngine(
                     pwd = pwd,
                     bellCount = bellCount,
                     nativeVersion = nativeVersion,
+                    handle = handle,
                 )
         } catch (e: Exception) {
             Log.e("TerminalSession", "emitSnapshot failed", e)

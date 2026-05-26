@@ -1,6 +1,7 @@
 package com.jossephus.chuchu.ui.terminal
 
 import com.jossephus.chuchu.R
+import com.jossephus.chuchu.service.terminal.GhosttyBridge
 
 import android.graphics.Paint
 import android.graphics.Rect
@@ -57,6 +58,7 @@ fun TerminalCanvas(
     selectionBackgroundColor: Color = Color(0x663B82F6),
     selectionForegroundColor: Color? = null,
     selectionResetKey: Int = 0,
+    terminalHandle: Long = 0,
     onResize: (cols: Int, rows: Int, cellWidth: Int, cellHeight: Int, widthPx: Int, heightPx: Int) -> Unit =
         { _, _, _, _, _, _ -> },
     onTap: () -> Unit = {},
@@ -146,6 +148,7 @@ fun TerminalCanvas(
     val currentOnSelectionChanged = rememberUpdatedState(onSelectionChanged)
     val currentSnapshot = rememberUpdatedState(snapshot)
     val currentOnScroll = rememberUpdatedState(onScroll)
+    val ghosttyBridge = remember { GhosttyBridge() }
 
     val scrollDeltaChannel = remember { Channel<Int>(capacity = Channel.UNLIMITED) }
     LaunchedEffect(scrollDeltaChannel) {
@@ -171,7 +174,14 @@ fun TerminalCanvas(
     val currentSelection = selection
     if (currentSelection != null) {
         LaunchedEffect(snapshot, currentSelection) {
-            val text = extractSelectionText(snapshot, currentSelection)
+            val text = if (terminalHandle != 0L && snapshot.cols > 0) {
+                val normalized = currentSelection.normalized(snapshot.codepoints.size)
+                if (normalized != null) {
+                    ghosttyBridge.nativeFormatSelectionRange(terminalHandle, normalized.first, normalized.last)
+                } else null
+            } else {
+                extractSelectionText(snapshot, currentSelection)
+            }
             currentOnSelectionChanged.value(true, text, selectionAnchorOffset.x, selectionAnchorOffset.y)
         }
     } else {

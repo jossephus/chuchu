@@ -1134,3 +1134,124 @@ export fn chuchu_scroll_to_active(handle: c.jlong) callconv(.c) void {
     terminal.terminal.scrollViewport(.{ .bottom = {} });
     update_render_state(terminal);
 }
+
+const default_word_boundaries: [20]u21 = .{
+    0, ' ', '\t', '\'', '"', '│', '`', '|', ':', ';', ',',
+    '(', ')', '[', ']', '{', '}', '<', '>', '$',
+};
+
+fn viewportCellToPin(terminal: *ChuchuTerminal, vp_x: u32, vp_y: u32) ?ghostty.Pin {
+    const pages = &terminal.terminal.screens.active.pages;
+    const vp_top_point = pages.pointFromPin(.screen, pages.getTopLeft(.viewport)) orelse return null;
+    return pages.pin(.{ .screen = .{
+        .x = @as(u16, @intCast(vp_x)),
+        .y = vp_top_point.screen.y + vp_y,
+    }});
+}
+
+fn selectionTextFromPins(
+    terminal: *ChuchuTerminal,
+    start_pin: ghostty.Pin,
+    end_pin: ghostty.Pin,
+    alloc: std.mem.Allocator,
+) ![:0]const u8 {
+    const sel = ghostty.Selection.init(start_pin, end_pin, false);
+    defer sel.deinit(terminal.terminal.screens.active);
+    return terminal.terminal.screens.active.selectionString(alloc, .{
+        .sel = sel,
+        .trim = true,
+    });
+}
+
+export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeFormatSelectionRange(
+    env: *c.JNIEnv,
+    thiz: c.jobject,
+    handle: c.jlong,
+    start_cell: c.jint,
+    end_cell: c.jint,
+) callconv(.c) c.jstring {
+    _ = thiz;
+    const terminal = chuchuFromHandle(handle) orelse return null;
+    const cols: c.jint = @intCast(terminal.render_state.cols);
+    if (cols <= 0) return null;
+
+    const start_x: u32 = @intCast(@max(0, @rem(start_cell, cols)));
+    const start_y: u32 = @intCast(@max(0, @divTrunc(start_cell, cols)));
+    const end_x: u32 = @intCast(@max(0, @rem(end_cell, cols)));
+    const end_y: u32 = @intCast(@max(0, @divTrunc(end_cell, cols)));
+
+    const start_pin = viewportCellToPin(terminal, start_x, start_y) orelse return null;
+    const end_pin = viewportCellToPin(terminal, end_x, end_y) orelse return null;
+
+    const text = selectionTextFromPins(terminal, start_pin, end_pin, allocator) catch return null;
+    defer allocator.free(text);
+    return jniNewStringUTF(env, text.ptr);
+}
+
+export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeSelectWordAt(
+    env: *c.JNIEnv,
+    thiz: c.jobject,
+    handle: c.jlong,
+    cell_x: c.jint,
+    cell_y: c.jint,
+) callconv(.c) c.jstring {
+    _ = thiz;
+    const terminal = chuchuFromHandle(handle) orelse return null;
+
+    const pin = viewportCellToPin(terminal, @intCast(@max(0, cell_x)), @intCast(@max(0, cell_y))) orelse return null;
+
+    const sel = terminal.terminal.screens.active.selectWord(pin, &default_word_boundaries) orelse return null;
+    defer sel.deinit(terminal.terminal.screens.active);
+
+    const text = terminal.terminal.screens.active.selectionString(allocator, .{
+        .sel = sel,
+        .trim = true,
+    }) catch return null;
+    defer allocator.free(text);
+    return jniNewStringUTF(env, text.ptr);
+}
+
+export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeSelectLineAt(
+    env: *c.JNIEnv,
+    thiz: c.jobject,
+    handle: c.jlong,
+    cell_x: c.jint,
+    cell_y: c.jint,
+) callconv(.c) c.jstring {
+    _ = thiz;
+    const terminal = chuchuFromHandle(handle) orelse return null;
+
+    const pin = viewportCellToPin(terminal, @intCast(@max(0, cell_x)), @intCast(@max(0, cell_y))) orelse return null;
+
+    const sel = terminal.terminal.screens.active.selectLine(.{
+        .pin = pin,
+        .semantic_prompt_boundary = true,
+    }) orelse return null;
+    defer sel.deinit(terminal.terminal.screens.active);
+
+    const text = terminal.terminal.screens.active.selectionString(allocator, .{
+        .sel = sel,
+        .trim = true,
+    }) catch return null;
+    defer allocator.free(text);
+    return jniNewStringUTF(env, text.ptr);
+}
+
+export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeSelectAll(
+    env: *c.JNIEnv,
+    thiz: c.jobject,
+    handle: c.jlong,
+) callconv(.c) c.jstring {
+    _ = thiz;
+    const terminal = chuchuFromHandle(handle) orelse return null;
+
+    const sel = terminal.terminal.screens.active.selectAll() orelse return null;
+    defer sel.deinit(terminal.terminal.screens.active);
+
+    const text = terminal.terminal.screens.active.selectionString(allocator, .{
+        .sel = sel,
+        .trim = true,
+    }) catch return null;
+    defer allocator.free(text);
+    return jniNewStringUTF(env, text.ptr);
+}

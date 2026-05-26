@@ -900,6 +900,7 @@ fun TerminalScreen(
                                     selectionForegroundColor =
                                         ghosttyTheme?.selectionForeground ?: colors.onAccent,
                                     selectionResetKey = selectionResetKey,
+                                    terminalHandle = sessionState.handle,
                                     modifier = Modifier.fillMaxSize(),
                                     onResize = vm::onCanvasSizeChanged,
                                     onTap = requestInputFocus,
