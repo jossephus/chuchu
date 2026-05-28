@@ -98,12 +98,12 @@ object KeyMapper {
             }
         }
 
-        if (mapped.codepoint != 0) return mapped
+        if (mapped.codepoint != 0) return mapped.copy(charCode = codepoint)
         val unshiftedCodepoint = unshiftedCodepointFor(keyCode)
         return if (unshiftedCodepoint != 0) {
-            mapped.copy(codepoint = unshiftedCodepoint)
+            mapped.copy(codepoint = unshiftedCodepoint, charCode = codepoint)
         } else {
-            mapped
+            mapped.copy(charCode = codepoint)
         }
     }
 
@@ -145,4 +145,5 @@ data class MappedKey(
     val key: Int,
     val codepoint: Int,
     val mods: Int,
+    val charCode: Int = 0,
 )
