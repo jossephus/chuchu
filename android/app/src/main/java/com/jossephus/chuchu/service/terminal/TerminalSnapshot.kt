@@ -67,7 +67,9 @@ data class TerminalSnapshot(
         result = 31 * result + fgArgb.contentHashCode()
         result = 31 * result + bgArgb.contentHashCode()
         result = 31 * result + flags.contentHashCode()
-        result = 31 * result + graphemeExtras.size
+        result = 31 * result + graphemeExtras.entries.fold(0) { acc, (key, arr) ->
+            acc + key + arr.contentHashCode()
+        }
         result = 31 * result + images.hashCode()
         return result
     }

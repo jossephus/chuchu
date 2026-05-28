@@ -1,6 +1,5 @@
 package com.jossephus.chuchu.service.terminal
 
-import android.os.SystemClock
 import android.util.Log
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.Transport
@@ -106,7 +105,7 @@ class TerminalSessionEngine(
     private var lastConnectionParams: ConnectionParams? = null
     private var reconnectJob: Job? = null
     private var disconnectRequested = false
-    private val snapshotPerfTracker = SnapshotPerfTracker()
+
 
     private val nativeVersion =
         if (bridge.isLoaded()) {
@@ -849,20 +848,14 @@ class TerminalSessionEngine(
 
     private fun emitSnapshot() {
         if (handle == 0L) return
-        val t0 = SystemClock.elapsedRealtimeNanos()
         try {
             val raw = bridge.nativeSnapshot(handle)
-            val t1 = SystemClock.elapsedRealtimeNanos()
             val rawImages = bridge.nativeSnapshotImages(handle)
-            val t2 = SystemClock.elapsedRealtimeNanos()
             images = TerminalSnapshot.parseImages(rawImages)
-            val t3 = SystemClock.elapsedRealtimeNanos()
             val snap = TerminalSnapshot.fromByteBuffer(raw, images)
-            val t4 = SystemClock.elapsedRealtimeNanos()
             val nextTitle = bridge.nativePollTitle(handle)
             val nextPwd = bridge.nativePollPwd(handle)
             val bellCount = bridge.nativeDrainBellCount(handle)
-            val t5 = SystemClock.elapsedRealtimeNanos()
             if (nextTitle != null) {
                 title = nextTitle
             }
@@ -878,97 +871,9 @@ class TerminalSessionEngine(
                     nativeVersion = nativeVersion,
                     handle = handle,
                 )
-            val t6 = SystemClock.elapsedRealtimeNanos()
-            val nonBlankCells = countNonBlankCells(snap)
-            snapshotPerfTracker.record(
-                nativeTextNs = t1 - t0,
-                nativeImagesNs = t2 - t1,
-                parseImagesNs = t3 - t2,
-                parseSnapshotNs = t4 - t3,
-                metadataPollNs = t5 - t4,
-                stateUpdateNs = t6 - t5,
-                totalNs = t6 - t0,
-                textBytes = raw.capacity(),
-                imageBytes = rawImages.capacity(),
-                cols = snap.cols,
-                rows = snap.rows,
-                extras = snap.graphemeExtras.size,
-                nonBlank = nonBlankCells,
-            )
-            if (nonBlankCells == 0 && snap.cursorVisible) {
-                Log.w(
-                    "TerminalPerf",
-                    "snapshot_content_anomaly nonBlank=0 cursor=(${snap.cursorX},${snap.cursorY}) " +
-                        "grid=${snap.cols}x${snap.rows} sample='${sampleRowText(snap, snap.cursorY)}'",
-                )
-            }
         } catch (e: Exception) {
             Log.e("TerminalSession", "emitSnapshot failed", e)
         }
     }
 
-    private fun countNonBlankCells(snapshot: TerminalSnapshot): Int {
-        var count = 0
-        for (cp in snapshot.codepoints) {
-            if (cp != 0 && cp != 32) count++
-        }
-        return count
-    }
-
-    private fun sampleRowText(snapshot: TerminalSnapshot, row: Int): String {
-        if (snapshot.cols <= 0 || snapshot.rows <= 0) return ""
-        val r = row.coerceIn(0, snapshot.rows - 1)
-        val start = r * snapshot.cols
-        val endExclusive = (start + snapshot.cols).coerceAtMost(snapshot.codepoints.size)
-        val sb = StringBuilder(snapshot.cols)
-        for (i in start until endExclusive) {
-            val cp = snapshot.codepoints[i]
-            when {
-                cp == 0 -> sb.append('·')
-                cp == 32 -> sb.append(' ')
-                cp in 0x20..0x7E -> sb.append(cp.toChar())
-                else -> sb.append('?')
-            }
-        }
-        return sb.toString().trimEnd()
-    }
-
-    private class SnapshotPerfTracker {
-        private var calls: Long = 0
-        private var totalNs: Long = 0
-        private var lastLogNs: Long = 0
-
-        fun record(
-            nativeTextNs: Long,
-            nativeImagesNs: Long,
-            parseImagesNs: Long,
-            parseSnapshotNs: Long,
-            metadataPollNs: Long,
-            stateUpdateNs: Long,
-            totalNs: Long,
-            textBytes: Int,
-            imageBytes: Int,
-            cols: Int,
-            rows: Int,
-            extras: Int,
-            nonBlank: Int,
-        ) {
-            calls++
-            this.totalNs += totalNs
-            val now = SystemClock.elapsedRealtimeNanos()
-            val slow = totalNs >= 20_000_000L || parseSnapshotNs >= 10_000_000L || nativeTextNs >= 10_000_000L
-            if (!slow) return
-
-            val avgMs = if (calls > 0) (this.totalNs / calls) / 1_000_000.0 else 0.0
-            Log.w(
-                "TerminalPerf",
-                "emitSnapshot SLOW total=${"%.2f".format(totalNs / 1_000_000.0)}ms avg=${"%.2f".format(avgMs)}ms " +
-                    "nativeText=${"%.2f".format(nativeTextNs / 1_000_000.0)}ms nativeImages=${"%.2f".format(nativeImagesNs / 1_000_000.0)}ms " +
-                    "parseImages=${"%.2f".format(parseImagesNs / 1_000_000.0)}ms parseSnapshot=${"%.2f".format(parseSnapshotNs / 1_000_000.0)}ms " +
-                    "meta=${"%.2f".format(metadataPollNs / 1_000_000.0)}ms state=${"%.2f".format(stateUpdateNs / 1_000_000.0)}ms " +
-                    "grid=${cols}x${rows} extras=$extras nonBlank=$nonBlank bytes(text=$textBytes,img=$imageBytes) calls=$calls",
-            )
-            lastLogNs = now
-        }
-    }
 }
