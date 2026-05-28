@@ -144,6 +144,7 @@ class TerminalSessionRepository private constructor(application: Application) {
             keyPassphrase = spec.keyPassphrase,
             transport = spec.transport,
             sessionKey = spec.sessionKey,
+            postConnectCommand = spec.postConnectCommand,
         )
         return tab
     }
@@ -179,6 +180,7 @@ class TerminalSessionRepository private constructor(application: Application) {
             keyPassphrase = spec.keyPassphrase,
             transport = spec.transport,
             sessionKey = spec.sessionKey,
+            postConnectCommand = spec.postConnectCommand,
         )
     }
 

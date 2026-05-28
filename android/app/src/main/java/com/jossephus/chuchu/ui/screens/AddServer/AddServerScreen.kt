@@ -1,8 +1,8 @@
 package com.jossephus.chuchu.ui.screens.AddServer
 
-import android.content.Context
-import android.content.ClipboardManager
 import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -23,9 +23,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -42,7 +43,6 @@ import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.components.ChuTextField
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
-import kotlinx.coroutines.launch
 
 @Composable
 fun AddServerScreen(
@@ -58,6 +58,7 @@ fun AddServerScreen(
 
     val scrollState = rememberScrollState()
     val context = LocalContext.current
+    var showAdditionalSettings by remember { mutableStateOf(false) }
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -225,21 +226,37 @@ fun AddServerScreen(
 
         SectionDivider()
 
-        SectionHeader("SECURITY")
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.End,
         ) {
-            ChuText("require biometric auth", style = typography.label)
-            ChuSwitch(
-                checked = form.requireAuthOnConnect,
-                onCheckedChange = vm::updateRequireAuthOnConnect,
-            )
+            ChuButton(
+                onClick = { showAdditionalSettings = !showAdditionalSettings },
+                variant = ChuButtonVariant.Outlined,
+                bracketed = true,
+            ) {
+                ChuText("additional settings", style = typography.label)
+            }
         }
-
-        SectionDivider()
-
+        if (showAdditionalSettings) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            ) {
+                ChuText("require biometric auth", style = typography.label)
+                ChuSwitch(
+                    checked = form.requireAuthOnConnect,
+                    onCheckedChange = vm::updateRequireAuthOnConnect,
+                )
+            }
+            SectionDivider()
+            PostConnectActionSection(
+                command = form.postConnectCommand,
+                onCommandChange = vm::updatePostConnectCommand,
+            )
+            SectionDivider()
+        }
 
         val canTest = form.host.isNotBlank() && form.username.isNotBlank()
         ChuButton(
@@ -357,5 +374,39 @@ private fun KeyAuthSection(
             ChuText("generate key", style = typography.label)
         }
     }
+}
 
+@Composable
+private fun PostConnectActionSection(
+    command: String,
+    onCommandChange: (String) -> Unit,
+) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+    ChuText("auto-run on connect", style = typography.label)
+    ChuTextField(
+        value = command,
+        onValueChange = onCommandChange,
+        label = "",
+        placeholder = "e.g. tmux attach -t main",
+        showLabel = false,
+        singleLine = true,
+        autoFocus = false,
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.End,
+    ) {
+        ChuButton(
+            onClick = { onCommandChange("") },
+            enabled = command.isNotBlank(),
+            variant = ChuButtonVariant.Ghost,
+            bracketed = true,
+            borderColor = colors.textMuted,
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+        ) {
+            ChuText("clear", style = typography.labelSmall, color = colors.textMuted)
+        }
+    }
 }

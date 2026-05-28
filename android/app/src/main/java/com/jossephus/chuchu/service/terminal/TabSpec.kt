@@ -15,6 +15,7 @@ data class TabSpec(
     val privateKeyPem: String = "",
     val keyPassphrase: String = "",
     val transport: Transport = Transport.SSH,
+    val postConnectCommand: String? = null,
 ) {
     val sessionKey: String
         get() = hostId?.let { "host:$it" } ?: "${transport.name}:$username@$host:$port"

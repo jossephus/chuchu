@@ -639,6 +639,9 @@ private data class TerminalSelection(
     }
 }
 
+private fun safeChars(cp: Int): String =
+    if (cp in 0..0x10FFFF) String(Character.toChars(cp)) else "\uFFFD"
+
 private fun TerminalSnapshot.cellAt(x: Float, y: Float, cellWidthPx: Float, cellHeightPx: Float): Int? {
     if (cols <= 0 || rows <= 0 || cellWidthPx <= 0f || cellHeightPx <= 0f) return null
     val col = floor(x / cellWidthPx).toInt().coerceIn(0, cols - 1)

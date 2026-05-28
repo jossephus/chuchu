@@ -267,6 +267,7 @@ fun TerminalScreen(
     val useSingleRowAccessoryBar by settingsRepo.accessoryBarSingleRow.collectAsStateWithLifecycle()
     val currentTerminalCustomKeyGroups by
         settingsRepo.terminalCustomKeyGroups.collectAsStateWithLifecycle()
+
     val accessoryLayout =
         remember(currentAccessoryLayoutIds) {
             TerminalAccessoryLayoutStore.resolveSelectedLayout(currentAccessoryLayoutIds)
@@ -338,6 +339,7 @@ fun TerminalScreen(
                 privateKeyPem = key?.privateKeyPem.orEmpty(),
                 keyPassphrase = "",
                 transport = host.transport,
+                postConnectCommand = host.postConnectCommand,
             )
         if (host.authMethod == AuthMethod.KeyWithPassphrase && key != null) {
             pendingTabSpec = baseSpec

@@ -73,6 +73,7 @@ class TerminalSessionEngine(
         val privateKeyPem: String,
         val keyPassphrase: String,
         val transport: Transport,
+        val postConnectCommand: String? = null,
     )
 
     private val dispatcher: ExecutorCoroutineDispatcher =
@@ -139,6 +140,7 @@ class TerminalSessionEngine(
         keyPassphrase: String,
         transport: Transport,
         sessionKey: String,
+        postConnectCommand: String? = null,
     ) {
         disconnectRequested = false
         val params =
@@ -152,6 +154,7 @@ class TerminalSessionEngine(
                 privateKeyPem = privateKeyPem,
                 keyPassphrase = keyPassphrase,
                 transport = transport,
+                postConnectCommand = postConnectCommand,
             )
         lastConnectionParams = params
         scope.launch(dispatcher) {
@@ -212,6 +215,7 @@ class TerminalSessionEngine(
                     )
                 requestSnapshot(force = true)
                 startReadLoop()
+                sendPostConnectCommand(params.postConnectCommand)
             } catch (e: Exception) {
                 Log.e("TerminalSession", "Connect failed", e)
                 _state.value =
@@ -742,6 +746,7 @@ class TerminalSessionEngine(
                             )
                         requestSnapshot(force = true)
                         startReadLoop()
+                        sendPostConnectCommand(params.postConnectCommand)
                         return@launch
                     } catch (e: Exception) {
                         Log.e("TerminalSession", "Reconnect attempt $attempt failed", e)
@@ -791,6 +796,16 @@ class TerminalSessionEngine(
             moshService.sendInput(data)
         } else {
             nativeSsh.write(data)
+        }
+    }
+
+    private fun sendPostConnectCommand(command: String?) {
+        val trimmed = command?.trim().orEmpty()
+        if (trimmed.isEmpty()) return
+        try {
+            writeRemote("$trimmed\n".toByteArray(Charsets.UTF_8))
+        } catch (e: Exception) {
+            Log.e("TerminalSession", "post-connect command failed", e)
         }
     }
 

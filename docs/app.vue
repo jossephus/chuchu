@@ -31,6 +31,7 @@ const groups = [
       'multi-session tabs with command palette',
       'configurable accessory key row',
       'custom key macros & nested key groups',
+      'per-host post-connect actions',
       'chuchu key — leader prefix for app actions',
       'foreground service keeps sessions alive',
     ],

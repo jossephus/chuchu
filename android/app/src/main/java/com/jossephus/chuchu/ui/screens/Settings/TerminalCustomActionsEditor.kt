@@ -34,8 +34,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,8 +46,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
@@ -126,7 +126,11 @@ internal fun TerminalCustomActionsEditorSheet(
         val normalizedValue = encodeCustomActionValue(baseValue, enabledModifiers)
         if (baseKey.isEmpty() || normalizedValue.isEmpty()) return
         val nextId = (draftItems.maxOfOrNull { it.id } ?: 0L) + 1L
-        val item = CustomKeyValueDraft(id = nextId, key = baseKey, value = normalizedValue)
+        val item = CustomKeyValueDraft(
+            id = nextId,
+            key = baseKey,
+            value = normalizedValue,
+        )
         val nextItems = editingIndex?.let { index ->
             draftItems.toMutableList().also { list ->
                 if (index in list.indices) {
@@ -537,7 +541,11 @@ private fun groupsToDraftItems(groups: List<TerminalCustomKeyGroup>): List<Custo
     var nextId = 1L
     return groups.flatMap { group ->
         group.actions.map { action ->
-            CustomKeyValueDraft(id = nextId++, key = group.keyLabel, value = action.payload)
+            CustomKeyValueDraft(
+                id = nextId++,
+                key = group.keyLabel,
+                value = action.payload,
+            )
         }
     }
 }

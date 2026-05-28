@@ -22,4 +22,5 @@ data class HostProfile(
     val authMethod: AuthMethod = AuthMethod.Password,
     @ColumnInfo(defaultValue = "0")
     val requireAuthOnConnect: Boolean = false,
+    val postConnectCommand: String? = null,
 )

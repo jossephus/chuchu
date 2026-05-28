@@ -12,9 +12,9 @@ import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.HostProfile
 import com.jossephus.chuchu.model.SshKey
 import com.jossephus.chuchu.model.Transport
+import com.jossephus.chuchu.service.ssh.Ed25519KeyGenerator
 import com.jossephus.chuchu.service.ssh.HostKeyPolicy
 import com.jossephus.chuchu.service.ssh.NativeSshService
-import com.jossephus.chuchu.service.ssh.Ed25519KeyGenerator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -76,6 +76,7 @@ class AddServerViewModel(
                     transport = profile.transport,
                     authMethod = profile.authMethod,
                     requireAuthOnConnect = profile.requireAuthOnConnect,
+                    postConnectCommand = profile.postConnectCommand.orEmpty(),
                 )
             }
         }
@@ -187,6 +188,10 @@ class AddServerViewModel(
         _form.value = _form.value.copy(requireAuthOnConnect = enabled)
     }
 
+    fun updatePostConnectCommand(command: String) {
+        _form.value = _form.value.copy(postConnectCommand = command)
+    }
+
     fun testConnection() {
         val current = _form.value
         if (current.host.isBlank()) return
@@ -244,6 +249,7 @@ class AddServerViewModel(
                 transport = current.transport,
                 authMethod = current.authMethod,
                 requireAuthOnConnect = current.requireAuthOnConnect,
+                postConnectCommand = current.postConnectCommand.trim().ifBlank { null },
             )
             hostRepository.upsert(profile)
             onComplete()
@@ -265,6 +271,7 @@ data class AddServerForm(
     val transport: Transport = Transport.SSH,
     val authMethod: AuthMethod = AuthMethod.Password,
     val requireAuthOnConnect: Boolean = false,
+    val postConnectCommand: String = "",
 )
 
 fun AddServerForm.canSave(): Boolean {
