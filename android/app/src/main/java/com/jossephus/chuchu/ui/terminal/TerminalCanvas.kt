@@ -64,7 +64,7 @@ fun TerminalCanvas(
         { _, _, _, _, _, _ -> },
     onTap: () -> Unit = {},
     onPrimaryClick: (x: Float, y: Float) -> Unit = { _, _ -> },
-    onScroll: (delta: Int) -> Unit = {},
+    onScroll: (delta: Int, x: Float, y: Float) -> Unit = { _, _, _ -> },
     onZoom: (zoomFactor: Float) -> Unit = {},
     onSelectionChanged: (selectionActive: Boolean, text: String?, anchorOffsetX: Float, anchorOffsetY: Float) -> Unit = { _, _, _, _ -> },
 ) {
@@ -165,17 +165,19 @@ fun TerminalCanvas(
     val currentOnScroll = rememberUpdatedState(onScroll)
     val ghosttyBridge = remember { GhosttyBridge() }
 
-    val scrollDeltaChannel = remember { Channel<Int>(capacity = Channel.UNLIMITED) }
+    val scrollDeltaChannel = remember { Channel<TerminalScrollDelta>(capacity = Channel.UNLIMITED) }
     LaunchedEffect(scrollDeltaChannel) {
         while (isActive) {
             val first = scrollDeltaChannel.receive()
-            var accumulated = first
+            var accumulated = first.delta
+            var latest = first
             while (true) {
                 val next = scrollDeltaChannel.tryReceive().getOrNull() ?: break
-                accumulated += next
+                accumulated += next.delta
+                latest = next
             }
             if (accumulated != 0) {
-                currentOnScroll.value(accumulated)
+                currentOnScroll.value(accumulated, latest.x, latest.y)
             }
             withFrameNanos { }
         }
@@ -384,7 +386,7 @@ fun TerminalCanvas(
                                 dragRemainder -= delta
                                 if (delta != 0) {
                                     didScroll = true
-                                    scrollDeltaChannel.trySend(-delta)
+                                    scrollDeltaChannel.trySend(TerminalScrollDelta(-delta, changePos.x, changePos.y))
                                 }
                             }
 
@@ -626,6 +628,12 @@ fun TerminalCanvas(
         }
     }
 }
+
+private data class TerminalScrollDelta(
+    val delta: Int,
+    val x: Float,
+    val y: Float,
+)
 
 private data class TerminalSelection(
     val anchorIndex: Int,

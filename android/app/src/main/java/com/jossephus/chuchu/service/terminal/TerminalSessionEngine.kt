@@ -340,12 +340,12 @@ class TerminalSessionEngine(
         }
     }
 
-    fun scroll(delta: Int) {
+    fun scroll(delta: Int, x: Float, y: Float) {
         scope.launch(dispatcher) {
             if (handle == 0L || delta == 0) {
                 return@launch
             }
-            bridge.nativeScroll(handle, delta)
+            bridge.nativeScroll(handle, delta, x, y)
             flushPtyWrites()
             requestSnapshot(force = true)
         }

@@ -191,7 +191,7 @@ fun CommandPalette(
                   selectionForegroundColor = Color.Transparent,
                   onTap = {},
                   onPrimaryClick = { _, _ -> },
-                  onScroll = {},
+                  onScroll = { _, _, _ -> },
                   onZoom = {},
                   onSelectionChanged = { _, _, _, _ -> },
                   modifier = Modifier.fillMaxSize(),

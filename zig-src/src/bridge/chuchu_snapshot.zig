@@ -433,10 +433,10 @@ export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeResize(
     chuchu_resize(handle, cols, rows, cell_width, cell_height);
 }
 
-export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeScroll(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, delta: c.jint) callconv(.c) void {
+export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeScroll(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, delta: c.jint, x: c.jfloat, y: c.jfloat) callconv(.c) void {
     _ = env;
     _ = thiz;
-    chuchu_scroll(handle, delta);
+    chuchu_scroll(handle, delta, x, y);
 }
 
 export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeScrollToActive(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong) callconv(.c) void {
@@ -1235,7 +1235,7 @@ export fn chuchu_resize(handle: c.jlong, cols: c.jint, rows: c.jint, cell_width:
     update_render_state(terminal);
 }
 
-export fn chuchu_scroll(handle: c.jlong, delta: c.jint) callconv(.c) void {
+export fn chuchu_scroll(handle: c.jlong, delta: c.jint, x: c.jfloat, y: c.jfloat) callconv(.c) void {
     const terminal = chuchuFromHandle(handle) orelse return;
 
     // Check if we're in alternate screen mode (used by vim, tmux, less, etc.)
@@ -1254,9 +1254,12 @@ export fn chuchu_scroll(handle: c.jlong, delta: c.jint) callconv(.c) void {
         const button: u8 = if (delta < 0) 4 else 5;
         const scroll_count: usize = @max(1, @abs(delta));
 
-        // Use center of terminal for scroll position
-        const center_x: f32 = @as(f32, @floatFromInt(terminal.cols / 2)) * @as(f32, @floatFromInt(terminal.cell_width));
-        const center_y: f32 = @as(f32, @floatFromInt(terminal.rows / 2)) * @as(f32, @floatFromInt(terminal.cell_height));
+        // Use the gesture position so mouse-aware programs like tmux route the
+        // wheel event to the pane under the user's finger.
+        const max_x: f32 = @as(f32, @floatFromInt(@max(terminal.terminal.width_px, 1) - 1));
+        const max_y: f32 = @as(f32, @floatFromInt(@max(terminal.terminal.height_px, 1) - 1));
+        const scroll_x: f32 = @min(@max(@as(f32, x), 0), max_x);
+        const scroll_y: f32 = @min(@max(@as(f32, y), 0), max_y);
 
         var buf: [512]u8 = undefined;
         var writer: std.Io.Writer = .fixed(&buf);
@@ -1270,7 +1273,7 @@ export fn chuchu_scroll(handle: c.jlong, delta: c.jint) callconv(.c) void {
                 .action = .press,
                 .button = @enumFromInt(button),
                 .mods = .{},
-                .pos = .{ .x = center_x, .y = center_y },
+                .pos = .{ .x = scroll_x, .y = scroll_y },
             };
             ghostty.input.encodeMouse(&writer, press_event, opts) catch {};
 
@@ -1278,7 +1281,7 @@ export fn chuchu_scroll(handle: c.jlong, delta: c.jint) callconv(.c) void {
                 .action = .release,
                 .button = @enumFromInt(button),
                 .mods = .{},
-                .pos = .{ .x = center_x, .y = center_y },
+                .pos = .{ .x = scroll_x, .y = scroll_y },
             };
             ghostty.input.encodeMouse(&writer, release_event, opts) catch {};
         }

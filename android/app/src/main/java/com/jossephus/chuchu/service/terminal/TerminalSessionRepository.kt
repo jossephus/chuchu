@@ -205,8 +205,8 @@ class TerminalSessionRepository private constructor(application: Application) {
         activeEngine()?.resize(cols, rows, cellWidth, cellHeight, screenWidth, screenHeight)
     }
 
-    fun scroll(delta: Int) {
-        activeEngine()?.scroll(delta)
+    fun scroll(delta: Int, x: Float, y: Float) {
+        activeEngine()?.scroll(delta, x, y)
     }
 
     fun scrollToActive() {

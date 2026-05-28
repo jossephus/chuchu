@@ -288,8 +288,8 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         sessionRepository.resize(cols, rows, cellWidth, cellHeight, screenWidth, screenHeight)
     }
 
-    fun onScroll(delta: Int) {
-        sessionRepository.scroll(delta)
+    fun onScroll(delta: Int, x: Float, y: Float) {
+        sessionRepository.scroll(delta, x, y)
     }
 
     fun onPrimaryMouseClick(x: Float, y: Float) {
