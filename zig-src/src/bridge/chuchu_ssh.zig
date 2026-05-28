@@ -35,6 +35,8 @@ fn logError(comptime fmt: []const u8, args: anytype) void {
 }
 const setup_wait_timeout_ms = 10_000;
 const io_wait_timeout_ms = 120;
+// SFTP servers may make progress between short 120ms socket waits; use a
+// longer idle cap before failing directory listing/realpath as truly stalled.
 const sftp_idle_limit_ms: i64 = 15_000;
 
 const NativeSshSession = struct {
@@ -194,11 +196,11 @@ fn nowMs() i64 {
 
 fn destroyNativeSshSession(session: *NativeSshSession) void {
     if (session.upload_handle) |uh| {
-        _ = c.libssh2_sftp_close_handle(uh);
+        _ = closeSftpHandle(session, uh, "destroy upload handle");
         session.upload_handle = null;
     }
     if (session.sftp) |sftp| {
-        _ = c.libssh2_sftp_shutdown(sftp);
+        _ = shutdownSftp(session, sftp, "destroy session");
         session.sftp = null;
     }
     if (session.channel) |channel| {
@@ -240,6 +242,58 @@ fn ensureSftp(session: *NativeSshSession) ?*c.LIBSSH2_SFTP {
     }
 }
 
+fn shutdownSftp(session: *NativeSshSession, sftp: *c.LIBSSH2_SFTP, reason: []const u8) bool {
+    var idle_since_ms = nowMs();
+    while (true) {
+        const rc = c.libssh2_sftp_shutdown(sftp);
+        if (rc == 0) return true;
+        if (rc != c.LIBSSH2_ERROR_EAGAIN) {
+            logInfo("SFTP shutdown ended during {s} rc={}", .{ reason, rc });
+            return true;
+        }
+        if (session.session == null or session.socket_fd < 0) {
+            setError(session, "SFTP shutdown would block during {s} without an active socket", .{reason});
+            return false;
+        }
+        if (waitSocket(session, io_wait_timeout_ms)) {
+            idle_since_ms = nowMs();
+            continue;
+        }
+        const idle_ms = nowMs() - idle_since_ms;
+        if (idle_ms > sftp_idle_limit_ms) {
+            setError(session, "SFTP shutdown stalled during {s} (idle {d}ms)", .{ reason, idle_ms });
+            logError("SFTP shutdown stalled during {s} idle={}ms", .{ reason, idle_ms });
+            return false;
+        }
+    }
+}
+
+fn closeSftpHandle(session: *NativeSshSession, handle: *c.LIBSSH2_SFTP_HANDLE, reason: []const u8) bool {
+    var idle_since_ms = nowMs();
+    while (true) {
+        const rc = c.libssh2_sftp_close_handle(handle);
+        if (rc == 0) return true;
+        if (rc != c.LIBSSH2_ERROR_EAGAIN) {
+            setLibssh2Error(session, reason, @intCast(rc));
+            return false;
+        }
+        if (session.session == null or session.socket_fd < 0) {
+            setError(session, "{s} would block without an active socket", .{reason});
+            return false;
+        }
+        if (waitSocket(session, io_wait_timeout_ms)) {
+            idle_since_ms = nowMs();
+            continue;
+        }
+        const idle_ms = nowMs() - idle_since_ms;
+        if (idle_ms > sftp_idle_limit_ms) {
+            setError(session, "{s} stalled (idle {d}ms)", .{ reason, idle_ms });
+            logError("{s} stalled idle={}ms", .{ reason, idle_ms });
+            return false;
+        }
+    }
+}
+
 fn resetSftpAfterFailure(session: *NativeSshSession, reason: []const u8) void {
     if (session.sftp == null) return;
     if (session.upload_handle != null) {
@@ -248,8 +302,9 @@ fn resetSftpAfterFailure(session: *NativeSshSession, reason: []const u8) void {
     }
     logError("Resetting SFTP subsystem after {s}", .{reason});
     if (session.sftp) |sftp| {
-        _ = c.libssh2_sftp_shutdown(sftp);
-        session.sftp = null;
+        if (shutdownSftp(session, sftp, reason)) {
+            session.sftp = null;
+        }
     }
 }
 
@@ -1022,6 +1077,14 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeClose(env:
     _ = env;
     _ = thiz;
     const session = sessionFromHandle(handle) orelse return;
+    if (session.upload_handle) |upload_handle| {
+        if (!closeSftpHandle(session, upload_handle, "native close upload handle")) return;
+        session.upload_handle = null;
+    }
+    if (session.sftp) |sftp| {
+        if (!shutdownSftp(session, sftp, "native close")) return;
+        session.sftp = null;
+    }
     if (session.channel) |channel| {
         _ = c.libssh2_channel_close(channel);
         _ = c.libssh2_channel_free(channel);
@@ -1133,12 +1196,15 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeSftpListDi
     }
 
     if (read_failed) {
-        _ = c.libssh2_sftp_closedir(dir);
+        _ = closeSftpHandle(session, dir, "SFTP closedir after readdir failure");
         resetSftpAfterFailure(session, "readdir failure");
         return null;
     }
 
-    _ = c.libssh2_sftp_closedir(dir);
+    if (!closeSftpHandle(session, dir, "SFTP closedir after list")) {
+        resetSftpAfterFailure(session, "closedir failure");
+        return null;
+    }
 
     const string_class = env.*.*.FindClass.?(env, "java/lang/String") orelse return null;
     const result = env.*.*.NewObjectArray.?(env, @intCast(names.items.len), string_class, null) orelse return null;

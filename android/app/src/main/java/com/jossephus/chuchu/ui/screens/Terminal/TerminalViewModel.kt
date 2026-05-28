@@ -22,6 +22,9 @@ import com.jossephus.chuchu.ui.terminal.TerminalSpecialKey
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -32,6 +35,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -56,8 +60,13 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     private val _connectionTabByTab = MutableStateFlow<Map<String, ConnectionTab>>(emptyMap())
     private val _fileBrowserStateByTab =
         MutableStateFlow<Map<String, FileBrowserUiState>>(emptyMap())
-    private val fileHomeByTab = mutableMapOf<String, String>()
-    private val fileBrowserRefreshJobs = mutableMapOf<String, Job>()
+    private val fileHomeByTab = ConcurrentHashMap<String, String>()
+    private val fileBrowserRefreshJobs = ConcurrentHashMap<String, Job>()
+    private val fileBrowserResolverJobs = ConcurrentHashMap<String, Job>()
+    private val fileBrowserRefreshTokens = ConcurrentHashMap<String, Long>()
+    private val fileBrowserResolverTokens = ConcurrentHashMap<String, Long>()
+    private val nextFileBrowserRefreshToken = AtomicLong(0L)
+    private val nextFileBrowserResolverToken = AtomicLong(0L)
 
     val selectedTab: StateFlow<ConnectionTab> =
         combine(activeTabId, _connectionTabByTab) { id, map ->
@@ -98,6 +107,9 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         _connectionTabByTab.value = _connectionTabByTab.value - id
         _fileBrowserStateByTab.value = _fileBrowserStateByTab.value - id
         fileHomeByTab.remove(id)
+        fileBrowserResolverTokens.remove(id)
+        fileBrowserRefreshTokens.remove(id)
+        fileBrowserResolverJobs.remove(id)?.cancel()
         fileBrowserRefreshJobs.remove(id)?.cancel()
         sessionRepository.closeTab(id)
     }
@@ -122,32 +134,64 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         id: String,
         transform: (FileBrowserUiState) -> FileBrowserUiState,
     ) {
-        val current = _fileBrowserStateByTab.value
-        val previous = current[id] ?: FileBrowserUiState()
-        _fileBrowserStateByTab.value = current + (id to transform(previous))
+        _fileBrowserStateByTab.update { current ->
+            val previous = current[id] ?: FileBrowserUiState()
+            current + (id to transform(previous))
+        }
     }
 
+    private fun tabExists(tabId: String): Boolean = sessionRepository.tabs.value.any { it.id == tabId }
+
+    private fun isCurrentRefresh(tabId: String, token: Long): Boolean =
+        tabExists(tabId) && fileBrowserRefreshTokens[tabId] == token
+
+    private fun isCurrentResolver(tabId: String, token: Long): Boolean =
+        tabExists(tabId) && fileBrowserResolverTokens[tabId] == token
+
     private fun resolveInitialFilePathAndRefresh(tabId: String) {
+        if (!tabExists(tabId)) return
         val cachedHome = fileHomeByTab[tabId]
         if (cachedHome != null) {
             updateFileBrowserState(tabId) { it.copy(currentPath = cachedHome) }
             refreshFileBrowser(tabId)
             return
         }
-        viewModelScope.launch(Dispatchers.IO) {
-            val tabState = sessionRepository.tabs.value.firstOrNull { it.id == tabId }
-            val fallback = tabState?.engine?.state?.value?.pwd?.takeIf { it.isNotBlank() } ?: "/"
-            val resolved =
-                runCatching { sessionRepository.sftpRealpath(tabId, ".") }.getOrNull()
-                    ?.takeIf { it.isNotBlank() }
-                    ?: runCatching { sessionRepository.sftpRealpath(tabId, "~") }.getOrNull()
-                        ?.takeIf { it.isNotBlank() }
-            val initial = resolved ?: fallback
-            fileHomeByTab[tabId] = initial
-            updateFileBrowserState(tabId) {
-                it.copy(currentPath = initial, resolvedHomePath = initial)
+        val resolverToken = nextFileBrowserResolverToken.incrementAndGet()
+        fileBrowserResolverTokens[tabId] = resolverToken
+        fileBrowserResolverJobs.remove(tabId)?.cancel()
+        val resolverJob =
+            viewModelScope.launch(Dispatchers.IO) {
+                val tabState = sessionRepository.tabs.value.firstOrNull { it.id == tabId }
+                val fallback = tabState?.engine?.state?.value?.pwd?.takeIf { it.isNotBlank() } ?: "/"
+                val resolvedCurrent =
+                    try {
+                        sessionRepository.sftpRealpath(tabId, ".").takeIf { it.isNotBlank() }
+                    } catch (err: CancellationException) {
+                        throw err
+                    } catch (_: Exception) {
+                        null
+                    }
+                val resolvedHome =
+                    resolvedCurrent
+                        ?: try {
+                            sessionRepository.sftpRealpath(tabId, "~").takeIf { it.isNotBlank() }
+                        } catch (err: CancellationException) {
+                            throw err
+                        } catch (_: Exception) {
+                            null
+                        }
+                if (!isCurrentResolver(tabId, resolverToken)) return@launch
+                val initial = resolvedHome ?: fallback
+                fileHomeByTab[tabId] = initial
+                updateFileBrowserState(tabId) {
+                    it.copy(currentPath = initial, resolvedHomePath = initial)
+                }
+                refreshFileBrowser(tabId)
             }
-            refreshFileBrowser(tabId)
+        fileBrowserResolverJobs[tabId] = resolverJob
+        resolverJob.invokeOnCompletion {
+            fileBrowserResolverJobs.remove(tabId, resolverJob)
+            fileBrowserResolverTokens.remove(tabId, resolverToken)
         }
     }
 
@@ -157,6 +201,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun refreshFileBrowser(tabId: String) {
+        if (!tabExists(tabId)) return
         val pwd =
             sessionRepository.tabs.value
                 .firstOrNull { it.id == tabId }
@@ -165,13 +210,17 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 ?.pwd
                 ?.takeIf { it.isNotBlank() } ?: "/"
         val targetPath = (_fileBrowserStateByTab.value[tabId]?.currentPath?.ifBlank { pwd }) ?: pwd
+        val refreshToken = nextFileBrowserRefreshToken.incrementAndGet()
+        fileBrowserRefreshTokens[tabId] = refreshToken
+        fileBrowserRefreshJobs.remove(tabId)?.cancel()
         updateFileBrowserState(tabId) {
             it.copy(currentPath = targetPath, isLoading = true, error = null)
         }
-        fileBrowserRefreshJobs.remove(tabId)?.cancel()
-        val refreshJob = viewModelScope.launch(Dispatchers.IO) {
-            runCatching { sessionRepository.sftpListDirectory(tabId, targetPath) }
-                .onSuccess { rows ->
+        val refreshJob =
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    val rows = sessionRepository.sftpListDirectory(tabId, targetPath)
+                    if (!isCurrentRefresh(tabId, refreshToken)) return@launch
                     val entries =
                         rows.map { row ->
                             val parts = row.split('\t')
@@ -205,15 +254,16 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                             FileSort.Modified ->
                                 entries.sortedByDescending { it.modifiedAtText ?: "" }
                         }
-                    if (current.currentPath == targetPath) {
+                    if (isCurrentRefresh(tabId, refreshToken) && current.currentPath == targetPath) {
                         updateFileBrowserState(tabId) {
                             it.copy(entries = sortedEntries, isLoading = false, error = null)
                         }
                     }
-                }
-                .onFailure { err ->
+                } catch (err: CancellationException) {
+                    throw err
+                } catch (err: Exception) {
                     val current = _fileBrowserStateByTab.value[tabId]
-                    if (current?.currentPath == targetPath) {
+                    if (isCurrentRefresh(tabId, refreshToken) && current?.currentPath == targetPath) {
                         updateFileBrowserState(tabId) {
                             it.copy(
                                 isLoading = false,
@@ -222,12 +272,11 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                         }
                     }
                 }
-        }
+            }
         fileBrowserRefreshJobs[tabId] = refreshJob
         refreshJob.invokeOnCompletion {
-            if (fileBrowserRefreshJobs[tabId] == refreshJob) {
-                fileBrowserRefreshJobs.remove(tabId)
-            }
+            fileBrowserRefreshJobs.remove(tabId, refreshJob)
+            fileBrowserRefreshTokens.remove(tabId, refreshToken)
         }
     }
 
