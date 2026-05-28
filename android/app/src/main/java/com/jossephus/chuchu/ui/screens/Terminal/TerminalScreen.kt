@@ -339,7 +339,7 @@ fun TerminalScreen(
                 privateKeyPem = key?.privateKeyPem.orEmpty(),
                 keyPassphrase = "",
                 transport = host.transport,
-                postConnectActionId = host.postConnectActionId,
+                postConnectCommand = host.postConnectCommand,
             )
         if (host.authMethod == AuthMethod.KeyWithPassphrase && key != null) {
             pendingTabSpec = baseSpec

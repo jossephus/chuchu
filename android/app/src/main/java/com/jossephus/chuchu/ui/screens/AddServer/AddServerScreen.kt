@@ -4,11 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,7 +26,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
@@ -58,12 +53,12 @@ fun AddServerScreen(
     val form by vm.form.collectAsStateWithLifecycle()
     val testState by vm.testState.collectAsStateWithLifecycle()
     val keys by vm.keys.collectAsStateWithLifecycle()
-    val availableActions by vm.availableActions.collectAsStateWithLifecycle()
     val colors = ChuColors.current
     val typography = ChuTypography.current
 
     val scrollState = rememberScrollState()
     val context = LocalContext.current
+    var showAdditionalSettings by remember { mutableStateOf(false) }
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -231,29 +226,37 @@ fun AddServerScreen(
 
         SectionDivider()
 
-        SectionHeader("SECURITY")
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.End,
         ) {
-            ChuText("require biometric auth", style = typography.label)
-            ChuSwitch(
-                checked = form.requireAuthOnConnect,
-                onCheckedChange = vm::updateRequireAuthOnConnect,
-            )
+            ChuButton(
+                onClick = { showAdditionalSettings = !showAdditionalSettings },
+                variant = ChuButtonVariant.Outlined,
+                bracketed = true,
+            ) {
+                ChuText("additional settings", style = typography.label)
+            }
         }
-
-        SectionDivider()
-
-        SectionHeader("AUTORUN")
-        PostConnectActionSection(
-            actionId = form.postConnectActionId,
-            availableActions = availableActions,
-            onSelectAction = vm::updatePostConnectActionId,
-        )
-
-        SectionDivider()
+        if (showAdditionalSettings) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            ) {
+                ChuText("require biometric auth", style = typography.label)
+                ChuSwitch(
+                    checked = form.requireAuthOnConnect,
+                    onCheckedChange = vm::updateRequireAuthOnConnect,
+                )
+            }
+            SectionDivider()
+            PostConnectActionSection(
+                command = form.postConnectCommand,
+                onCommandChange = vm::updatePostConnectCommand,
+            )
+            SectionDivider()
+        }
 
         val canTest = form.host.isNotBlank() && form.username.isNotBlank()
         ChuButton(
@@ -375,121 +378,35 @@ private fun KeyAuthSection(
 
 @Composable
 private fun PostConnectActionSection(
-    actionId: String?,
-    availableActions: List<AddServerViewModel.ActionPickerItem>,
-    onSelectAction: (String?) -> Unit,
+    command: String,
+    onCommandChange: (String) -> Unit,
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
-    var showActionPicker by remember { mutableStateOf(false) }
-
-    val selectedAction = availableActions.firstOrNull { it.id == actionId }
-
-    val selectedLabel = when {
-        selectedAction != null -> selectedAction.displayLabel()
-        actionId.isNullOrBlank() -> "none"
-        else -> "missing"
-    }
-    val selectedColor = when {
-        selectedAction != null -> colors.accent
-        actionId.isNullOrBlank() -> colors.textSecondary
-        else -> colors.error
-    }
-
+    ChuText("auto-run on connect", style = typography.label)
+    ChuTextField(
+        value = command,
+        onValueChange = onCommandChange,
+        label = "",
+        placeholder = "e.g. tmux attach -t main",
+        showLabel = false,
+        singleLine = true,
+        autoFocus = false,
+        modifier = Modifier.fillMaxWidth(),
+    )
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.End,
     ) {
-        ChuText("post-connect action", style = typography.label)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            if (!actionId.isNullOrBlank()) {
-                ChuButton(
-                    onClick = { onSelectAction(null) },
-                    variant = ChuButtonVariant.Ghost,
-                    bracketed = true,
-                    borderColor = colors.textMuted,
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                ) {
-                    ChuText("x", style = typography.labelSmall, color = colors.textMuted)
-                }
-            }
-            ChuButton(
-                onClick = { showActionPicker = !showActionPicker },
-                variant = ChuButtonVariant.Outlined,
-                bracketed = true,
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-            ) {
-                ChuText(
-                    selectedLabel,
-                    style = typography.labelSmall,
-                    color = selectedColor,
-                )
-            }
-        }
-    }
-
-    if (!actionId.isNullOrBlank() && selectedAction == null) {
-        ChuText(
-            "saved action not found — select a new action or clear",
-            style = typography.bodySmall,
-            color = colors.error,
-        )
-    } else if (availableActions.isEmpty()) {
-        ChuText(
-            "no actions configured — add in settings",
-            style = typography.bodySmall,
-            color = colors.textMuted,
-        )
-    }
-
-    AnimatedVisibility(
-        visible = showActionPicker,
-        enter = expandVertically(),
-        exit = shrinkVertically(),
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ChuButton(
+            onClick = { onCommandChange("") },
+            enabled = command.isNotBlank(),
+            variant = ChuButtonVariant.Ghost,
+            bracketed = true,
+            borderColor = colors.textMuted,
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
-                        onSelectAction(null)
-                        showActionPicker = false
-                    }
-                    .padding(vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                ChuText("none", style = typography.label, color = colors.textSecondary)
-                if (actionId.isNullOrBlank()) {
-                    ChuText("✓", style = typography.label, color = colors.accent)
-                }
-            }
-            availableActions.forEach { action ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            onSelectAction(action.id)
-                            showActionPicker = false
-                        }
-                        .padding(vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    ChuText(
-                        action.displayLabel(),
-                        style = typography.label,
-                        color = colors.textPrimary,
-                    )
-                    if (action.id == actionId) {
-                        ChuText("✓", style = typography.label, color = colors.accent)
-                    }
-                }
-            }
+            ChuText("clear", style = typography.labelSmall, color = colors.textMuted)
         }
     }
 }

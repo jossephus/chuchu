@@ -7,7 +7,6 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.jossephus.chuchu.data.db.AppDatabase
 import com.jossephus.chuchu.data.repository.HostRepository
-import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.data.repository.SshKeyRepository
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.HostProfile
@@ -16,7 +15,6 @@ import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.ssh.Ed25519KeyGenerator
 import com.jossephus.chuchu.service.ssh.HostKeyPolicy
 import com.jossephus.chuchu.service.ssh.NativeSshService
-import com.jossephus.chuchu.ui.terminal.TerminalCustomKeyGroup
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -45,7 +43,6 @@ class AddServerViewModel(
     private val db = AppDatabase.getInstance(application)
     private val hostRepository = HostRepository(db.hostProfileDao())
     private val sshKeyRepository = SshKeyRepository(db.sshKeyDao())
-    private val settingsRepo = SettingsRepository.getInstance(application)
     private val keyGenerator = Ed25519KeyGenerator()
 
     private val _form = MutableStateFlow(AddServerForm())
@@ -57,36 +54,7 @@ class AddServerViewModel(
     private val _allKeys = MutableStateFlow<List<SshKey>>(emptyList())
     val keys: StateFlow<List<SshKey>> = _allKeys.asStateFlow()
 
-    data class ActionPickerItem(
-        val id: String,
-        val label: String,
-        val groupLabel: String,
-    ) {
-        fun displayLabel(): String = if (groupLabel == label) label else "$groupLabel: $label"
-    }
-
-    private fun actionPickerItems(groups: List<TerminalCustomKeyGroup>): List<ActionPickerItem> =
-        groups.flatMap { group ->
-            group.actions.map { action ->
-                ActionPickerItem(
-                    id = action.id,
-                    label = action.label,
-                    groupLabel = group.keyLabel,
-                )
-            }
-        }
-
-    private val _availableActions = MutableStateFlow(
-        actionPickerItems(settingsRepo.terminalCustomKeyGroups.value),
-    )
-    val availableActions: StateFlow<List<ActionPickerItem>> = _availableActions.asStateFlow()
-
     init {
-        viewModelScope.launch {
-            settingsRepo.terminalCustomKeyGroups.collect { groups ->
-                _availableActions.value = actionPickerItems(groups)
-            }
-        }
         viewModelScope.launch {
             sshKeyRepository.observeAll().collect { _allKeys.value = it }
         }
@@ -108,7 +76,7 @@ class AddServerViewModel(
                     transport = profile.transport,
                     authMethod = profile.authMethod,
                     requireAuthOnConnect = profile.requireAuthOnConnect,
-                    postConnectActionId = profile.postConnectActionId,
+                    postConnectCommand = profile.postConnectCommand.orEmpty(),
                 )
             }
         }
@@ -220,8 +188,8 @@ class AddServerViewModel(
         _form.value = _form.value.copy(requireAuthOnConnect = enabled)
     }
 
-    fun updatePostConnectActionId(actionId: String?) {
-        _form.value = _form.value.copy(postConnectActionId = actionId?.takeIf { it.isNotBlank() })
+    fun updatePostConnectCommand(command: String) {
+        _form.value = _form.value.copy(postConnectCommand = command)
     }
 
     fun testConnection() {
@@ -269,9 +237,6 @@ class AddServerViewModel(
         if (username.isBlank()) return
 
         viewModelScope.launch {
-            val postConnectActionId = current.postConnectActionId?.takeIf { actionId ->
-                _availableActions.value.any { it.id == actionId }
-            }
             val profile = HostProfile(
                 id = current.id ?: 0L,
                 name = current.name.trim(),
@@ -284,7 +249,7 @@ class AddServerViewModel(
                 transport = current.transport,
                 authMethod = current.authMethod,
                 requireAuthOnConnect = current.requireAuthOnConnect,
-                postConnectActionId = postConnectActionId,
+                postConnectCommand = current.postConnectCommand.trim().ifBlank { null },
             )
             hostRepository.upsert(profile)
             onComplete()
@@ -306,7 +271,7 @@ data class AddServerForm(
     val transport: Transport = Transport.SSH,
     val authMethod: AuthMethod = AuthMethod.Password,
     val requireAuthOnConnect: Boolean = false,
-    val postConnectActionId: String? = null,
+    val postConnectCommand: String = "",
 )
 
 fun AddServerForm.canSave(): Boolean {

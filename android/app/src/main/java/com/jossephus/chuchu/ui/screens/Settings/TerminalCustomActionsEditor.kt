@@ -60,17 +60,14 @@ import com.jossephus.chuchu.ui.terminal.TerminalCustomActionStore
 import com.jossephus.chuchu.ui.terminal.TerminalCustomKeyGroup
 import com.jossephus.chuchu.ui.terminal.decodeCustomActionValue
 import com.jossephus.chuchu.ui.terminal.encodeCustomActionValue
-import com.jossephus.chuchu.ui.terminal.legacyActionId
 import com.jossephus.chuchu.ui.terminal.modifierStateForCustomAction
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
-import java.util.UUID
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
 private data class CustomKeyValueDraft(
     val id: Long,
-    val actionId: String = "",
     val key: String,
     val value: String,
 )
@@ -129,11 +126,8 @@ internal fun TerminalCustomActionsEditorSheet(
         val normalizedValue = encodeCustomActionValue(baseValue, enabledModifiers)
         if (baseKey.isEmpty() || normalizedValue.isEmpty()) return
         val nextId = (draftItems.maxOfOrNull { it.id } ?: 0L) + 1L
-        val existingActionId = editingIndex?.let { draftItems.getOrNull(it)?.actionId } ?: ""
-        val actionId = existingActionId.ifBlank { UUID.randomUUID().toString() }
         val item = CustomKeyValueDraft(
             id = nextId,
-            actionId = actionId,
             key = baseKey,
             value = normalizedValue,
         )
@@ -549,7 +543,6 @@ private fun groupsToDraftItems(groups: List<TerminalCustomKeyGroup>): List<Custo
         group.actions.map { action ->
             CustomKeyValueDraft(
                 id = nextId++,
-                actionId = action.id.ifBlank { legacyActionId(group.keyLabel, action.label, action.payload) },
                 key = group.keyLabel,
                 value = action.payload,
             )
@@ -564,11 +557,7 @@ private fun draftItemsToGroups(items: List<CustomKeyValueDraft>): List<TerminalC
         val value = item.value
         if (key.isEmpty() || value.isEmpty()) return@forEach
         val actions = grouped.getOrPut(key) { mutableListOf() }
-        actions += TerminalCustomAction(
-            id = item.actionId.ifBlank { legacyActionId(key, key, value) },
-            label = key,
-            payload = value,
-        )
+        actions += TerminalCustomAction(label = key, payload = value)
     }
     return grouped.map { (key, actions) -> TerminalCustomKeyGroup(keyLabel = key, actions = actions) }
 }

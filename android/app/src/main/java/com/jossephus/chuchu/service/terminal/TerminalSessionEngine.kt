@@ -62,7 +62,6 @@ class TerminalSessionEngine(
     _userHomeDir: Path,
     private val hostKeyStore: HostKeyStore,
     private val tailscaleStatusChecker: TailscaleStatusChecker,
-    private val postConnectActionResolver: (String?) -> String = { "" },
 ) {
     private data class ConnectionParams(
         val host: String,
@@ -74,7 +73,7 @@ class TerminalSessionEngine(
         val privateKeyPem: String,
         val keyPassphrase: String,
         val transport: Transport,
-        val postConnectActionId: String? = null,
+        val postConnectCommand: String? = null,
     )
 
     private val dispatcher: ExecutorCoroutineDispatcher =
@@ -141,7 +140,7 @@ class TerminalSessionEngine(
         keyPassphrase: String,
         transport: Transport,
         sessionKey: String,
-        postConnectActionId: String? = null,
+        postConnectCommand: String? = null,
     ) {
         disconnectRequested = false
         val params =
@@ -155,7 +154,7 @@ class TerminalSessionEngine(
                 privateKeyPem = privateKeyPem,
                 keyPassphrase = keyPassphrase,
                 transport = transport,
-                postConnectActionId = postConnectActionId,
+                postConnectCommand = postConnectCommand,
             )
         lastConnectionParams = params
         scope.launch(dispatcher) {
@@ -216,7 +215,7 @@ class TerminalSessionEngine(
                     )
                 requestSnapshot(force = true)
                 startReadLoop()
-                sendPostConnectAction(params.postConnectActionId)
+                sendPostConnectCommand(params.postConnectCommand)
             } catch (e: Exception) {
                 Log.e("TerminalSession", "Connect failed", e)
                 _state.value =
@@ -747,7 +746,7 @@ class TerminalSessionEngine(
                             )
                         requestSnapshot(force = true)
                         startReadLoop()
-                        sendPostConnectAction(params.postConnectActionId)
+                        sendPostConnectCommand(params.postConnectCommand)
                         return@launch
                     } catch (e: Exception) {
                         Log.e("TerminalSession", "Reconnect attempt $attempt failed", e)
@@ -792,22 +791,21 @@ class TerminalSessionEngine(
         }
     }
 
-    private fun sendPostConnectAction(actionId: String?) {
-        val payload = postConnectActionResolver(actionId)
-        if (payload.isBlank()) return
-        Log.d("TerminalSession", "Running post-connect action")
-        try {
-            writeRemote(payload.toByteArray(Charsets.UTF_8))
-        } catch (e: Exception) {
-            Log.e("TerminalSession", "post-connect action failed", e)
-        }
-    }
-
     private fun writeRemote(data: ByteArray) {
         if (lastConnectionParams?.transport == Transport.Mosh) {
             moshService.sendInput(data)
         } else {
             nativeSsh.write(data)
+        }
+    }
+
+    private fun sendPostConnectCommand(command: String?) {
+        val trimmed = command?.trim().orEmpty()
+        if (trimmed.isEmpty()) return
+        try {
+            writeRemote("$trimmed\n".toByteArray(Charsets.UTF_8))
+        } catch (e: Exception) {
+            Log.e("TerminalSession", "post-connect command failed", e)
         }
     }
 
