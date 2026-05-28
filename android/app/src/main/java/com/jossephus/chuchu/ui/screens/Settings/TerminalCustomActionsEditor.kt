@@ -34,8 +34,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,8 +46,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
@@ -60,14 +60,17 @@ import com.jossephus.chuchu.ui.terminal.TerminalCustomActionStore
 import com.jossephus.chuchu.ui.terminal.TerminalCustomKeyGroup
 import com.jossephus.chuchu.ui.terminal.decodeCustomActionValue
 import com.jossephus.chuchu.ui.terminal.encodeCustomActionValue
+import com.jossephus.chuchu.ui.terminal.legacyActionId
 import com.jossephus.chuchu.ui.terminal.modifierStateForCustomAction
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
+import java.util.UUID
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
 private data class CustomKeyValueDraft(
     val id: Long,
+    val actionId: String = "",
     val key: String,
     val value: String,
 )
@@ -126,7 +129,14 @@ internal fun TerminalCustomActionsEditorSheet(
         val normalizedValue = encodeCustomActionValue(baseValue, enabledModifiers)
         if (baseKey.isEmpty() || normalizedValue.isEmpty()) return
         val nextId = (draftItems.maxOfOrNull { it.id } ?: 0L) + 1L
-        val item = CustomKeyValueDraft(id = nextId, key = baseKey, value = normalizedValue)
+        val existingActionId = editingIndex?.let { draftItems.getOrNull(it)?.actionId } ?: ""
+        val actionId = existingActionId.ifBlank { UUID.randomUUID().toString() }
+        val item = CustomKeyValueDraft(
+            id = nextId,
+            actionId = actionId,
+            key = baseKey,
+            value = normalizedValue,
+        )
         val nextItems = editingIndex?.let { index ->
             draftItems.toMutableList().also { list ->
                 if (index in list.indices) {
@@ -537,7 +547,12 @@ private fun groupsToDraftItems(groups: List<TerminalCustomKeyGroup>): List<Custo
     var nextId = 1L
     return groups.flatMap { group ->
         group.actions.map { action ->
-            CustomKeyValueDraft(id = nextId++, key = group.keyLabel, value = action.payload)
+            CustomKeyValueDraft(
+                id = nextId++,
+                actionId = action.id.ifBlank { legacyActionId(group.keyLabel, action.label, action.payload) },
+                key = group.keyLabel,
+                value = action.payload,
+            )
         }
     }
 }
@@ -549,7 +564,11 @@ private fun draftItemsToGroups(items: List<CustomKeyValueDraft>): List<TerminalC
         val value = item.value
         if (key.isEmpty() || value.isEmpty()) return@forEach
         val actions = grouped.getOrPut(key) { mutableListOf() }
-        actions += TerminalCustomAction(label = key, payload = value)
+        actions += TerminalCustomAction(
+            id = item.actionId.ifBlank { legacyActionId(key, key, value) },
+            label = key,
+            payload = value,
+        )
     }
     return grouped.map { (key, actions) -> TerminalCustomKeyGroup(keyLabel = key, actions = actions) }
 }

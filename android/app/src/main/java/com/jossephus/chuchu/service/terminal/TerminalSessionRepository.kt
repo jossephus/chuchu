@@ -1,8 +1,10 @@
 package com.jossephus.chuchu.service.terminal
 
 import android.app.Application
+import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.service.ssh.HostKeyStore
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
+import com.jossephus.chuchu.ui.terminal.resolveCustomActionPayload
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -27,6 +29,7 @@ class TerminalSessionRepository private constructor(application: Application) {
     private val hostKeyStore =
         HostKeyStore(appContext.getSharedPreferences("host_keys", Application.MODE_PRIVATE))
     private val tailscaleStatusChecker = TailscaleStatusChecker(appContext)
+    private val settingsRepository = SettingsRepository.getInstance(appContext)
 
     private val _tabs = MutableStateFlow<List<TabSession>>(emptyList())
     val tabs: StateFlow<List<TabSession>> = _tabs.asStateFlow()
@@ -129,6 +132,7 @@ class TerminalSessionRepository private constructor(application: Application) {
                 appContext.filesDir.toPath(),
                 hostKeyStore,
                 tailscaleStatusChecker,
+                ::resolvePostConnectActionPayload,
             )
         val tab = TabSession(id, spec, engine)
         _tabs.value = _tabs.value + tab
@@ -144,6 +148,7 @@ class TerminalSessionRepository private constructor(application: Application) {
             keyPassphrase = spec.keyPassphrase,
             transport = spec.transport,
             sessionKey = spec.sessionKey,
+            postConnectActionId = spec.postConnectActionId,
         )
         return tab
     }
@@ -179,6 +184,7 @@ class TerminalSessionRepository private constructor(application: Application) {
             keyPassphrase = spec.keyPassphrase,
             transport = spec.transport,
             sessionKey = spec.sessionKey,
+            postConnectActionId = spec.postConnectActionId,
         )
     }
 
@@ -188,6 +194,13 @@ class TerminalSessionRepository private constructor(application: Application) {
         _activeTabId.value = null
         tabs.forEach { it.engine.dispose() }
     }
+
+    private fun resolvePostConnectActionPayload(actionId: String?): String =
+        resolveCustomActionPayload(
+            actionId,
+            settingsRepository.terminalCustomKeyGroups.value,
+            appendEnter = true,
+        )
 
     private fun activeEngine(): TerminalSessionEngine? = activeTab.value?.engine
 

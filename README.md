@@ -30,7 +30,8 @@ Chuchu is a native Android SSH client powered by libghostty, a terminal-first Co
 - tailscale, ssh password + key authentication
 - image display using libghostty's kitty image protocol support
 - more than 400 themes from the official ghostty repository
-- configurable accessory keys
+- configurable accessory keys and custom terminal actions
+- per-host post-connect actions that autorun a selected custom action after SSH/Mosh connects or reconnects
 - beautiful and working terminal renderer with fully working resize, scrollback, focus, modifier keys, mouse actions 
 
 ## Status
@@ -81,6 +82,15 @@ That copies `libchuchu_jni.so` into `app/src/main/jniLibs/arm64-v8a/`.
 ```sh
 ./gradlew assembleDebug
 ```
+
+For a manual debug APK, run the native build first, then assemble the app:
+
+```sh
+make build
+cd android && ./gradlew assembleDebug
+```
+
+The APK should include `lib/arm64-v8a/libchuchu_jni.so`; without it native SSH/key generation will fail on device.
 
 ## Inspiration
 

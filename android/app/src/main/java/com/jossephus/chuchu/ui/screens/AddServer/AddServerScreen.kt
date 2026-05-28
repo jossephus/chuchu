@@ -1,10 +1,14 @@
 package com.jossephus.chuchu.ui.screens.AddServer
 
-import android.content.Context
-import android.content.ClipboardManager
 import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,9 +27,11 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -42,7 +48,6 @@ import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.components.ChuTextField
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
-import kotlinx.coroutines.launch
 
 @Composable
 fun AddServerScreen(
@@ -53,6 +58,7 @@ fun AddServerScreen(
     val form by vm.form.collectAsStateWithLifecycle()
     val testState by vm.testState.collectAsStateWithLifecycle()
     val keys by vm.keys.collectAsStateWithLifecycle()
+    val availableActions by vm.availableActions.collectAsStateWithLifecycle()
     val colors = ChuColors.current
     val typography = ChuTypography.current
 
@@ -240,6 +246,14 @@ fun AddServerScreen(
 
         SectionDivider()
 
+        SectionHeader("AUTORUN")
+        PostConnectActionSection(
+            actionId = form.postConnectActionId,
+            availableActions = availableActions,
+            onSelectAction = vm::updatePostConnectActionId,
+        )
+
+        SectionDivider()
 
         val canTest = form.host.isNotBlank() && form.username.isNotBlank()
         ChuButton(
@@ -357,5 +371,125 @@ private fun KeyAuthSection(
             ChuText("generate key", style = typography.label)
         }
     }
+}
 
+@Composable
+private fun PostConnectActionSection(
+    actionId: String?,
+    availableActions: List<AddServerViewModel.ActionPickerItem>,
+    onSelectAction: (String?) -> Unit,
+) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+    var showActionPicker by remember { mutableStateOf(false) }
+
+    val selectedAction = availableActions.firstOrNull { it.id == actionId }
+
+    val selectedLabel = when {
+        selectedAction != null -> selectedAction.displayLabel()
+        actionId.isNullOrBlank() -> "none"
+        else -> "missing"
+    }
+    val selectedColor = when {
+        selectedAction != null -> colors.accent
+        actionId.isNullOrBlank() -> colors.textSecondary
+        else -> colors.error
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ChuText("post-connect action", style = typography.label)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (!actionId.isNullOrBlank()) {
+                ChuButton(
+                    onClick = { onSelectAction(null) },
+                    variant = ChuButtonVariant.Ghost,
+                    bracketed = true,
+                    borderColor = colors.textMuted,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                ) {
+                    ChuText("x", style = typography.labelSmall, color = colors.textMuted)
+                }
+            }
+            ChuButton(
+                onClick = { showActionPicker = !showActionPicker },
+                variant = ChuButtonVariant.Outlined,
+                bracketed = true,
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+            ) {
+                ChuText(
+                    selectedLabel,
+                    style = typography.labelSmall,
+                    color = selectedColor,
+                )
+            }
+        }
+    }
+
+    if (!actionId.isNullOrBlank() && selectedAction == null) {
+        ChuText(
+            "saved action not found — select a new action or clear",
+            style = typography.bodySmall,
+            color = colors.error,
+        )
+    } else if (availableActions.isEmpty()) {
+        ChuText(
+            "no actions configured — add in settings",
+            style = typography.bodySmall,
+            color = colors.textMuted,
+        )
+    }
+
+    AnimatedVisibility(
+        visible = showActionPicker,
+        enter = expandVertically(),
+        exit = shrinkVertically(),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        onSelectAction(null)
+                        showActionPicker = false
+                    }
+                    .padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ChuText("none", style = typography.label, color = colors.textSecondary)
+                if (actionId.isNullOrBlank()) {
+                    ChuText("✓", style = typography.label, color = colors.accent)
+                }
+            }
+            availableActions.forEach { action ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            onSelectAction(action.id)
+                            showActionPicker = false
+                        }
+                        .padding(vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ChuText(
+                        action.displayLabel(),
+                        style = typography.label,
+                        color = colors.textPrimary,
+                    )
+                    if (action.id == actionId) {
+                        ChuText("✓", style = typography.label, color = colors.accent)
+                    }
+                }
+            }
+        }
+    }
 }
