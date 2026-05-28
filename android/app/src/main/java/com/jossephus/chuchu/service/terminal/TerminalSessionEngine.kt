@@ -108,6 +108,7 @@ class TerminalSessionEngine(
     private var reconnectJob: Job? = null
     private var disconnectRequested = false
 
+
     private val nativeVersion =
         if (bridge.isLoaded()) {
             runCatching { bridge.nativeVersion() }.getOrNull()
@@ -891,4 +892,5 @@ class TerminalSessionEngine(
             Log.e("TerminalSession", "emitSnapshot failed", e)
         }
     }
+
 }

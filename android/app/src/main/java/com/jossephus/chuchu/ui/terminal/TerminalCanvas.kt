@@ -7,6 +7,7 @@ import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
+
 import androidx.core.content.res.ResourcesCompat
 import android.view.ViewConfiguration
 import androidx.compose.foundation.Canvas
@@ -110,6 +111,18 @@ fun TerminalCanvas(
             typeface = symbolsTypeface
         }
     }
+    // System typeface paint used for color emoji + ZWJ/VS16 shaping. The
+    // "symbols" Nerd Font has no color emoji or ZWJ shaping, so emoji clusters
+    // (families, flags, ❤️‍🔥, 🧑‍💻, …) must go through this paint to hit
+    // Android's NotoColorEmoji fallback.
+    val emojiTextPaint = remember(fontSizePx) {
+        Paint().apply {
+            isAntiAlias = true
+            textAlign = Paint.Align.LEFT
+            textSize = fontSizePx
+            typeface = Typeface.DEFAULT
+        }
+    }
     val bgPaint = remember {
         Paint().apply {
             isAntiAlias = false
@@ -122,15 +135,17 @@ fun TerminalCanvas(
             style = Paint.Style.FILL
         }
     }
-    val glyphCache = remember {
+    val drawBuffer = remember { StringBuilder(256) }
+    val singleGlyphCache = remember {
         HashMap<Int, String>(256).apply {
-            for (cp in 33..126) {
-                this[cp] = cp.toChar().toString()
-            }
+            for (cp in 33..126) this[cp] = cp.toChar().toString()
         }
     }
-    val drawBuffer = remember { StringBuilder(256) }
-    val symbolFallbackCache = remember(primaryTypeface, symbolsTypeface) { HashMap<Int, Boolean>(256) }
+    // Single-codepoint paint choice cache. 0 = primary (text font),
+    // 1 = symbols (Nerd Font icons / PUA), 2 = emoji (system default).
+    val singlePaintChoiceCache = remember(primaryTypeface, symbolsTypeface) { HashMap<Int, Int>(256) }
+    // Multi-codepoint grapheme cluster paint choice cache.
+    val clusterPaintChoiceCache = remember(primaryTypeface, symbolsTypeface) { HashMap<String, Int>(64) }
     val fontMetrics = primaryTextPaint.fontMetrics
     val measuredHeight = fontMetrics.descent - fontMetrics.ascent
     val cellHeightPx = if (measuredHeight > 1f) measuredHeight else 16f
@@ -456,16 +471,33 @@ fun TerminalCanvas(
                 i = rowStart
                 while (i < rowEnd) {
                     val cp = snapshot.codepoints[i]
-                    if (cp == 0 || cp == 32) { i++; continue }
+                    if (cp == 0 || cp == 32) {
+                        i++
+                        continue
+                    }
 
                     val fg = if (hasSel && i in selStart..selEnd && hasSelectionFg) {
                         selectionForegroundArgb
                     } else {
                         snapshot.fgArgb[i]
                     }
-                    val firstGlyph = glyphCache.getOrPut(cp) { String(Character.toChars(cp)) }
-                    val useSymbols = symbolFallbackCache.getOrPut(cp) {
-                        !primaryTextPaint.hasGlyph(firstGlyph) && symbolsTextPaint.hasGlyph(firstGlyph)
+                    val firstExtras = snapshot.graphemeExtras[i]
+                    val firstGlyph = if (firstExtras == null || firstExtras.isEmpty()) null else snapshot.glyphAt(i)
+                    val firstPaintChoice = if (firstGlyph == null) {
+                        pickPaintChoice(
+                            codepoint = cp,
+                            glyphCache = singleGlyphCache,
+                            cache = singlePaintChoiceCache,
+                            primaryPaint = primaryTextPaint,
+                            symbolsPaint = symbolsTextPaint,
+                        )
+                    } else {
+                        pickPaintChoice(
+                            glyph = firstGlyph,
+                            cache = clusterPaintChoiceCache,
+                            primaryPaint = primaryTextPaint,
+                            symbolsPaint = symbolsTextPaint,
+                        )
                     }
                     sb.setLength(0)
                     val startCol = i - rowStart
@@ -477,19 +509,48 @@ fun TerminalCanvas(
                         } else {
                             snapshot.fgArgb[i]
                         }
-                        if (c == 0 || c == 32 || nextFg != fg) break
+                        if (c == 0 || nextFg != fg) break
+                        if (c == 32 && !snapshot.isSpacerContinuation(i)) break
 
-                        val glyph = glyphCache.getOrPut(c) { String(Character.toChars(c)) }
-                        val nextUseSymbols = symbolFallbackCache.getOrPut(c) {
-                            !primaryTextPaint.hasGlyph(glyph) && symbolsTextPaint.hasGlyph(glyph)
+                        if (c == 32) {
+                            i++
+                            continue
                         }
-                        if (nextUseSymbols != useSymbols) break
 
-                        sb.append(glyph)
+                        val extras = snapshot.graphemeExtras[i]
+                        val glyph = if (extras == null || extras.isEmpty()) null else snapshot.glyphAt(i)
+                        val nextPaintChoice = if (glyph == null) {
+                            pickPaintChoice(
+                                codepoint = c,
+                                glyphCache = singleGlyphCache,
+                                cache = singlePaintChoiceCache,
+                                primaryPaint = primaryTextPaint,
+                                symbolsPaint = symbolsTextPaint,
+                            )
+                        } else {
+                            pickPaintChoice(
+                                glyph = glyph,
+                                cache = clusterPaintChoiceCache,
+                                primaryPaint = primaryTextPaint,
+                                symbolsPaint = symbolsTextPaint,
+                            )
+                        }
+                        if (nextPaintChoice != firstPaintChoice) break
+
+                        if (glyph == null) {
+                            sb.appendCodePoint(c)
+                        } else {
+                            sb.append(glyph)
+                        }
                         i++
                     }
 
-                    val paint = if (useSymbols) symbolsTextPaint else primaryTextPaint
+                    val paint = paintForChoice(
+                        choice = firstPaintChoice,
+                        primaryPaint = primaryTextPaint,
+                        symbolsPaint = symbolsTextPaint,
+                        emojiPaint = emojiTextPaint,
+                    )
                     paint.color = fg
                     nCanvas.drawText(sb.toString(), startCol * cellWidth, baseline, paint)
                 }
@@ -523,13 +584,34 @@ fun TerminalCanvas(
                 if (cursorTextColorArgb != null && cursorIndex in snapshot.codepoints.indices) {
                     val codepoint = snapshot.codepoints[cursorIndex]
                     if (codepoint != 0 && codepoint != 32) {
-                        val glyph = glyphCache.getOrPut(codepoint) {
-                            String(Character.toChars(codepoint))
+                        val extras = snapshot.graphemeExtras[cursorIndex]
+                        val glyph = if (extras == null || extras.isEmpty()) {
+                            singleGlyphCache.getOrPut(codepoint) { String(Character.toChars(codepoint)) }
+                        } else {
+                            snapshot.glyphAt(cursorIndex)
                         }
-                        val useSymbols = symbolFallbackCache.getOrPut(codepoint) {
-                            !primaryTextPaint.hasGlyph(glyph) && symbolsTextPaint.hasGlyph(glyph)
+                        val cursorPaintChoice = if (extras == null || extras.isEmpty()) {
+                            pickPaintChoice(
+                                codepoint = codepoint,
+                                glyphCache = singleGlyphCache,
+                                cache = singlePaintChoiceCache,
+                                primaryPaint = primaryTextPaint,
+                                symbolsPaint = symbolsTextPaint,
+                            )
+                        } else {
+                            pickPaintChoice(
+                                glyph = glyph,
+                                cache = clusterPaintChoiceCache,
+                                primaryPaint = primaryTextPaint,
+                                symbolsPaint = symbolsTextPaint,
+                            )
                         }
-                        val paint = if (useSymbols) symbolsTextPaint else primaryTextPaint
+                        val paint = paintForChoice(
+                            choice = cursorPaintChoice,
+                            primaryPaint = primaryTextPaint,
+                            symbolsPaint = symbolsTextPaint,
+                            emojiPaint = emojiTextPaint,
+                        )
                         paint.color = cursorTextColorArgb
                         nCanvas.drawText(
                             glyph,
@@ -572,14 +654,20 @@ private fun TerminalSnapshot.wordAt(cellIndex: Int): IntRange? {
     val rowEnd = rowStart + cols - 1
 
     val cp = codepoints[cellIndex]
-    if (cp == 0 || cp == 32) return null
+    if (cp == 0 || (cp == 32 && !isSpacerContinuation(cellIndex))) return null
 
     var start = cellIndex
-    while (start > rowStart && codepoints[start - 1] != 0 && codepoints[start - 1] != 32) {
+    while (start > rowStart) {
+        val prev = start - 1
+        val prevCp = codepoints[prev]
+        if (prevCp == 0 || (prevCp == 32 && !isSpacerContinuation(prev))) break
         start--
     }
     var end = cellIndex
-    while (end < rowEnd && codepoints[end + 1] != 0 && codepoints[end + 1] != 32) {
+    while (end < rowEnd) {
+        val next = end + 1
+        val nextCp = codepoints[next]
+        if (nextCp == 0 || (nextCp == 32 && !isSpacerContinuation(next))) break
         end++
     }
     return start..end
@@ -588,29 +676,37 @@ private fun TerminalSnapshot.wordAt(cellIndex: Int): IntRange? {
 private fun extractSelectionText(snapshot: TerminalSnapshot, selection: TerminalSelection?): String? {
     if (selection == null) return null
     val range = selection.normalized(snapshot.codepoints.size) ?: return null
-    if (snapshot.cols <= 0) return null
+    return extractSelectionText(snapshot, range)
+}
 
-    val startRow = range.first / snapshot.cols
-    val endRow = range.last / snapshot.cols
-    val builder = StringBuilder(range.last - range.first + 1 + (endRow - startRow))
+internal fun extractSelectionText(snapshot: TerminalSnapshot, range: IntRange): String? {
+    if (snapshot.cols <= 0 || snapshot.codepoints.isEmpty()) return null
+
+    val normalizedRange = IntRange(
+        start = range.first.coerceIn(0, snapshot.codepoints.lastIndex),
+        endInclusive = range.last.coerceIn(0, snapshot.codepoints.lastIndex),
+    )
+    val startRow = normalizedRange.first / snapshot.cols
+    val endRow = normalizedRange.last / snapshot.cols
+    val builder = StringBuilder(normalizedRange.last - normalizedRange.first + 1 + (endRow - startRow))
 
     for (row in startRow..endRow) {
         val rowStart = row * snapshot.cols
-        val from = maxOf(range.first, rowStart)
-        val until = minOf(range.last, rowStart + snapshot.cols - 1)
+        val from = maxOf(normalizedRange.first, rowStart)
+        val until = minOf(normalizedRange.last, rowStart + snapshot.cols - 1)
         // Find last non-blank cell in this row range to trim trailing whitespace
         var lastContentIdx = until
         while (lastContentIdx >= from) {
             val cp = snapshot.codepoints[lastContentIdx]
-            if (cp != 0 && cp != 32) break
+            if (cp != 0 && (cp != 32 || snapshot.isSpacerContinuation(lastContentIdx))) break
             lastContentIdx--
         }
         for (index in from..lastContentIdx) {
             val codepoint = snapshot.codepoints[index]
-            if (codepoint == 0 || codepoint == 32) {
+            if (codepoint == 0 || (codepoint == 32 && !snapshot.isSpacerContinuation(index))) {
                 builder.append(' ')
-            } else {
-                builder.appendCodePoint(codepoint)
+            } else if (codepoint != 32) {
+                builder.append(snapshot.glyphAt(index))
             }
         }
         if (row != endRow) {
@@ -620,6 +716,96 @@ private fun extractSelectionText(snapshot: TerminalSnapshot, selection: Terminal
 
     return builder.toString()
 }
+
+internal fun TerminalSnapshot.isSpacerContinuation(cellIndex: Int): Boolean {
+    return ((flags[cellIndex].toInt() and 0xFF) and TerminalSnapshot.CELL_FLAG_SPACER) != 0
+}
+
+private fun TerminalSnapshot.glyphAt(cellIndex: Int): String {
+    val codepoint = codepoints[cellIndex]
+    val extras = graphemeExtras[cellIndex]
+    if (extras == null || extras.isEmpty()) return String(Character.toChars(codepoint))
+    val builder = StringBuilder(1 + extras.size)
+    builder.appendCodePoint(codepoint)
+    for (cp in extras) builder.appendCodePoint(cp)
+    return builder.toString()
+}
+
+private const val PAINT_PRIMARY: Int = 0
+private const val PAINT_SYMBOLS: Int = 1
+private const val PAINT_EMOJI: Int = 2
+
+/**
+ * Decide which paint should render a grapheme cluster.
+ *
+ * Order of preference:
+ *  1. If the primary text font can render the cluster, use it (keeps code
+ *     glyph metrics intact).
+ *  2. Else, if the first codepoint lives in a Nerd Font private-use range
+ *     and the symbols paint has the glyph, use the symbols (Nerd Font) paint.
+ *  3. Else, use the emoji paint (system default Typeface), which routes
+ *     through Android's NotoColorEmoji + font fallback chain and is the only
+ *     paint that can shape emoji ZWJ sequences, regional-indicator flag
+ *     pairs, and VS16-promoted color emoji.
+ */
+private fun pickPaintChoice(
+    glyph: String,
+    cache: HashMap<String, Int>,
+    primaryPaint: Paint,
+    symbolsPaint: Paint,
+): Int {
+    return cache.getOrPut(glyph) {
+        if (primaryPaint.hasGlyph(glyph)) return@getOrPut PAINT_PRIMARY
+        val firstCp = glyph.codePointAt(0)
+        if (isNerdFontPrivateUse(firstCp) && symbolsPaint.hasGlyph(glyph)) {
+            return@getOrPut PAINT_SYMBOLS
+        }
+        PAINT_EMOJI
+    }
+}
+
+private fun pickPaintChoice(
+    codepoint: Int,
+    glyphCache: HashMap<Int, String>,
+    cache: HashMap<Int, Int>,
+    primaryPaint: Paint,
+    symbolsPaint: Paint,
+): Int {
+    // Fast path for the overwhelmingly common command-output ASCII glyphs.
+    if (codepoint in 0x21..0x7E) return PAINT_PRIMARY
+
+    return cache.getOrPut(codepoint) {
+        val glyph = glyphCache.getOrPut(codepoint) { String(Character.toChars(codepoint)) }
+        if (primaryPaint.hasGlyph(glyph)) return@getOrPut PAINT_PRIMARY
+        if (isNerdFontPrivateUse(codepoint) && symbolsPaint.hasGlyph(glyph)) {
+            return@getOrPut PAINT_SYMBOLS
+        }
+        PAINT_EMOJI
+    }
+}
+
+private fun paintForChoice(
+    choice: Int,
+    primaryPaint: Paint,
+    symbolsPaint: Paint,
+    emojiPaint: Paint,
+): Paint = when (choice) {
+    PAINT_SYMBOLS -> symbolsPaint
+    PAINT_EMOJI -> emojiPaint
+    else -> primaryPaint
+}
+
+/**
+ * Private Use Area ranges where Nerd Font glyphs live (devicons, powerline,
+ * weather icons, file-type icons, etc.). Everything outside these ranges that
+ * the primary font cannot render is treated as an emoji/symbol cluster.
+ */
+private fun isNerdFontPrivateUse(cp: Int): Boolean {
+    return (cp in 0xE000..0xF8FF) ||
+        (cp in 0xF0000..0xFFFFD) ||
+        (cp in 0x100000..0x10FFFD)
+}
+
 
 /** Tracks double-tap timing/position without triggering Compose recomposition. */
 private class DoubleTapState {

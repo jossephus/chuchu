@@ -17,7 +17,7 @@ class TerminalInputView(context: Context) : EditText(context) {
     }
 
     var onTerminalText: ((String) -> Unit)? = null
-    var onTerminalKey: ((Int, Int, Int, Int) -> Unit)? = null
+    var onTerminalKey: ((Int, Int, Int, Int, Int) -> Unit)? = null
 
     /**
      * When true, suppress IME text input (used to prevent double-sends
@@ -133,7 +133,7 @@ class TerminalInputView(context: Context) : EditText(context) {
         val ghosttyAction = GhosttyKeyAction.fromAndroid(event.action, event.repeatCount)
         val mapped = KeyMapper.map(keyCode, event.unicodeChar, event.metaState)
         if (mapped != null && ghosttyAction != null) {
-            onTerminalKey?.invoke(mapped.key, mapped.codepoint, mapped.mods, ghosttyAction)
+            onTerminalKey?.invoke(mapped.key, mapped.codepoint, mapped.mods, ghosttyAction, mapped.charCode)
             return true
         }
         val unicodeChar = event.unicodeChar
@@ -149,7 +149,7 @@ class TerminalInputView(context: Context) : EditText(context) {
         val ghosttyAction = GhosttyKeyAction.fromAndroid(event.action, event.repeatCount)
         val mapped = KeyMapper.map(keyCode, event.unicodeChar, event.metaState)
         if (mapped != null && ghosttyAction != null) {
-            onTerminalKey?.invoke(mapped.key, mapped.codepoint, mapped.mods, ghosttyAction)
+            onTerminalKey?.invoke(mapped.key, mapped.codepoint, mapped.mods, ghosttyAction, mapped.charCode)
             return true
         }
         if (event.unicodeChar != 0) return true
@@ -270,7 +270,7 @@ class TerminalInputView(context: Context) : EditText(context) {
             if (ghosttyAction != null) {
                 val mapped = KeyMapper.map(event.keyCode, event.unicodeChar, event.metaState)
                 if (mapped != null) {
-                    view.onTerminalKey?.invoke(mapped.key, mapped.codepoint, mapped.mods, ghosttyAction)
+                    view.onTerminalKey?.invoke(mapped.key, mapped.codepoint, mapped.mods, ghosttyAction, mapped.charCode)
                     return true
                 }
             }

@@ -11,8 +11,29 @@ const c = @cImport({
 const allocator = std.heap.c_allocator;
 const LOG_TAG = "ChuKittyNative";
 const verbose_kitty_logs = false;
-const SNAPSHOT_HEADER_I32_COUNT = 11;
+const verbose_snapshot_perf_logs = false;
+// Header layout (LE i32 fields):
+//   0  cols
+//   1  rows
+//   2  cursor_x
+//   3  cursor_y
+//   4  cursor_visible
+//   5  default_bg_r
+//   6  default_bg_g
+//   7  default_bg_b
+//   8  default_fg_r
+//   9  default_fg_g
+//  10  default_fg_b
+//  11  extras_offset (byte offset to grapheme extras section, 0 if none)
+const SNAPSHOT_HEADER_I32_COUNT = 12;
 const SNAPSHOT_CELL_SIZE_BYTES = 11;
+// Flag bit set on a cell whose codepoint has additional grapheme codepoints
+// in the extras section.
+const CELL_FLAG_HAS_GRAPHEME: u8 = 1 << 6;
+// Flag bit set on spacer cells that belong to a wide glyph cluster.
+// These are serialized with codepoint=32 but should not force a shaping
+// run break between neighboring glyph cells.
+const CELL_FLAG_SPACER: u8 = 1 << 7;
 const IMAGE_HEADER_BYTES = 44;
 const MAX_KITTY_IMAGES = 64;
 const DeviceAttributes = blk: {
@@ -83,9 +104,13 @@ const ChuchuTerminal = struct {
     pwd_dirty: bool = false,
     bell_count: u32 = 0,
     snapshot_buffer: std.ArrayListUnmanaged(u8) = .empty,
+    snapshot_extras_scratch: std.ArrayListUnmanaged(u32) = .empty,
     image_snapshot_buffer: std.ArrayListUnmanaged(u8) = .empty,
     pty_write_buffer: std.ArrayListUnmanaged(u8) = .empty,
     pty_write_len: usize = 0,
+    snapshot_perf_calls: u64 = 0,
+    snapshot_perf_total_ns: u64 = 0,
+    snapshot_perf_last_log_ns: i64 = 0,
 };
 
 fn chuchuFromHandle(handle: c.jlong) ?*ChuchuTerminal {
@@ -127,6 +152,46 @@ fn logWarn(comptime fmt: []const u8, args: anytype) void {
     var buf: [256]u8 = undefined;
     const line = std.fmt.bufPrint(&buf, fmt, args) catch return;
     logLine(c.ANDROID_LOG_WARN, line);
+}
+
+fn maybeLogSnapshotPerf(
+    terminal: *ChuchuTerminal,
+    cols: usize,
+    rows: usize,
+    extras_records: usize,
+    non_blank_cells: usize,
+    total_size: usize,
+    update_ns: i128,
+    build_ns: i128,
+    total_ns: i128,
+) void {
+    if (!verbose_snapshot_perf_logs) return;
+    if (total_ns <= 0) return;
+
+    const total_u64: u64 = @intCast(total_ns);
+    terminal.snapshot_perf_calls += 1;
+    terminal.snapshot_perf_total_ns +%= total_u64;
+
+    const now: i64 = @intCast(std.time.nanoTimestamp());
+    const slow = total_ns >= 8 * std.time.ns_per_ms or update_ns >= 4 * std.time.ns_per_ms or build_ns >= 6 * std.time.ns_per_ms;
+    const interval_elapsed = now - terminal.snapshot_perf_last_log_ns >= std.time.ns_per_s;
+    if (!slow and !interval_elapsed) return;
+
+    const avg_ns = if (terminal.snapshot_perf_calls > 0)
+        terminal.snapshot_perf_total_ns / terminal.snapshot_perf_calls
+    else
+        0;
+
+    const total_ms = @as(f64, @floatFromInt(total_u64)) / @as(f64, @floatFromInt(std.time.ns_per_ms));
+    const avg_ms = @as(f64, @floatFromInt(avg_ns)) / @as(f64, @floatFromInt(std.time.ns_per_ms));
+    const update_ms = @as(f64, @floatFromInt(@as(u64, @intCast(update_ns)))) / @as(f64, @floatFromInt(std.time.ns_per_ms));
+    const build_ms = @as(f64, @floatFromInt(@as(u64, @intCast(build_ns)))) / @as(f64, @floatFromInt(std.time.ns_per_ms));
+
+    logWarn(
+        "snapshot_perf total={d:.2}ms avg={d:.2}ms update={d:.2}ms build={d:.2}ms grid={}x{} extras={} non_blank={} bytes={} calls={}",
+        .{ total_ms, avg_ms, update_ms, build_ms, cols, rows, extras_records, non_blank_cells, total_size, terminal.snapshot_perf_calls },
+    );
+    terminal.snapshot_perf_last_log_ns = now;
 }
 
 fn logKittyState(stage: []const u8, terminal: *ChuchuTerminal) void {
@@ -220,6 +285,13 @@ fn chuchuXtversion(_: *ghostty.TerminalStream.Handler) []const u8 {
     return "ghostty 1";
 }
 
+fn enableGraphemeClusterMode(terminal: *ChuchuTerminal) void {
+    // TODO(jossephus): check if there is a better way to do this
+    // Enable DEC private mode 2027 so grapheme clusters are width-collapsed
+    // by the VT layer instead of summing per-codepoint wcwidth values.
+    terminal.stream.nextSlice("\x1b[?2027h");
+}
+
 fn appendPtyWrite(terminal: *ChuchuTerminal, bytes: []const u8) void {
     if (bytes.len == 0) return;
     if (std.math.maxInt(usize) - terminal.pty_write_len < bytes.len) return;
@@ -290,6 +362,7 @@ export fn chuchu_create_terminal(cols: c.jint, rows: c.jint, max_scrollback: c.j
         .xtversion = chuchuXtversion,
     };
     terminal.stream = ghostty.TerminalStream.initAlloc(allocator, handler);
+    enableGraphemeClusterMode(terminal);
 
     update_render_state(terminal);
     return chuchuHandleFromPtr(terminal);
@@ -298,6 +371,7 @@ export fn chuchu_create_terminal(cols: c.jint, rows: c.jint, max_scrollback: c.j
 export fn chuchu_destroy_terminal(handle: c.jlong) callconv(.c) void {
     const terminal = chuchuFromHandle(handle) orelse return;
     terminal.snapshot_buffer.deinit(allocator);
+    terminal.snapshot_extras_scratch.deinit(allocator);
     terminal.image_snapshot_buffer.deinit(allocator);
     terminal.pty_write_buffer.deinit(allocator);
     if (terminal.title) |buf| allocator.free(buf);
@@ -578,34 +652,54 @@ fn resolvedStyle(render_cell: ghostty.RenderState.Cell) ghostty.Style {
 
 fn resolvedCodepoint(render_cell: ghostty.RenderState.Cell) u32 {
     if (render_cell.raw.wide == .spacer_tail or render_cell.raw.wide == .spacer_head) return 32;
-    if (render_cell.raw.content_tag == .codepoint_grapheme and render_cell.grapheme.len > 0) return render_cell.grapheme[0];
+
+    // page.Cell.codepoint() is always the base codepoint for this cell.
+    // For .codepoint_grapheme cells, render_cell.grapheme stores only the
+    // appended codepoints, so taking grapheme[0] would drop the base
+    // character (e.g. keycaps would lose the digit and ZWJ chains could
+    // degrade to U+200D as the visible codepoint).
     const cp = render_cell.raw.codepoint();
     return if (cp == 0) 32 else cp;
+}
+
+fn cellHasExtras(render_cell: ghostty.RenderState.Cell) bool {
+    if (render_cell.raw.wide == .spacer_tail or render_cell.raw.wide == .spacer_head) return false;
+    return render_cell.raw.content_tag == .codepoint_grapheme and render_cell.grapheme.len > 0;
 }
 
 export fn chuchu_build_text_snapshot(handle: c.jlong, out_size: [*c]usize) callconv(.c) ?[*]u8 {
     const terminal = chuchuFromHandle(handle) orelse return null;
     if (out_size == null) return null;
 
+    const t_start = std.time.nanoTimestamp();
     update_render_state(terminal);
+    const t_after_update = std.time.nanoTimestamp();
 
     const cols: usize = terminal.render_state.cols;
     const rows: usize = terminal.render_state.rows;
     const header_size = SNAPSHOT_HEADER_I32_COUNT * @sizeOf(i32);
-    const total_size = header_size + (cols * rows * SNAPSHOT_CELL_SIZE_BYTES);
-    const buffer = ensureListSize(&terminal.snapshot_buffer, total_size) orelse return null;
+    const grid_size = cols * rows * SNAPSHOT_CELL_SIZE_BYTES;
+    const base_total_size = header_size + grid_size;
 
-    writeIntLe(i32, buffer[0..total_size], 0, @intCast(cols));
-    writeIntLe(i32, buffer[0..total_size], 4, @intCast(rows));
-    writeIntLe(i32, buffer[0..total_size], 8, if (terminal.render_state.cursor.viewport) |cursor| cursor.x else -1);
-    writeIntLe(i32, buffer[0..total_size], 12, if (terminal.render_state.cursor.viewport) |cursor| cursor.y else -1);
-    writeIntLe(i32, buffer[0..total_size], 16, if (terminal.render_state.cursor.visible and terminal.render_state.cursor.viewport != null) 1 else 0);
-    writeIntLe(i32, buffer[0..total_size], 20, terminal.render_state.colors.background.r);
-    writeIntLe(i32, buffer[0..total_size], 24, terminal.render_state.colors.background.g);
-    writeIntLe(i32, buffer[0..total_size], 28, terminal.render_state.colors.background.b);
-    writeIntLe(i32, buffer[0..total_size], 32, terminal.render_state.colors.foreground.r);
-    writeIntLe(i32, buffer[0..total_size], 36, terminal.render_state.colors.foreground.g);
-    writeIntLe(i32, buffer[0..total_size], 40, terminal.render_state.colors.foreground.b);
+    var buffer = ensureListSize(&terminal.snapshot_buffer, base_total_size) orelse return null;
+
+    writeIntLe(i32, buffer[0..base_total_size], 0, @intCast(cols));
+    writeIntLe(i32, buffer[0..base_total_size], 4, @intCast(rows));
+    writeIntLe(i32, buffer[0..base_total_size], 8, if (terminal.render_state.cursor.viewport) |cursor| cursor.x else -1);
+    writeIntLe(i32, buffer[0..base_total_size], 12, if (terminal.render_state.cursor.viewport) |cursor| cursor.y else -1);
+    writeIntLe(i32, buffer[0..base_total_size], 16, if (terminal.render_state.cursor.visible and terminal.render_state.cursor.viewport != null) 1 else 0);
+    writeIntLe(i32, buffer[0..base_total_size], 20, terminal.render_state.colors.background.r);
+    writeIntLe(i32, buffer[0..base_total_size], 24, terminal.render_state.colors.background.g);
+    writeIntLe(i32, buffer[0..base_total_size], 28, terminal.render_state.colors.background.b);
+    writeIntLe(i32, buffer[0..base_total_size], 32, terminal.render_state.colors.foreground.r);
+    writeIntLe(i32, buffer[0..base_total_size], 36, terminal.render_state.colors.foreground.g);
+    writeIntLe(i32, buffer[0..base_total_size], 40, terminal.render_state.colors.foreground.b);
+    // extras_offset gets patched after we know whether extras exist.
+    writeIntLe(i32, buffer[0..base_total_size], 44, 0);
+
+    terminal.snapshot_extras_scratch.clearRetainingCapacity();
+    var extras_records: usize = 0;
+    var non_blank_cells: usize = 0;
 
     const row_slice = terminal.render_state.row_data.slice();
     const row_cells = row_slice.items(.cells);
@@ -618,6 +712,7 @@ export fn chuchu_build_text_snapshot(handle: c.jlong, out_size: [*c]usize) callc
         var x: usize = 0;
         while (x < cols) : (x += 1) {
             const base = header_size + cell_index * SNAPSHOT_CELL_SIZE_BYTES;
+            const this_index = cell_index;
             cell_index += 1;
 
             const render_cell: ghostty.RenderState.Cell = .{
@@ -639,8 +734,25 @@ export fn chuchu_build_text_snapshot(handle: c.jlong, out_size: [*c]usize) callc
             if (style.flags.inverse) flags |= 1 << 3;
             if (style.flags.blink) flags |= 1 << 4;
             if (style.flags.faint) flags |= 1 << 5;
+            if (render_cell.raw.wide == .spacer_tail or render_cell.raw.wide == .spacer_head) {
+                flags |= CELL_FLAG_SPACER;
+            }
 
-            writeIntLe(i32, buffer[0..total_size], base, @intCast(resolvedCodepoint(render_cell)));
+            if (cellHasExtras(render_cell)) {
+                flags |= CELL_FLAG_HAS_GRAPHEME;
+                std.debug.assert(this_index <= std.math.maxInt(u32));
+                std.debug.assert(render_cell.grapheme.len <= std.math.maxInt(u32));
+                terminal.snapshot_extras_scratch.append(allocator, @intCast(this_index)) catch return null;
+                terminal.snapshot_extras_scratch.append(allocator, @intCast(render_cell.grapheme.len)) catch return null;
+                for (render_cell.grapheme) |cp| {
+                    terminal.snapshot_extras_scratch.append(allocator, @intCast(cp)) catch return null;
+                }
+                extras_records += 1;
+            }
+
+            const serialized_cp = resolvedCodepoint(render_cell);
+            if (serialized_cp != 0 and serialized_cp != 32) non_blank_cells += 1;
+            writeIntLe(i32, buffer[0..base_total_size], base, @intCast(serialized_cp));
             buffer[base + 4] = fg.r;
             buffer[base + 5] = fg.g;
             buffer[base + 6] = fg.b;
@@ -651,7 +763,62 @@ export fn chuchu_build_text_snapshot(handle: c.jlong, out_size: [*c]usize) callc
         }
     }
 
+    if (extras_records == 0) {
+        out_size.* = base_total_size;
+
+        const t_end = std.time.nanoTimestamp();
+        maybeLogSnapshotPerf(
+            terminal,
+            cols,
+            rows,
+            extras_records,
+            non_blank_cells,
+            base_total_size,
+            t_after_update - t_start,
+            t_end - t_after_update,
+            t_end - t_start,
+        );
+        return buffer;
+    }
+
+    // Extras section layout:
+    //   u32 record_count
+    //   For each record:
+    //     u32 cell_index
+    //     u32 count
+    //     u32[count] codepoints
+    const extras_offset: usize = base_total_size;
+    const extras_size: usize = @sizeOf(u32) + terminal.snapshot_extras_scratch.items.len * @sizeOf(u32);
+    const total_size = base_total_size + extras_size;
+
+    buffer = ensureListSize(&terminal.snapshot_buffer, total_size) orelse return null;
+    writeIntLe(i32, buffer[0..total_size], 44, @intCast(extras_offset));
+
+    var write_ptr: usize = extras_offset;
+    writeIntLe(u32, buffer[0..total_size], write_ptr, @intCast(extras_records));
+    write_ptr += @sizeOf(u32);
+
+    for (terminal.snapshot_extras_scratch.items) |word| {
+        writeIntLe(u32, buffer[0..total_size], write_ptr, word);
+        write_ptr += @sizeOf(u32);
+    }
+
+    std.debug.assert(write_ptr == total_size);
+
     out_size.* = total_size;
+
+    const t_end = std.time.nanoTimestamp();
+    maybeLogSnapshotPerf(
+        terminal,
+        cols,
+        rows,
+        extras_records,
+        non_blank_cells,
+        total_size,
+        t_after_update - t_start,
+        t_end - t_after_update,
+        t_end - t_start,
+    );
     return buffer;
 }
 
@@ -1136,8 +1303,8 @@ export fn chuchu_scroll_to_active(handle: c.jlong) callconv(.c) void {
 }
 
 const default_word_boundaries: [20]u21 = .{
-    0, ' ', '\t', '\'', '"', '│', '`', '|', ':', ';', ',',
-    '(', ')', '[', ']', '{', '}', '<', '>', '$',
+    0,   ' ', '\t', '\'', '"', '│', '`', '|', ':', ';', ',',
+    '(', ')', '[',  ']',  '{', '}',   '<', '>', '$',
 };
 
 fn viewportCellToPin(terminal: *ChuchuTerminal, vp_x: u32, vp_y: u32) ?ghostty.Pin {
@@ -1146,7 +1313,7 @@ fn viewportCellToPin(terminal: *ChuchuTerminal, vp_x: u32, vp_y: u32) ?ghostty.P
     return pages.pin(.{ .screen = .{
         .x = @as(u16, @intCast(vp_x)),
         .y = vp_top_point.screen.y + vp_y,
-    }});
+    } });
 }
 
 fn selectionTextFromPins(

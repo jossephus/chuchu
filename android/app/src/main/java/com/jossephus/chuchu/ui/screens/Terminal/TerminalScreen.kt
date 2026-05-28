@@ -1015,7 +1015,7 @@ fun TerminalScreen(
                                                         resetModifiers()
                                                     }
                                                 }
-                                                onTerminalKey = { key, codepoint, mods, action ->
+                                                onTerminalKey = { key, codepoint, mods, action, charCode ->
                                                     var shouldForwardToTerminal = true
                                                     if (showTabSheet && tabsForHost.isNotEmpty()) {
                                                         var consumedByTabSwitcher = true
@@ -1088,6 +1088,7 @@ fun TerminalScreen(
                                                             codepoint,
                                                             mergedMods,
                                                             action,
+                                                            charCode,
                                                         )
                                                         if (modifierState.hasActiveModifiers()) {
                                                             resetModifiers()
