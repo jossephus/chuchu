@@ -9,10 +9,12 @@ class ChuchuBackupRepository(
     private val db: AppDatabase,
 ) {
     suspend fun createEncryptedBackup(passphrase: CharArray): ByteArray {
-        val payload = BackupPayload(
-            keys = db.sshKeyDao().getAll().map(BackupSshKey::fromEntity),
-            hosts = db.hostProfileDao().getAll().map(BackupHostProfile::fromEntity),
-        )
+        val payload = db.withTransaction {
+            BackupPayload(
+                keys = db.sshKeyDao().getAll().map(BackupSshKey::fromEntity),
+                hosts = db.hostProfileDao().getAll().map(BackupHostProfile::fromEntity),
+            )
+        }
         return ChuchuBackupCodec.encrypt(payload, passphrase)
     }
 

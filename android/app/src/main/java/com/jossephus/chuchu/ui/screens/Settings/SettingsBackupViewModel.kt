@@ -16,6 +16,7 @@ import com.jossephus.chuchu.data.db.AppDatabase
 import com.jossephus.chuchu.model.HostProfile
 import com.jossephus.chuchu.model.SshKey
 import java.io.ByteArrayOutputStream
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -132,6 +133,8 @@ class SettingsBackupViewModel(
                     } ?: throw BackupFormatException("Could not open backup destination")
                 }
                 _success.value = "Backup exported successfully"
+            } catch (e: CancellationException) {
+                throw e
             } catch (_: Exception) {
                 _error.value = "Export failed. Please choose another location and try again."
             } finally {
@@ -176,6 +179,8 @@ class SettingsBackupViewModel(
             } catch (_: BackupFormatException) {
                 _error.value = "Import failed. Choose a valid Chuchu backup file."
                 clearImportPassphrase()
+            } catch (e: CancellationException) {
+                throw e
             } catch (_: Exception) {
                 _error.value = "Import failed. Could not read the selected backup file."
                 clearImportPassphrase()
@@ -205,6 +210,8 @@ class SettingsBackupViewModel(
                 if (result.renamedHosts > 0) parts += "${result.renamedHosts} host(s) renamed"
                 _success.value = "Import complete: ${parts.joinToString(", ")}"
                 clearImportState()
+            } catch (e: CancellationException) {
+                throw e
             } catch (_: Exception) {
                 _error.value = "Import failed. Nothing was changed."
                 clearImportState()

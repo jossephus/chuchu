@@ -136,8 +136,27 @@ internal fun SshBackupSheet(
         onDismiss()
     }
 
+    fun handleBack() {
+        when (effectiveStep) {
+            SheetStep.Overview -> handleDismiss()
+            SheetStep.ExportPassphrase -> {
+                viewModel.updateExportPassphrase("")
+                viewModel.updateExportPassphraseConfirm("")
+                localStep = SheetStep.Overview
+            }
+            SheetStep.ImportPassphrase -> {
+                viewModel.updateImportPassphrase("")
+                localStep = SheetStep.Overview
+            }
+            is SheetStep.ImportPreview -> {
+                viewModel.cancelImport()
+                localStep = SheetStep.Overview
+            }
+        }
+    }
+
     BackHandler(enabled = visible) {
-        handleDismiss()
+        handleBack()
     }
 
     // ── Scrim + Sheet ──────────────────────────────────────────────────────

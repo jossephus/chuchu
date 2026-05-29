@@ -50,7 +50,7 @@ object ChuchuBackupCodec {
             cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(GCM_TAG_SIZE_BITS, iv))
             cipher.updateAAD(metadata)
             val ciphertext = cipher.doFinal(plaintext)
-            ByteArrayOutputStream().use { output ->
+            val encrypted = ByteArrayOutputStream().use { output ->
                 DataOutputStream(output).use { data ->
                     data.write(metadata)
                     data.writeInt(ciphertext.size)
@@ -58,6 +58,8 @@ object ChuchuBackupCodec {
                 }
                 output.toByteArray()
             }
+            if (encrypted.size > MAX_BACKUP_SIZE_BYTES) throw BackupFormatException("Backup file is too large")
+            encrypted
         } finally {
             plaintext.fill(0)
         }
@@ -102,36 +104,43 @@ object ChuchuBackupCodec {
         }
     }
 
-    fun encodePayload(payload: BackupPayload): ByteArray = ByteArrayOutputStream().use { output ->
-        DataOutputStream(output).use { data ->
-            data.writeInt(PAYLOAD_MAGIC)
-            data.writeInt(PAYLOAD_VERSION)
-            data.writeInt(payload.keys.size)
-            payload.keys.forEach { key ->
-                data.writeLong(key.id)
-                data.writeString(key.name)
-                data.writeString(key.algorithm)
-                data.writeString(key.privateKeyPem)
-                data.writeString(key.publicKeyOpenSsh)
-                data.writeLong(key.createdAtEpochMs)
+    @Throws(BackupFormatException::class)
+    fun encodePayload(payload: BackupPayload): ByteArray {
+        validateItemCount(payload.keys.size, "key count")
+        validateItemCount(payload.hosts.size, "host count")
+        val encoded = ByteArrayOutputStream().use { output ->
+            DataOutputStream(output).use { data ->
+                data.writeInt(PAYLOAD_MAGIC)
+                data.writeInt(PAYLOAD_VERSION)
+                data.writeInt(payload.keys.size)
+                payload.keys.forEach { key ->
+                    data.writeLong(key.id)
+                    data.writeString(key.name, "key name")
+                    data.writeString(key.algorithm, "key algorithm")
+                    data.writeString(key.privateKeyPem, "private key")
+                    data.writeString(key.publicKeyOpenSsh, "public key")
+                    data.writeLong(key.createdAtEpochMs)
+                }
+                data.writeInt(payload.hosts.size)
+                payload.hosts.forEach { host ->
+                    data.writeLong(host.id)
+                    data.writeString(host.name, "host name")
+                    data.writeString(host.host, "host")
+                    data.writeInt(host.port)
+                    data.writeString(host.username, "username")
+                    data.writeString(host.password, "password")
+                    data.writeNullableLong(host.keyId)
+                    data.writeString(host.keyPassphrase, "key passphrase")
+                    data.writeString(host.transport.name, "transport")
+                    data.writeString(host.authMethod.name, "auth method")
+                    data.writeBoolean(host.requireAuthOnConnect)
+                    data.writeNullableString(host.postConnectCommand, "post-connect command")
+                }
             }
-            data.writeInt(payload.hosts.size)
-            payload.hosts.forEach { host ->
-                data.writeLong(host.id)
-                data.writeString(host.name)
-                data.writeString(host.host)
-                data.writeInt(host.port)
-                data.writeString(host.username)
-                data.writeString(host.password)
-                data.writeNullableLong(host.keyId)
-                data.writeString(host.keyPassphrase)
-                data.writeString(host.transport.name)
-                data.writeString(host.authMethod.name)
-                data.writeBoolean(host.requireAuthOnConnect)
-                data.writeNullableString(host.postConnectCommand)
-            }
+            output.toByteArray()
         }
-        output.toByteArray()
+        if (encoded.size > MAX_BACKUP_SIZE_BYTES) throw BackupFormatException("Backup payload is too large")
+        return encoded
     }
 
     @Throws(BackupFormatException::class)
@@ -238,14 +247,15 @@ object ChuchuBackupCodec {
         val encoded: ByteArray,
     )
 
-    private fun DataOutputStream.writeString(value: String) {
+    private fun DataOutputStream.writeString(value: String, label: String) {
         val bytes = value.toByteArray(Charsets.UTF_8)
+        if (bytes.size > MAX_STRING_BYTES) throw BackupFormatException("$label is too large")
         writeBytesWithLength(bytes)
     }
 
-    private fun DataOutputStream.writeNullableString(value: String?) {
+    private fun DataOutputStream.writeNullableString(value: String?, label: String) {
         writeBoolean(value != null)
-        if (value != null) writeString(value)
+        if (value != null) writeString(value, label)
     }
 
     private fun DataOutputStream.writeNullableLong(value: Long?) {
@@ -285,8 +295,12 @@ object ChuchuBackupCodec {
 
     private fun DataInputStream.readItemCount(label: String): Int {
         val count = readPositiveInt(label)
-        if (count > MAX_ITEMS) throw BackupFormatException("$label is too large")
+        validateItemCount(count, label)
         return count
+    }
+
+    private fun validateItemCount(count: Int, label: String) {
+        if (count > MAX_ITEMS) throw BackupFormatException("$label is too large")
     }
 
     private fun DataInputStream.readPositiveInt(label: String): Int {

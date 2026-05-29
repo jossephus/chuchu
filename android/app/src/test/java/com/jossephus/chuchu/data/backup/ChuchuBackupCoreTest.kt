@@ -53,11 +53,22 @@ class ChuchuBackupCoreTest {
         val encrypted = ChuchuBackupCodec.encrypt(samplePayload(), "right".toCharArray())
         writeIntAt(
             encrypted,
-            offset = 56,
+            offset = ciphertextSizeOffset(encrypted),
             value = ChuchuBackupCodec.MAX_BACKUP_SIZE_BYTES + 1,
         )
 
         ChuchuBackupCodec.decrypt(encrypted, "right".toCharArray())
+    }
+
+    @Test(expected = BackupFormatException::class)
+    fun payloadEncodeRejectsOversizedStrings() {
+        val oversizedName = "x".repeat((4 * 1024 * 1024) + 1)
+
+        ChuchuBackupCodec.encodePayload(
+            samplePayload().copy(
+                keys = listOf(BackupSshKey.fromEntity(sampleKey(name = oversizedName))),
+            ),
+        )
     }
 
     @Test
@@ -207,6 +218,22 @@ class ChuchuBackupCoreTest {
         requireAuthOnConnect = true,
         postConnectCommand = "echo hello",
     )
+
+    private fun ciphertextSizeOffset(bytes: ByteArray): Int {
+        var offset = Int.SIZE_BYTES * 5
+        val saltSize = readIntAt(bytes, offset)
+        offset += Int.SIZE_BYTES + saltSize
+        val ivSize = readIntAt(bytes, offset)
+        offset += Int.SIZE_BYTES + ivSize
+        return offset
+    }
+
+    private fun readIntAt(bytes: ByteArray, offset: Int): Int {
+        return ((bytes[offset].toInt() and 0xff) shl 24) or
+            ((bytes[offset + 1].toInt() and 0xff) shl 16) or
+            ((bytes[offset + 2].toInt() and 0xff) shl 8) or
+            (bytes[offset + 3].toInt() and 0xff)
+    }
 
     private fun writeIntAt(bytes: ByteArray, offset: Int, value: Int) {
         bytes[offset] = (value ushr 24).toByte()
