@@ -17,8 +17,14 @@ interface HostProfileDao {
     @Query("SELECT * FROM host_profiles WHERE id = :id")
     suspend fun getById(id: Long): HostProfile?
 
+    @Query("SELECT * FROM host_profiles ORDER BY name")
+    suspend fun getAll(): List<HostProfile>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(profile: HostProfile): Long
+
+    @Insert
+    suspend fun insertForImport(profile: HostProfile): Long
 
     @Update
     suspend fun update(profile: HostProfile)
