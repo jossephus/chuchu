@@ -32,6 +32,7 @@ Chuchu is a native Android SSH client powered by libghostty, a terminal-first Co
 - more than 400 themes from the official ghostty repository
 - configurable accessory keys and custom terminal actions
 - per-host post-connect actions that autorun a selected custom action after SSH/Mosh connects or reconnects
+- encrypted local import/export backups for SSH keys and server profiles
 - beautiful and working terminal renderer with fully working resize, scrollback, focus, modifier keys, mouse actions 
 
 ## Status
