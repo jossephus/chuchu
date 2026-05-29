@@ -15,8 +15,14 @@ interface SshKeyDao {
     @Query("SELECT * FROM ssh_keys WHERE id = :id")
     suspend fun getById(id: Long): SshKey?
 
+    @Query("SELECT * FROM ssh_keys ORDER BY name")
+    suspend fun getAll(): List<SshKey>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(key: SshKey): Long
+
+    @Insert
+    suspend fun insertForImport(key: SshKey): Long
 
     @Query("DELETE FROM ssh_keys WHERE id = :id")
     suspend fun deleteById(id: Long)

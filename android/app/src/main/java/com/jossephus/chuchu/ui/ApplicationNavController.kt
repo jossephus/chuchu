@@ -24,6 +24,7 @@ import com.jossephus.chuchu.ui.screens.AddServer.AddServerScreen
 import com.jossephus.chuchu.ui.screens.AddServer.AddServerViewModel
 import com.jossephus.chuchu.ui.screens.ServerList.ServerListScreen
 import com.jossephus.chuchu.ui.screens.ServerList.ServerListViewModel
+import com.jossephus.chuchu.ui.screens.Settings.SettingsBackupViewModel
 import com.jossephus.chuchu.ui.screens.Settings.SettingsScreen
 import com.jossephus.chuchu.ui.screens.Terminal.TerminalScreen
 import com.jossephus.chuchu.ui.screens.Terminal.TerminalViewModel
@@ -89,6 +90,9 @@ fun ApplicationNavController() {
         }
         composable("settings") {
             val settingsRepo = SettingsRepository.getInstance(application)
+            val backupViewModel: SettingsBackupViewModel = viewModel(
+                factory = SettingsBackupViewModel.factory(application),
+            )
             val themeName by settingsRepo.themeName.collectAsStateWithLifecycle()
             val fontName by settingsRepo.fontName.collectAsStateWithLifecycle()
             val appLockEnabled by settingsRepo.appLockEnabled.collectAsStateWithLifecycle()
@@ -117,6 +121,7 @@ fun ApplicationNavController() {
                 onAccessoryLayoutChanged = settingsRepo::setAccessoryLayoutIds,
                 onAccessoryBarSingleRowChanged = settingsRepo::setAccessoryBarSingleRow,
                 onTerminalCustomActionsChanged = settingsRepo::setTerminalCustomKeyGroups,
+                backupViewModel = backupViewModel,
                 onBack = {
                     val currentRoute = navController.currentBackStackEntry?.destination?.route
                     if (currentRoute == "settings") {

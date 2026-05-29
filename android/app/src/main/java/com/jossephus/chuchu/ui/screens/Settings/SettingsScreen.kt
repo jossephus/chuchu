@@ -58,6 +58,7 @@ fun SettingsScreen(
     onAccessoryLayoutChanged: (List<String>) -> Unit,
     onAccessoryBarSingleRowChanged: (Boolean) -> Unit,
     onTerminalCustomActionsChanged: (List<TerminalCustomKeyGroup>) -> Unit,
+    backupViewModel: SettingsBackupViewModel? = null,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -66,9 +67,14 @@ fun SettingsScreen(
     var selectedCategory by remember { mutableStateOf(SettingsCategory.General) }
     var showAccessoryEditor by remember { mutableStateOf(false) }
     var showCustomActionEditor by remember { mutableStateOf(false) }
+    var showBackupSheet by remember { mutableStateOf(false) }
 
     BackHandler(enabled = true) {
         when {
+            showBackupSheet -> {
+                backupViewModel?.dismissSheet()
+                showBackupSheet = false
+            }
             showCustomActionEditor -> showCustomActionEditor = false
             showAccessoryEditor -> showAccessoryEditor = false
             else -> onBack()
@@ -149,6 +155,7 @@ fun SettingsScreen(
                         requireAuthOnConnect = requireAuthOnConnect,
                         onAppLockEnabledChanged = onAppLockEnabledChanged,
                         onRequireAuthOnConnectChanged = onRequireAuthOnConnectChanged,
+                        onOpenBackup = { showBackupSheet = true },
                     )
                     SettingsCategory.Terminal -> TerminalSettings(
                         currentAccessoryLayoutIds = currentAccessoryLayoutIds,
@@ -178,6 +185,14 @@ fun SettingsScreen(
             onSave = onTerminalCustomActionsChanged,
             onDismiss = { showCustomActionEditor = false },
         )
+
+        if (backupViewModel != null) {
+            SshBackupSheet(
+                visible = showBackupSheet,
+                viewModel = backupViewModel,
+                onDismiss = { showBackupSheet = false },
+            )
+        }
     }
 }
 
@@ -195,6 +210,7 @@ private fun GeneralSettings(
     requireAuthOnConnect: Boolean,
     onAppLockEnabledChanged: (Boolean) -> Unit,
     onRequireAuthOnConnectChanged: (Boolean) -> Unit,
+    onOpenBackup: () -> Unit = {},
 ) {
     val typography = ChuTypography.current
     val colors = ChuColors.current
@@ -238,4 +254,22 @@ private fun GeneralSettings(
     }
     Spacer(modifier = Modifier.height(4.dp))
     ChuText("use biometrics or device PIN/pattern.", style = typography.bodySmall, color = colors.textMuted)
+    Spacer(modifier = Modifier.height(16.dp))
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ChuText("ssh keys & backups", style = typography.label)
+        ChuButton(
+            onClick = onOpenBackup,
+            variant = ChuButtonVariant.Outlined,
+            bracketed = true,
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+        ) {
+            ChuText("manage", style = typography.label)
+        }
+    }
+    Spacer(modifier = Modifier.height(4.dp))
+    ChuText("encrypted export/import.", style = typography.bodySmall, color = colors.textMuted)
 }
