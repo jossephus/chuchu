@@ -55,6 +55,7 @@ fun CommandPalette(
     focusedTabIndex: Int,
     onFocusedTabIndexChange: (Int) -> Unit,
     accessoryItems: List<AccessoryKeyItem>,
+    accessoryModifierState: ModifierState,
     onAccessoryAction: (AccessoryAction) -> Unit,
     onChuchuKey: () -> Unit,
     chuchuKeyActive: Boolean,
@@ -220,7 +221,7 @@ fun CommandPalette(
       }
       KeyboardAccessoryBar(
           items = accessoryItems,
-          modifierState = ModifierState(),
+          modifierState = accessoryModifierState,
           onAction = onAccessoryAction,
           onSettings = onOpenSettings,
           onChuchuKey = onChuchuKey,

@@ -27,9 +27,19 @@ data class ModifierState(
         TerminalModifier.Cmd -> cmd
     }
 
+    /** Returns true when any sticky modifier is active. */
     fun hasActiveModifiers(): Boolean = ctrl || alt || shift || cmd
 
-    fun reset(): ModifierState = ModifierState()
+    /**
+     * Returns display labels for all currently active modifiers,
+     * in a consistent order. Used by the persistent indicator.
+     */
+    fun activeModifierLabels(): List<String> = buildList {
+        if (ctrl) add("Ctrl")
+        if (alt) add("Alt")
+        if (shift) add("Shift")
+        if (cmd) add("Cmd")
+    }
 
     fun terminalMods(): Int {
         var mods = 0
@@ -67,20 +77,22 @@ data class ModifierState(
 enum class TerminalSpecialKey(
     val label: String,
     val engineKey: Int,
+    val isRepeatable: Boolean = false,
 ) {
     Escape("Esc", GhosttyKey.escape),
     Tab("Tab", GhosttyKey.tab),
     Enter("Enter", GhosttyKey.enter),
-    Up("↑", GhosttyKey.arrowUp),
-    Down("↓", GhosttyKey.arrowDown),
-    Left("←", GhosttyKey.arrowLeft),
-    Right("→", GhosttyKey.arrowRight),
-    Home("Home", GhosttyKey.home),
-    End("End", GhosttyKey.end),
-    PageUp("PgUp", GhosttyKey.pageUp),
-    PageDown("PgDn", GhosttyKey.pageDown),
+    Up("↑", GhosttyKey.arrowUp, isRepeatable = true),
+    Down("↓", GhosttyKey.arrowDown, isRepeatable = true),
+    Left("←", GhosttyKey.arrowLeft, isRepeatable = true),
+    Right("→", GhosttyKey.arrowRight, isRepeatable = true),
+    Home("Home", GhosttyKey.home, isRepeatable = true),
+    End("End", GhosttyKey.end, isRepeatable = true),
+    PageUp("PgUp", GhosttyKey.pageUp, isRepeatable = true),
+    PageDown("PgDn", GhosttyKey.pageDown, isRepeatable = true),
     Insert("Ins", GhosttyKey.insert),
-    Delete("Del", GhosttyKey.delete),
+    Delete("Del", GhosttyKey.delete, isRepeatable = true),
+    Backspace("⌫", GhosttyKey.backspace, isRepeatable = true),
     F1("F1", GhosttyKey.f1),
     F2("F2", GhosttyKey.f2),
     F3("F3", GhosttyKey.f3),
@@ -129,13 +141,13 @@ object TerminalAccessoryDispatcher {
         )
 
         is AccessoryAction.SendSpecialKey -> AccessoryDispatchResult(
-            modifierState = modifierState.reset(),
+            modifierState = modifierState,
             specialKey = action.key,
             suppressImeInput = true,
         )
 
         is AccessoryAction.SendText -> AccessoryDispatchResult(
-            modifierState = modifierState.reset(),
+            modifierState = modifierState,
             text = modifierState.applyToText(action.text),
         )
 
@@ -166,6 +178,9 @@ object TerminalAccessoryLayoutStore {
         AccessoryKeyItem("page_down", TerminalSpecialKey.PageDown.label, AccessoryAction.SendSpecialKey(TerminalSpecialKey.PageDown)),
         AccessoryKeyItem("insert", TerminalSpecialKey.Insert.label, AccessoryAction.SendSpecialKey(TerminalSpecialKey.Insert)),
         AccessoryKeyItem("delete", TerminalSpecialKey.Delete.label, AccessoryAction.SendSpecialKey(TerminalSpecialKey.Delete)),
+        AccessoryKeyItem("backspace", TerminalSpecialKey.Backspace.label, AccessoryAction.SendSpecialKey(TerminalSpecialKey.Backspace)),
+        AccessoryKeyItem("minus", "-", AccessoryAction.SendText("-")),
+        AccessoryKeyItem("slash", "/", AccessoryAction.SendText("/")),
         AccessoryKeyItem("f1", TerminalSpecialKey.F1.label, AccessoryAction.SendSpecialKey(TerminalSpecialKey.F1)),
         AccessoryKeyItem("f2", TerminalSpecialKey.F2.label, AccessoryAction.SendSpecialKey(TerminalSpecialKey.F2)),
         AccessoryKeyItem("f3", TerminalSpecialKey.F3.label, AccessoryAction.SendSpecialKey(TerminalSpecialKey.F3)),

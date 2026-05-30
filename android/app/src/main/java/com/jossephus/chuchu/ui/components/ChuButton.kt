@@ -34,6 +34,55 @@ enum class ChuButtonVariant {
     Ghost,
 }
 
+/**
+ * Reusable non-clickable button surface: background, border, shape, press alpha,
+ * min-height, and content padding.  Used by [ChuButton] for clickable buttons
+ * and by [RepeatableAccessoryButton][com.jossephus.chuchu.ui.terminal.RepeatableAccessoryButton]
+ * for repeat-touch buttons so both share consistent visual styling.
+ */
+@Composable
+fun ChuButtonSurface(
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    pressed: Boolean = false,
+    variant: ChuButtonVariant = ChuButtonVariant.Filled,
+    backgroundColor: Color? = null,
+    borderColor: Color? = null,
+    contentPadding: PaddingValues = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+    content: @Composable () -> Unit,
+) {
+    val colors = ChuColors.current
+    val shape = RectangleShape
+
+    val background: Color = when {
+        !enabled -> colors.disabledSurface
+        variant == ChuButtonVariant.Filled -> colors.accent
+        backgroundColor != null -> backgroundColor
+        else -> Color.Transparent
+    }
+
+    val effectiveBorderColor: Color = borderColor ?: colors.border
+
+    val border: BorderStroke? = when {
+        !enabled && variant != ChuButtonVariant.Ghost -> BorderStroke(1.dp, colors.border)
+        variant == ChuButtonVariant.Outlined -> BorderStroke(1.dp, effectiveBorderColor)
+        else -> null
+    }
+
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(background, shape)
+            .then(if (border != null) Modifier.border(border, shape) else Modifier)
+            .defaultMinSize(minHeight = 36.dp)
+            .alpha(if (pressed && enabled) 0.7f else 1f)
+            .padding(contentPadding),
+        contentAlignment = Alignment.Center,
+    ) {
+        content()
+    }
+}
+
 @Composable
 fun ChuButton(
     onClick: () -> Unit,
@@ -52,22 +101,6 @@ fun ChuButton(
     val typography = ChuTypography.current
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
-    val shape = RectangleShape
-
-    val background: Color = when {
-        !enabled -> colors.disabledSurface
-        variant == ChuButtonVariant.Filled -> colors.accent
-        backgroundColor != null -> backgroundColor
-        else -> Color.Transparent
-    }
-
-    val effectiveBorderColor: Color = borderColor ?: colors.border
-
-    val border: BorderStroke? = when {
-        !enabled && variant != ChuButtonVariant.Ghost -> BorderStroke(1.dp, colors.border)
-        variant == ChuButtonVariant.Outlined -> BorderStroke(1.dp, effectiveBorderColor)
-        else -> null
-    }
 
     val bracketColor: Color = when {
         !enabled -> colors.disabledText
@@ -85,22 +118,21 @@ fun ChuButton(
         }
     }
 
-    Box(
+    ChuButtonSurface(
         modifier = modifier
             .then(semanticsModifier)
-            .clip(shape)
-            .background(background, shape)
-            .then(if (border != null) Modifier.border(border, shape) else Modifier)
-            .defaultMinSize(minHeight = 36.dp)
-            .alpha(if (pressed && enabled) 0.7f else 1f)
             .clickable(
                 enabled = enabled,
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = onClick,
-            )
-            .padding(contentPadding),
-        contentAlignment = Alignment.Center,
+            ),
+        enabled = enabled,
+        pressed = pressed,
+        variant = variant,
+        backgroundColor = backgroundColor,
+        borderColor = borderColor,
+        contentPadding = contentPadding,
     ) {
         if (bracketed) {
             Row(

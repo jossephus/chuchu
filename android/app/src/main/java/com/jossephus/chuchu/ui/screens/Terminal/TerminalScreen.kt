@@ -476,6 +476,29 @@ fun TerminalScreen(
             val isReconnecting = sessionState.status == SessionStatus.Reconnecting
             val snapshot = sessionState.snapshot
             if (snapshot != null) {
+                var modifierState by remember { mutableStateOf(ModifierState()) }
+                val inputViewRef = remember { mutableStateOf<TerminalInputView?>(null) }
+                val clipboard = remember {
+                    context.getSystemService(ClipboardManager::class.java)
+                }
+
+                fun pasteClipboard(): Boolean {
+                    val clip = clipboard?.primaryClip
+                    if (clip == null || clip.itemCount == 0) {
+                        return false
+                    }
+                    val text = clip.getItemAt(0).coerceToText(context).toString()
+                    if (text.isNotEmpty()) {
+                        vm.onPasteText(modifierState.applyToText(text))
+                        selectedText = null
+                        hasSelectionActive = false
+                        selectionAnchorOffset = Offset.Zero
+                        selectionResetKey += 1
+                        return true
+                    }
+                    return false
+                }
+
                 Box(modifier = screenInsetsModifier.fillMaxSize()) {
                     LaunchedEffect(ghosttyTheme, colors, isDarkTheme) {
                         vm.onColorSchemeChanged(isDarkTheme)
@@ -499,7 +522,6 @@ fun TerminalScreen(
                         }
                     }
 
-                    val inputViewRef = remember { mutableStateOf<TerminalInputView?>(null) }
                     val titleText = sessionState.title?.takeIf { it.isNotBlank() }
                     val pwdText = sessionState.pwd?.takeIf { it.isNotBlank() }
                     val inputMethodManager = remember {
@@ -513,9 +535,6 @@ fun TerminalScreen(
                         if (view != null) {
                             inputMethodManager?.hideSoftInputFromWindow(view.windowToken, 0)
                         }
-                    }
-                    val clipboard = remember {
-                        context.getSystemService(ClipboardManager::class.java)
                     }
                     var hasClipboardText by remember { mutableStateOf(false) }
                     val scope = rememberCoroutineScope()
@@ -539,31 +558,7 @@ fun TerminalScreen(
                             clipboard?.removePrimaryClipChangedListener(listener)
                         }
                     }
-                    var modifierState by remember { mutableStateOf(ModifierState()) }
 
-                    fun resetModifiers() {
-                        modifierState = modifierState.reset()
-                    }
-
-                    fun pasteClipboard(): Boolean {
-                        val clip = clipboard?.primaryClip
-                        if (clip == null || clip.itemCount == 0) {
-                            resetModifiers()
-                            return false
-                        }
-                        val text = clip.getItemAt(0).coerceToText(context).toString()
-                        if (text.isNotEmpty()) {
-                            vm.onPasteText(modifierState.applyToText(text))
-                            resetModifiers()
-                            selectedText = null
-                            hasSelectionActive = false
-                            selectionAnchorOffset = Offset.Zero
-                            selectionResetKey += 1
-                            return true
-                        }
-                        resetModifiers()
-                        return false
-                    }
 
                     fun dispatchAccessoryAction(action: AccessoryAction) {
                         if (
@@ -1012,7 +1007,6 @@ fun TerminalScreen(
                                                             text,
                                                             modifierState,
                                                         )
-                                                        resetModifiers()
                                                     }
                                                 }
                                                 onTerminalKey = { key, codepoint, mods, action, charCode ->
@@ -1090,9 +1084,6 @@ fun TerminalScreen(
                                                             action,
                                                             charCode,
                                                         )
-                                                        if (modifierState.hasActiveModifiers()) {
-                                                            resetModifiers()
-                                                        }
                                                     }
                                                 }
                                                 setOnFocusChangeListener { _, hasFocus ->
@@ -1130,7 +1121,6 @@ fun TerminalScreen(
                                                 rawText,
                                                 actionModifierState,
                                             )
-                                            resetModifiers()
                                             requestInputFocus()
                                         },
                                         modifier =
@@ -1204,7 +1194,14 @@ fun TerminalScreen(
                                 chuchuKeys.reset()
                             }
                             val result =
-                                TerminalAccessoryDispatcher.dispatch(action, ModifierState())
+                                TerminalAccessoryDispatcher.dispatch(action, modifierState)
+                            modifierState = result.modifierState
+
+                            // Mirror main-handler IME suppression
+                            if (result.suppressImeInput) {
+                                inputViewRef.value?.armInputSuppression(action.toString())
+                            }
+
                             when (result.specialKey) {
                                 TerminalSpecialKey.Left,
                                 TerminalSpecialKey.Up -> {
@@ -1228,12 +1225,21 @@ fun TerminalScreen(
                                     showTabSheet = false
                                 }
                                 else -> {
+                                    result.specialKey?.let { key ->
+                                        vm.onSpecialKeyInput(key, modifierState.terminalMods())
+                                    }
                                     result.text?.let { text ->
                                         if (!chuchuKeys.handleText(text)) {
                                             vm.onTextInput(text)
                                         }
                                     }
                                 }
+                            }
+
+                            // Preserve sticky modifiers: paste applies active modifiers
+                            // but does not clear them.
+                            if (result.shouldPaste) {
+                                pasteClipboard()
                             }
                         }
                     }
@@ -1243,6 +1249,7 @@ fun TerminalScreen(
                         focusedTabIndex = focusedTabIndex,
                         onFocusedTabIndexChange = { focusedTabIndex = it },
                         accessoryItems = accessoryLayout,
+                        accessoryModifierState = modifierState,
                         onAccessoryAction = paletteAccessoryAction,
                         onChuchuKey = { chuchuKeys.togglePrefix() },
                         chuchuKeyActive = chuchuKeys.isPrefixActive,
