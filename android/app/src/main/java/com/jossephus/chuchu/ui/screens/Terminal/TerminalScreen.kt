@@ -1193,8 +1193,9 @@ fun TerminalScreen(
                             if (chuchuKeys.isPrefixActive) {
                                 chuchuKeys.reset()
                             }
+                            val preDispatchModifierState = modifierState
                             val result =
-                                TerminalAccessoryDispatcher.dispatch(action, modifierState)
+                                TerminalAccessoryDispatcher.dispatch(action, preDispatchModifierState)
                             modifierState = result.modifierState
 
                             // Mirror main-handler IME suppression
@@ -1226,7 +1227,10 @@ fun TerminalScreen(
                                 }
                                 else -> {
                                     result.specialKey?.let { key ->
-                                        vm.onSpecialKeyInput(key, modifierState.terminalMods())
+                                        vm.onSpecialKeyInput(
+                                            key,
+                                            preDispatchModifierState.terminalMods(),
+                                        )
                                     }
                                     result.text?.let { text ->
                                         if (!chuchuKeys.handleText(text)) {
