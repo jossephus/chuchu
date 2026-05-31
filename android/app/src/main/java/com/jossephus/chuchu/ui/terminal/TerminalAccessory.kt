@@ -27,19 +27,7 @@ data class ModifierState(
         TerminalModifier.Cmd -> cmd
     }
 
-    /** Returns true when any sticky modifier is active. */
     fun hasActiveModifiers(): Boolean = ctrl || alt || shift || cmd
-
-    /**
-     * Returns display labels for all currently active modifiers,
-     * in a consistent order. Used by the persistent indicator.
-     */
-    fun activeModifierLabels(): List<String> = buildList {
-        if (ctrl) add("Ctrl")
-        if (alt) add("Alt")
-        if (shift) add("Shift")
-        if (cmd) add("Cmd")
-    }
 
     fun terminalMods(): Int {
         var mods = 0

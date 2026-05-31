@@ -41,14 +41,6 @@ class AccessoryLogicTest {
     }
 
     @Test
-    fun `activeModifierLabels returns only active labels in order`() {
-        assertEquals(emptyList<String>(), ModifierState().activeModifierLabels())
-
-        val s = ModifierState(ctrl = true, shift = true, cmd = true)
-        assertEquals(listOf("Ctrl", "Shift", "Cmd"), s.activeModifierLabels())
-    }
-
-    @Test
     fun `isEnabled returns correct values`() {
         val s = ModifierState(ctrl = true, alt = false, shift = true, cmd = false)
         assertTrue(s.isEnabled(TerminalModifier.Ctrl))
