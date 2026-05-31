@@ -27,6 +27,25 @@ const NativeLocalShellSession = struct {
     last_error: std.ArrayListUnmanaged(u8) = .empty,
 };
 
+const LocalShellArgs = struct {
+    command: [:0]u8,
+    home_dir: [:0]u8,
+    temp_dir: [:0]u8,
+    term: [:0]u8,
+
+    fn deinit(self: LocalShellArgs) void {
+        allocator.free(self.command);
+        allocator.free(self.home_dir);
+        allocator.free(self.temp_dir);
+        allocator.free(self.term);
+    }
+};
+
+const SpawnedPty = struct {
+    master_fd: c_int,
+    child_pid: c.pid_t,
+};
+
 fn sessionFromHandle(handle: c.jlong) ?*NativeLocalShellSession {
     if (handle == 0) return null;
     const raw_handle: u64 = @bitCast(handle);
@@ -187,7 +206,6 @@ fn openPty(session: *NativeLocalShellSession, slave_name: *[128]u8) ?c_int {
         _ = c.close(master_fd);
         return null;
     }
-    configurePty(master_fd);
     return master_fd;
 }
 
@@ -211,6 +229,7 @@ fn childExec(
     if (slave_fd < 0) c._exit(126);
 
     if (c.ioctl(slave_fd, c.TIOCSCTTY, @as(c_int, 0)) != 0) c._exit(123);
+    configurePty(slave_fd);
     _ = applyWindowSize(slave_fd, cols, rows, width_px, height_px);
     if (c.chdir(home_dir) != 0) c._exit(125);
 
@@ -255,6 +274,120 @@ export fn Java_com_jossephus_chuchu_service_terminal_NativeLocalShellBridge_nati
     destroySession(session);
 }
 
+fn jniParseLocalShellArgs(
+    env: *c.JNIEnv,
+    session: *NativeLocalShellSession,
+    command_jstring: c.jstring,
+    home_dir_jstring: c.jstring,
+    temp_dir_jstring: c.jstring,
+    term_jstring: c.jstring,
+) !LocalShellArgs {
+    const command_slice = jniDupString(env, command_jstring) orelse {
+        setError(session, "Missing local shell command", .{});
+        return error.InvalidArgs;
+    };
+    defer allocator.free(command_slice);
+
+    const command = dupSentinel(command_slice) orelse {
+        setError(session, "Local shell command allocation failed", .{});
+        return error.OutOfMemory;
+    };
+    errdefer allocator.free(command);
+
+    if (c.access(command.ptr, c.X_OK) != 0) {
+        setErrnoError(session, "local shell command is not executable");
+        return error.InvalidArgs;
+    }
+
+    const home_dir = try jniParseRequiredPath(env, session, home_dir_jstring, "home directory");
+    errdefer allocator.free(home_dir);
+    const temp_dir = try jniParseRequiredPath(env, session, temp_dir_jstring, "temp directory");
+    errdefer allocator.free(temp_dir);
+    const term = try jniParseTerm(env, session, term_jstring);
+    errdefer allocator.free(term);
+
+    return .{
+        .command = command,
+        .home_dir = home_dir,
+        .temp_dir = temp_dir,
+        .term = term,
+    };
+}
+
+fn jniParseRequiredPath(
+    env: *c.JNIEnv,
+    session: *NativeLocalShellSession,
+    value_jstring: c.jstring,
+    label: []const u8,
+) ![:0]u8 {
+    const value_slice = jniDupString(env, value_jstring) orelse {
+        setError(session, "Missing local shell {s}", .{label});
+        return error.InvalidArgs;
+    };
+    defer allocator.free(value_slice);
+
+    return dupSentinel(value_slice) orelse {
+        setError(session, "Local shell {s} allocation failed", .{label});
+        return error.OutOfMemory;
+    };
+}
+
+fn jniParseTerm(
+    env: *c.JNIEnv,
+    session: *NativeLocalShellSession,
+    term_jstring: c.jstring,
+) ![:0]u8 {
+    const term_slice = jniDupString(env, term_jstring) orelse blk: {
+        const fallback = allocator.dupe(u8, "xterm-ghostty") catch {
+            setError(session, "Local shell TERM allocation failed", .{});
+            return error.OutOfMemory;
+        };
+        break :blk fallback;
+    };
+    defer allocator.free(term_slice);
+
+    return dupSentinel(term_slice) orelse {
+        setError(session, "Local shell TERM allocation failed", .{});
+        return error.OutOfMemory;
+    };
+}
+
+fn spawnLocalShellPty(
+    session: *NativeLocalShellSession,
+    args: LocalShellArgs,
+    cols: c.jint,
+    rows: c.jint,
+    width_px: c.jint,
+    height_px: c.jint,
+) ?SpawnedPty {
+    var slave_name: [128]u8 = undefined;
+    const master_fd = openPty(session, &slave_name) orelse return null;
+
+    const pid = c.fork();
+    if (pid < 0) {
+        setErrnoError(session, "fork failed");
+        _ = c.close(master_fd);
+        return null;
+    }
+    if (pid == 0) {
+        const slave_name_z: [*:0]const u8 = @ptrCast(slave_name[0..].ptr);
+        childExec(
+            master_fd,
+            slave_name_z,
+            args.command.ptr,
+            args.home_dir.ptr,
+            args.term.ptr,
+            args.temp_dir.ptr,
+            cols,
+            rows,
+            width_px,
+            height_px,
+        );
+    }
+
+    return .{ .master_fd = master_fd, .child_pid = pid };
+}
+
 export fn Java_com_jossephus_chuchu_service_terminal_NativeLocalShellBridge_nativeStart(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, command_jstring: c.jstring, home_dir_jstring: c.jstring, temp_dir_jstring: c.jstring, cols: c.jint, rows: c.jint, width_px: c.jint, height_px: c.jint, term_jstring: c.jstring) callconv(.c) c.jboolean {
     _ = thiz;
     const session = sessionFromHandle(handle) orelse return c.JNI_FALSE;
@@ -263,88 +396,27 @@ export fn Java_com_jossephus_chuchu_service_terminal_NativeLocalShellBridge_nati
         return c.JNI_FALSE;
     }
 
-    const command_slice = jniDupString(env, command_jstring) orelse {
-        setError(session, "Missing local shell command", .{});
-        return c.JNI_FALSE;
-    };
-    defer allocator.free(command_slice);
-    const command = dupSentinel(command_slice) orelse {
-        setError(session, "Local shell command allocation failed", .{});
-        return c.JNI_FALSE;
-    };
-    defer allocator.free(command);
-    if (c.access(command.ptr, c.X_OK) != 0) {
-        setErrnoError(session, "local shell command is not executable");
-        return c.JNI_FALSE;
-    }
+    const args = jniParseLocalShellArgs(
+        env,
+        session,
+        command_jstring,
+        home_dir_jstring,
+        temp_dir_jstring,
+        term_jstring,
+    ) catch return c.JNI_FALSE;
+    defer args.deinit();
 
-    const home_dir_slice = jniDupString(env, home_dir_jstring) orelse {
-        setError(session, "Missing local shell home directory", .{});
-        return c.JNI_FALSE;
-    };
-    defer allocator.free(home_dir_slice);
-    const temp_dir_slice = jniDupString(env, temp_dir_jstring) orelse {
-        setError(session, "Missing local shell temp directory", .{});
-        return c.JNI_FALSE;
-    };
-    defer allocator.free(temp_dir_slice);
-    const term_slice = jniDupString(env, term_jstring) orelse blk: {
-        const fallback = allocator.dupe(u8, "xterm-ghostty") catch {
-            setError(session, "Local shell TERM allocation failed", .{});
-            return c.JNI_FALSE;
-        };
-        break :blk fallback;
-    };
-    defer allocator.free(term_slice);
+    const spawned = spawnLocalShellPty(session, args, cols, rows, width_px, height_px) orelse return c.JNI_FALSE;
+    session.master_fd = spawned.master_fd;
+    session.child_pid = spawned.child_pid;
 
-    const home_dir = dupSentinel(home_dir_slice) orelse {
-        setError(session, "Local shell home directory allocation failed", .{});
-        return c.JNI_FALSE;
-    };
-    defer allocator.free(home_dir);
-    const temp_dir = dupSentinel(temp_dir_slice) orelse {
-        setError(session, "Local shell temp directory allocation failed", .{});
-        return c.JNI_FALSE;
-    };
-    defer allocator.free(temp_dir);
-    const term = dupSentinel(term_slice) orelse {
-        setError(session, "Local shell TERM allocation failed", .{});
-        return c.JNI_FALSE;
-    };
-    defer allocator.free(term);
-
-    var slave_name: [128]u8 = undefined;
-    const master_fd = openPty(session, &slave_name) orelse return c.JNI_FALSE;
-
-    const pid = c.fork();
-    if (pid < 0) {
-        setErrnoError(session, "fork failed");
-        _ = c.close(master_fd);
-        return c.JNI_FALSE;
-    }
-    if (pid == 0) {
-        const slave_name_z: [*:0]const u8 = @ptrCast(slave_name[0..].ptr);
-        childExec(
-            master_fd,
-            slave_name_z,
-            command.ptr,
-            home_dir.ptr,
-            term.ptr,
-            temp_dir.ptr,
-            cols,
-            rows,
-            width_px,
-            height_px,
-        );
-    }
-
-    session.master_fd = master_fd;
-    session.child_pid = pid;
-    if (!setFdNonBlocking(master_fd)) {
+    if (!setFdNonBlocking(session.master_fd)) {
         setErrnoError(session, "failed to make local shell PTY nonblocking");
+        closeFd(&session.master_fd);
+        terminateChild(session);
         return c.JNI_FALSE;
     }
-    _ = applyWindowSize(master_fd, cols, rows, width_px, height_px);
+    _ = applyWindowSize(session.master_fd, cols, rows, width_px, height_px);
     return c.JNI_TRUE;
 }
 

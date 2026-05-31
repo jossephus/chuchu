@@ -101,14 +101,15 @@ fun ServerListScreen(
         }
     }
 
+    fun needsNotificationPermission(): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) != PackageManager.PERMISSION_GRANTED
+
     fun openLocalShellWithPermission() {
-        val needsNotificationPermission =
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                ContextCompat.checkSelfPermission(
-                    context,
-                    Manifest.permission.POST_NOTIFICATIONS,
-                ) != PackageManager.PERMISSION_GRANTED
-        if (needsNotificationPermission) {
+        if (needsNotificationPermission()) {
             pendingLocalShell = true
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
@@ -188,13 +189,7 @@ fun ServerListScreen(
                             },
                             onConnect = {
                                 selectedHostId = null
-                                val needsNotificationPermission =
-                                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                                        ContextCompat.checkSelfPermission(
-                                            context,
-                                            Manifest.permission.POST_NOTIFICATIONS,
-                                        ) != PackageManager.PERMISSION_GRANTED
-                                if (needsNotificationPermission) {
+                                if (needsNotificationPermission()) {
                                     pendingConnectHostId = host.id
                                     notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                                 } else {

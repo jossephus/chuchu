@@ -288,6 +288,13 @@ class ChuchuBackupCoreTest {
         newBytes.copyInto(bytes, destinationOffset = matchIndex)
     }
 
+    /**
+     * Replaces the last length-prefixed UTF-8 string in a backup payload.
+     *
+     * Backup strings are encoded as a 4-byte big-endian length followed by UTF-8 bytes.
+     * This validates the discovered prefix with [readIntAt], updates it with [writeIntAt],
+     * and rebuilds the array so surrounding zero-based byte offsets stay intact.
+     */
     private fun replaceLastLengthPrefixedUtf8(
         bytes: ByteArray,
         oldValue: String,
