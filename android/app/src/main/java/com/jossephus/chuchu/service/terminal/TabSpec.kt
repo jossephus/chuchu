@@ -18,14 +18,25 @@ data class TabSpec(
     val postConnectCommand: String? = null,
 ) {
     val sessionKey: String
-        get() = hostId?.let { "host:$it" } ?: "${transport.name}:$username@$host:$port"
+        get() =
+            when (transport) {
+                Transport.LocalShell -> "local-shell"
+                else -> hostId?.let { "host:$it" } ?: "${transport.name}:$username@$host:$port"
+            }
 
     val notificationLabel: String
         get() {
+            if (transport == Transport.LocalShell) {
+                return displayName.takeIf { it.isNotBlank() } ?: "local shell"
+            }
             val target = "$username@$host:$port"
             return if (displayName.isNotBlank()) "$displayName  ·  $target" else target
         }
 
     val tabLabel: String
-        get() = displayName.takeIf { it.isNotBlank() } ?: "$username@$host"
+        get() =
+            when (transport) {
+                Transport.LocalShell -> displayName.takeIf { it.isNotBlank() } ?: "local shell"
+                else -> displayName.takeIf { it.isNotBlank() } ?: "$username@$host"
+            }
 }

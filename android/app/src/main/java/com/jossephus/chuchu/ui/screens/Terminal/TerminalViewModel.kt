@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
 import com.jossephus.chuchu.service.terminal.HostKeyPrompt
 import com.jossephus.chuchu.service.terminal.SessionState
@@ -71,6 +72,18 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
 
     fun selectTabForHost(hostId: Long?): TabSession? {
         val existing = sessionRepository.tabsForHost(hostId)
+        if (existing.isEmpty()) return null
+        val activeId = sessionRepository.activeTabId.value
+        val target = existing.firstOrNull { it.id == activeId } ?: existing.last()
+        sessionRepository.selectTab(target.id)
+        return target
+    }
+
+    fun selectLocalShellTab(): TabSession? {
+        val existing =
+            sessionRepository.tabs.value.filter {
+                it.spec.hostId == null && it.spec.transport == Transport.LocalShell
+            }
         if (existing.isEmpty()) return null
         val activeId = sessionRepository.activeTabId.value
         val target = existing.firstOrNull { it.id == activeId } ?: existing.last()

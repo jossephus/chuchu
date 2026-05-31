@@ -53,6 +53,9 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -63,6 +66,7 @@ import com.jossephus.chuchu.data.repository.HostRepository
 import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.data.repository.SshKeyRepository
 import com.jossephus.chuchu.model.AuthMethod
+import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.terminal.SessionStatus
 import com.jossephus.chuchu.service.terminal.TabSpec
 import com.jossephus.chuchu.ui.components.ChuButton
@@ -235,14 +239,24 @@ fun TerminalScreen(
     onOpenSettings: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    openLocalShell: Boolean = false,
 ) {
     val sessionState by vm.sessionState.collectAsStateWithLifecycle()
     val tabs by vm.tabs.collectAsStateWithLifecycle()
     val activeTabId by vm.activeTabId.collectAsStateWithLifecycle()
     val activeTab by vm.activeTab.collectAsStateWithLifecycle()
     val activeTabForHost =
-        remember(activeTab, hostId) { activeTab?.takeIf { it.spec.hostId == hostId } }
+        remember(activeTab, hostId, openLocalShell) {
+            if (openLocalShell) {
+                activeTab?.takeIf {
+                    it.spec.hostId == null && it.spec.transport == Transport.LocalShell
+                }
+            } else {
+                activeTab?.takeIf { it.spec.hostId == hostId }
+            }
+        }
     val selectedTab by vm.selectedTab.collectAsStateWithLifecycle()
+    val filesSupported = activeTab?.spec?.transport != Transport.LocalShell
     val fileBrowserState by vm.fileBrowserState.collectAsStateWithLifecycle()
     val hostKeyPrompt by vm.hostKeyPrompt.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -283,8 +297,10 @@ fun TerminalScreen(
     var passphraseInput by remember { mutableStateOf("") }
     var pendingTabSpec by remember { mutableStateOf<TabSpec?>(null) }
     var showTabSheet by remember { mutableStateOf(false) }
-    var hasSeenTabsForHost by remember(hostId) { mutableStateOf(false) }
+    var hasSeenTabsForHost by remember(hostId, openLocalShell) { mutableStateOf(false) }
+    var hasSeenLocalTabs by remember(openLocalShell) { mutableStateOf(false) }
     var focusedTabIndex by remember { mutableStateOf(0) }
+    var localShellFilesMessage by remember { mutableStateOf<String?>(null) }
     var terminalFontSizeSp by remember {
         mutableStateOf(terminalPrefs.getFloat("terminal_font_size_sp", 14f).coerceAtLeast(0.1f))
     }
@@ -313,11 +329,32 @@ fun TerminalScreen(
         terminalPrefs.edit().putFloat("terminal_font_size_sp", terminalFontSizeSp).apply()
     }
 
+    LaunchedEffect(openLocalShell) {
+        if (!openLocalShell) return@LaunchedEffect
+        showPassphrasePrompt = false
+        passphraseInput = ""
+        pendingTabSpec = null
+        val existing = vm.selectLocalShellTab()
+        if (existing != null) {
+            return@LaunchedEffect
+        }
+        vm.openTab(
+            TabSpec(
+                hostId = null,
+                displayName = "local shell",
+                host = "localhost",
+                username = "android",
+                authMethod = AuthMethod.None,
+                transport = Transport.LocalShell,
+            )
+        )
+    }
+
     LaunchedEffect(hostId) {
         showPassphrasePrompt = false
         passphraseInput = ""
         pendingTabSpec = null
-        if (hostId == null) return@LaunchedEffect
+        if (hostId == null || openLocalShell) return@LaunchedEffect
         val existing = vm.selectTabForHost(hostId)
         if (existing != null) {
             return@LaunchedEffect
@@ -350,15 +387,33 @@ fun TerminalScreen(
     }
 
     val hasTabsForHost =
-        remember(tabs, hostId) {
-            if (hostId == null) false else tabs.any { it.spec.hostId == hostId }
+        remember(tabs, hostId, openLocalShell) {
+            when {
+                openLocalShell ->
+                    tabs.any { it.spec.hostId == null && it.spec.transport == Transport.LocalShell }
+                hostId != null -> tabs.any { it.spec.hostId == hostId }
+                else -> false
+            }
         }
     val tabsForHost =
-        remember(tabs, hostId) {
-            if (hostId == null) emptyList() else tabs.filter { it.spec.hostId == hostId }
+        remember(tabs, hostId, openLocalShell) {
+            when {
+                openLocalShell ->
+                    tabs.filter { it.spec.hostId == null && it.spec.transport == Transport.LocalShell }
+                hostId != null -> tabs.filter { it.spec.hostId == hostId }
+                else -> emptyList()
+            }
         }
 
-    LaunchedEffect(hostId, hasTabsForHost) {
+    LaunchedEffect(hostId, hasTabsForHost, openLocalShell) {
+        if (openLocalShell) {
+            if (hasTabsForHost) {
+                hasSeenLocalTabs = true
+            } else if (hasSeenLocalTabs) {
+                onBack()
+            }
+            return@LaunchedEffect
+        }
         if (hostId == null) return@LaunchedEffect
         if (hasTabsForHost) {
             hasSeenTabsForHost = true
@@ -402,6 +457,21 @@ fun TerminalScreen(
                 visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth(),
             )
+        }
+    }
+
+    fun showLocalShellFilesUnsupported() {
+        val message = "Files are not supported for local shell"
+        localShellFilesMessage = message
+        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+    }
+
+    LaunchedEffect(filesSupported, selectedTab) {
+        if (filesSupported) {
+            localShellFilesMessage = null
+        }
+        if (!filesSupported && selectedTab == ConnectionTab.Files) {
+            vm.selectConnectionTab(ConnectionTab.Terminal)
         }
     }
 
@@ -749,7 +819,7 @@ fun TerminalScreen(
                                 .blur(if (showTabSheet) 10.dp else 0.dp)
                                 .imePadding()
                     ) {
-                        if (selectedTab == ConnectionTab.Files) {
+                        if (selectedTab == ConnectionTab.Files && filesSupported) {
                             FileBrowserScreen(
                                 state = fileBrowserState,
                                 onGoUp = vm::goUpDirectory,
@@ -1162,6 +1232,17 @@ fun TerminalScreen(
                                     }
                                 }
                             }
+                            localShellFilesMessage?.let { message ->
+                                ChuText(
+                                    text = message,
+                                    style = typography.labelSmall,
+                                    color = colors.textSecondary,
+                                    modifier =
+                                        Modifier.fillMaxWidth()
+                                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                                            .semantics { liveRegion = LiveRegionMode.Polite },
+                                )
+                            }
                             KeyboardAccessoryBar(
                                 items = accessoryLayout,
                                 modifierState = modifierState,
@@ -1172,7 +1253,13 @@ fun TerminalScreen(
                                     requestInputFocus()
                                 },
                                 chuchuKeyActive = chuchuKeys.isPrefixActive,
-                                onOpenFiles = { vm.selectConnectionTab(ConnectionTab.Files) },
+                                onOpenFiles = {
+                                    if (filesSupported) {
+                                        vm.selectConnectionTab(ConnectionTab.Files)
+                                    } else {
+                                        showLocalShellFilesUnsupported()
+                                    }
+                                },
                                 useSingleRow = useSingleRowAccessoryBar,
                                 modifier = Modifier.padding(bottom = 2.dp),
                             )
@@ -1258,8 +1345,12 @@ fun TerminalScreen(
                         onChuchuKey = { chuchuKeys.togglePrefix() },
                         chuchuKeyActive = chuchuKeys.isPrefixActive,
                         onOpenFiles = {
-                            vm.selectConnectionTab(ConnectionTab.Files)
-                            showTabSheet = false
+                            if (filesSupported) {
+                                vm.selectConnectionTab(ConnectionTab.Files)
+                                showTabSheet = false
+                            } else {
+                                showLocalShellFilesUnsupported()
+                            }
                         },
                         onOpenSettings = onOpenSettings,
                         useSingleRowAccessoryBar = useSingleRowAccessoryBar,

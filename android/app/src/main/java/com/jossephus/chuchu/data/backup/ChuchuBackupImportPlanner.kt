@@ -3,6 +3,7 @@ package com.jossephus.chuchu.data.backup
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.HostProfile
 import com.jossephus.chuchu.model.SshKey
+import com.jossephus.chuchu.model.Transport
 
 object ChuchuBackupImportPlanner {
     @Throws(BackupFormatException::class)
@@ -85,6 +86,9 @@ object ChuchuBackupImportPlanner {
             if (host.host.isBlank()) throw BackupFormatException("Host address is required")
             if (host.username.isBlank()) throw BackupFormatException("Host username is required")
             if (host.port !in 1..65535) throw BackupFormatException("Invalid host port")
+            if (host.transport == Transport.LocalShell) {
+                throw BackupFormatException("Local shell profiles cannot be imported")
+            }
             if (host.keyId != null && host.keyId !in keyIds) {
                 throw BackupFormatException("Host references a missing SSH key")
             }

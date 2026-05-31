@@ -65,6 +65,21 @@ fun ApplicationNavController() {
                 searchQuery = searchQuery,
                 onSearchChange = vm::updateSearchQuery,
                 onAddServer = { navController.navigate("servers/add") },
+                onOpenLocalShell = {
+                    if (!requireAuthOnConnect) {
+                        navController.navigate("terminal/local")
+                    } else {
+                        requireUserVerification(
+                            context = context,
+                            title = "Verify to open local shell",
+                            subtitle = "Authenticate to open this device shell",
+                        ) { result ->
+                            if (result == VerificationResult.Success) {
+                                navController.navigate("terminal/local")
+                            }
+                        }
+                    }
+                },
                 onEditServer = { id -> navController.navigate("servers/edit/$id") },
                 onConnectServer = { id ->
                     val host = hosts.firstOrNull { it.id == id }
@@ -145,6 +160,16 @@ fun ApplicationNavController() {
             val vm: AddServerViewModel = viewModel(factory = AddServerViewModel.factory(application, id))
             AddServerScreen(
                 vm = vm,
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable("terminal/local") {
+            val vm: TerminalViewModel = viewModel(factory = TerminalViewModel.factory(application))
+            TerminalScreen(
+                vm = vm,
+                hostId = null,
+                openLocalShell = true,
+                onOpenSettings = { navController.navigate("settings") },
                 onBack = { navController.popBackStack() },
             )
         }

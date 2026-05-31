@@ -87,6 +87,9 @@ object ChuchuBackupCodec {
 
         writer.writeInt(payload.hosts.size)
         payload.hosts.forEach { host ->
+            if (host.transport == Transport.LocalShell) {
+                throw BackupFormatException("Local shell profiles cannot be backed up")
+            }
             writer.writeLong(host.id)
             writeStringField(host.name, "host name")
             writeStringField(host.host, "host")
@@ -148,17 +151,29 @@ object ChuchuBackupCodec {
         validateItemCount(hostCount, "host count")
         val hosts = buildList(hostCount) {
             repeat(hostCount) {
+                val id = reader.readLong()
+                val name = readStringField("host name")
+                val host = readStringField("host")
+                val port = reader.readInt()
+                val username = readStringField("username")
+                val password = readStringField("password")
+                val keyId = reader.readNullableLong()
+                val keyPassphrase = readStringField("key passphrase")
+                val transport = readEnumField("transport", enumValues<Transport>())
+                if (transport == Transport.LocalShell) {
+                    throw BackupFormatException("Local shell profiles cannot be imported")
+                }
                 add(
                     BackupHostProfile(
-                        id = reader.readLong(),
-                        name = readStringField("host name"),
-                        host = readStringField("host"),
-                        port = reader.readInt(),
-                        username = readStringField("username"),
-                        password = readStringField("password"),
-                        keyId = reader.readNullableLong(),
-                        keyPassphrase = readStringField("key passphrase"),
-                        transport = readEnumField("transport", enumValues<Transport>()),
+                        id = id,
+                        name = name,
+                        host = host,
+                        port = port,
+                        username = username,
+                        password = password,
+                        keyId = keyId,
+                        keyPassphrase = keyPassphrase,
+                        transport = transport,
                         authMethod = readEnumField("auth method", enumValues<AuthMethod>()),
                         requireAuthOnConnect = reader.readBoolean(),
                         postConnectCommand = readNullableStringField("post-connect command"),

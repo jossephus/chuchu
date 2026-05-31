@@ -127,6 +127,7 @@ class TerminalSessionRepository private constructor(application: Application) {
             TerminalSessionEngine(
                 scope,
                 appContext.filesDir.toPath(),
+                appContext.cacheDir.toPath(),
                 hostKeyStore,
                 tailscaleStatusChecker,
             )
@@ -143,7 +144,7 @@ class TerminalSessionRepository private constructor(application: Application) {
             privateKeyPem = spec.privateKeyPem,
             keyPassphrase = spec.keyPassphrase,
             transport = spec.transport,
-            sessionKey = spec.sessionKey,
+            sessionKey = sessionKeyFor(tab),
             postConnectCommand = spec.postConnectCommand,
         )
         return tab
@@ -179,7 +180,7 @@ class TerminalSessionRepository private constructor(application: Application) {
             privateKeyPem = spec.privateKeyPem,
             keyPassphrase = spec.keyPassphrase,
             transport = spec.transport,
-            sessionKey = spec.sessionKey,
+            sessionKey = sessionKeyFor(tab),
             postConnectCommand = spec.postConnectCommand,
         )
     }
@@ -192,6 +193,13 @@ class TerminalSessionRepository private constructor(application: Application) {
     }
 
     private fun activeEngine(): TerminalSessionEngine? = activeTab.value?.engine
+
+    private fun sessionKeyFor(tab: TabSession): String =
+        if (tab.spec.transport == com.jossephus.chuchu.model.Transport.LocalShell) {
+            "local-shell:${tab.id}"
+        } else {
+            tab.spec.sessionKey
+        }
 
     private fun engineForTab(tabId: String): TerminalSessionEngine? =
         _tabs.value.firstOrNull { it.id == tabId }?.engine

@@ -178,6 +178,36 @@ class ChuchuBackupCoreTest {
     }
 
     @Test(expected = BackupFormatException::class)
+    fun payloadEncodeRejectsLocalShellHostProfiles() {
+        val payload = samplePayload().copy(
+            hosts = listOf(BackupHostProfile.fromEntity(sampleHost(transport = Transport.LocalShell))),
+        )
+
+        ChuchuBackupCodec.encodePayload(payload)
+    }
+
+    @Test(expected = BackupFormatException::class)
+    fun payloadDecodeRejectsLocalShellHostProfiles() {
+        val encoded = ChuchuBackupCodec.encodePayload(samplePayload())
+        val crafted = replaceLastLengthPrefixedUtf8(encoded, "Mosh", "LocalShell")
+
+        ChuchuBackupCodec.decodePayload(crafted)
+    }
+
+    @Test(expected = BackupFormatException::class)
+    fun importPlanRejectsLocalShellHostProfiles() {
+        val payload = samplePayload().copy(
+            hosts = listOf(BackupHostProfile.fromEntity(sampleHost(transport = Transport.LocalShell))),
+        )
+
+        ChuchuBackupImportPlanner.planImport(
+            payload = payload,
+            existingKeys = emptyList(),
+            existingHosts = emptyList(),
+        )
+    }
+
+    @Test(expected = BackupFormatException::class)
     fun payloadDecodeRejectsMalformedBytes() {
         ChuchuBackupCodec.decodePayload(byteArrayOf(1, 2, 3))
     }
@@ -205,6 +235,7 @@ class ChuchuBackupCoreTest {
         name: String = "server",
         keyId: Long? = 1L,
         authMethod: AuthMethod = AuthMethod.KeyWithPassphrase,
+        transport: Transport = Transport.Mosh,
     ): HostProfile = HostProfile(
         id = id,
         name = name,
@@ -214,7 +245,7 @@ class ChuchuBackupCoreTest {
         password = "saved-password",
         keyId = keyId,
         keyPassphrase = "key-passphrase",
-        transport = Transport.Mosh,
+        transport = transport,
         authMethod = authMethod,
         requireAuthOnConnect = true,
         postConnectCommand = "echo hello",
@@ -255,5 +286,34 @@ class ChuchuBackupCoreTest {
         }
         require(matchIndex >= 0)
         newBytes.copyInto(bytes, destinationOffset = matchIndex)
+    }
+
+    private fun replaceLastLengthPrefixedUtf8(
+        bytes: ByteArray,
+        oldValue: String,
+        newValue: String,
+    ): ByteArray {
+        val oldBytes = oldValue.toByteArray(Charsets.UTF_8)
+        val newBytes = newValue.toByteArray(Charsets.UTF_8)
+        var matchIndex = -1
+        for (index in 0..bytes.size - oldBytes.size) {
+            if (oldBytes.indices.all { offset -> bytes[index + offset] == oldBytes[offset] }) {
+                matchIndex = index
+            }
+        }
+        require(matchIndex >= Int.SIZE_BYTES)
+        val lengthOffset = matchIndex - Int.SIZE_BYTES
+        require(readIntAt(bytes, lengthOffset) == oldBytes.size)
+
+        val out = ByteArray(bytes.size - oldBytes.size + newBytes.size)
+        bytes.copyInto(out, endIndex = lengthOffset)
+        writeIntAt(out, lengthOffset, newBytes.size)
+        newBytes.copyInto(out, destinationOffset = matchIndex)
+        bytes.copyInto(
+            out,
+            destinationOffset = matchIndex + newBytes.size,
+            startIndex = matchIndex + oldBytes.size,
+        )
+        return out
     }
 }

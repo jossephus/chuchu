@@ -24,10 +24,11 @@
     <td><img src="./assets/sample-4.jpg" alt="Chuchu sample 4" height="420" /></td>
 </table>
 
-Chuchu is a native Android SSH client powered by libghostty, a terminal-first Compose UI, and has support for both standard SSH and Tailscale SSH workflows.
+Chuchu is a native Android terminal client powered by libghostty, a terminal-first Compose UI, and has support for standard SSH, Tailscale SSH, Mosh, and Android local shell workflows.
 
 ### Features 
 - tailscale, ssh password + key authentication
+- built-in Android local shell sessions in the app sandbox
 - image display using libghostty's kitty image protocol support
 - more than 400 themes from the official ghostty repository
 - configurable accessory keys and custom terminal actions

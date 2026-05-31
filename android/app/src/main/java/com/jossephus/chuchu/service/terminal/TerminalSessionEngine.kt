@@ -12,6 +12,7 @@ import com.jossephus.chuchu.service.ssh.NativeSshService
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
 import java.nio.file.Path
 import java.util.concurrent.Executors
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
@@ -59,7 +60,8 @@ data class HostKeyPrompt(
 
 class TerminalSessionEngine(
     private val scope: CoroutineScope,
-    _userHomeDir: Path,
+    private val userHomeDir: Path,
+    private val userTempDir: Path,
     private val hostKeyStore: HostKeyStore,
     private val tailscaleStatusChecker: TailscaleStatusChecker,
 ) {
@@ -86,6 +88,7 @@ class TerminalSessionEngine(
     private val bridge = GhosttyBridge()
     private val nativeSsh = NativeSshService(hostKeyPolicy = ::verifyHostKey)
     private val moshService = NativeMoshService()
+    private val localShellService = NativeLocalShellService(userHomeDir, userTempDir)
 
     private var handle: Long = 0L
     private var readJob: Job? = null
@@ -177,7 +180,11 @@ class TerminalSessionEngine(
                     )
                 return@launch
             }
-            if (transport != Transport.Mosh && !nativeSsh.isAvailable()) {
+            if (
+                transport != Transport.Mosh &&
+                    transport != Transport.LocalShell &&
+                    !nativeSsh.isAvailable()
+            ) {
                 _state.value =
                     SessionState(
                         status = SessionStatus.Error,
@@ -195,7 +202,16 @@ class TerminalSessionEngine(
                     )
                 return@launch
             }
-            if (username.isBlank()) {
+            if (transport == Transport.LocalShell && !localShellService.isAvailable()) {
+                _state.value =
+                    SessionState(
+                        status = SessionStatus.Error,
+                        sessionKey = sessionKey,
+                        error = "Native local shell unavailable. Check ABI/NDK build.",
+                    )
+                return@launch
+            }
+            if (transport != Transport.LocalShell && username.isBlank()) {
                 _state.value =
                     SessionState(
                         status = SessionStatus.Error,
@@ -216,6 +232,14 @@ class TerminalSessionEngine(
                 requestSnapshot(force = true)
                 startReadLoop()
                 sendPostConnectCommand(params.postConnectCommand)
+            } catch (e: LinkageError) {
+                Log.e("TerminalSession", "Connect failed", e)
+                _state.value =
+                    SessionState(
+                        status = SessionStatus.Error,
+                        sessionKey = sessionKey,
+                        error = "Native terminal backend unavailable: ${e.message}",
+                    )
             } catch (e: Exception) {
                 Log.e("TerminalSession", "Connect failed", e)
                 _state.value =
@@ -344,7 +368,11 @@ class TerminalSessionEngine(
                 }
             } catch (e: Exception) {
                 Log.e("TerminalSession", "Resize failed", e)
-                if (!disconnectRequested && lastConnectionParams != null) {
+                val shouldReconnect =
+                    !disconnectRequested &&
+                        lastConnectionParams != null &&
+                        lastConnectionParams?.transport != Transport.LocalShell
+                if (shouldReconnect) {
                     scheduleReconnect("Connection interrupted: ${e.message ?: "resize failed"}")
                 } else {
                     _state.value =
@@ -377,26 +405,52 @@ class TerminalSessionEngine(
     }
 
     suspend fun sftpListDirectory(path: String): List<String> =
-        withContext(dispatcher) { nativeSsh.sftpListDirectory(path) }
+        withContext(dispatcher) {
+            ensureSftpSupported()
+            nativeSsh.sftpListDirectory(path)
+        }
 
     suspend fun sftpRealpath(path: String): String =
-        withContext(dispatcher) { nativeSsh.sftpRealpath(path) }
+        withContext(dispatcher) {
+            ensureSftpSupported()
+            nativeSsh.sftpRealpath(path)
+        }
 
     suspend fun sftpOpenWrite(path: String) =
-        withContext(dispatcher) { nativeSsh.sftpOpenWrite(path) }
+        withContext(dispatcher) {
+            ensureSftpSupported()
+            nativeSsh.sftpOpenWrite(path)
+        }
 
     suspend fun sftpWriteChunk(data: ByteArray): Int =
-        withContext(dispatcher) { nativeSsh.sftpWriteChunk(data) }
+        withContext(dispatcher) {
+            ensureSftpSupported()
+            nativeSsh.sftpWriteChunk(data)
+        }
 
-    suspend fun sftpCloseWrite() = withContext(dispatcher) { nativeSsh.sftpCloseWrite() }
+    suspend fun sftpCloseWrite() =
+        withContext(dispatcher) {
+            ensureSftpSupported()
+            nativeSsh.sftpCloseWrite()
+        }
 
     suspend fun sftpReadFile(path: String, maxBytes: Int): ByteArray =
-        withContext(dispatcher) { nativeSsh.sftpReadFile(path, maxBytes) }
+        withContext(dispatcher) {
+            ensureSftpSupported()
+            nativeSsh.sftpReadFile(path, maxBytes)
+        }
 
     suspend fun sftpDelete(path: String, isDirectory: Boolean) =
         withContext(dispatcher) {
+            ensureSftpSupported()
             if (isDirectory) nativeSsh.sftpDeleteDirectory(path) else nativeSsh.sftpDeleteFile(path)
         }
+
+    private fun ensureSftpSupported() {
+        check(lastConnectionParams?.transport != Transport.LocalShell) {
+            "Files are not supported for local shell sessions"
+        }
+    }
 
     fun disconnect() {
         disconnectRequested = true
@@ -408,6 +462,7 @@ class TerminalSessionEngine(
             readJob = null
             nativeSsh.close()
             moshService.close()
+            localShellService.close()
             if (handle != 0L) {
                 bridge.nativeDestroy(handle)
                 handle = 0L
@@ -475,16 +530,35 @@ class TerminalSessionEngine(
     private fun startReadLoop() {
         readJob =
             scope.launch(dispatcher) {
+                val transport = lastConnectionParams?.transport
+                var failed = false
                 try {
-                    if (lastConnectionParams?.transport == Transport.Mosh) {
-                        startMoshReadLoop()
-                    } else {
-                        startSshReadLoop()
+                    when (transport) {
+                        Transport.Mosh -> startMoshReadLoop()
+                        Transport.LocalShell -> startLocalShellReadLoop()
+                        else -> startSshReadLoop()
                     }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
+                    failed = true
                     Log.e("TerminalSession", "Read loop failed", e)
+                    if (transport == Transport.LocalShell && !disconnectRequested) {
+                        _state.value =
+                            _state.value.copy(
+                                status = SessionStatus.Error,
+                                error = "Local shell failed: ${e.message}",
+                            )
+                    }
                 }
-                scheduleReconnect("Connection interrupted")
+                if (transport == Transport.LocalShell) {
+                    localShellService.close()
+                    if (!disconnectRequested && !failed) {
+                        _state.value = _state.value.copy(status = SessionStatus.Disconnected)
+                    }
+                } else {
+                    scheduleReconnect("Connection interrupted")
+                }
             }
     }
 
@@ -499,18 +573,37 @@ class TerminalSessionEngine(
                 delay(2)
                 continue
             }
-            if (handle == 0L) continue
-            val wasImageLoading = bridge.nativeIsImageLoading(handle)
-            flushPtyWrites()
-            bridge.nativeWriteRemote(handle, chunk)
-            flushPtyWrites()
-            val isImageLoading = bridge.nativeIsImageLoading(handle)
-            when {
-                wasImageLoading && !isImageLoading -> {
-                    requestSnapshot(force = true)
-                }
-                !isImageLoading -> requestSnapshot()
+            feedRemoteChunk(chunk)
+        }
+    }
+
+    private suspend fun startLocalShellReadLoop() {
+        val buf = ByteArray(65536)
+        while (currentCoroutineContext().isActive) {
+            val chunk = localShellService.read(buf.size)
+            if (chunk == null) {
+                break
             }
+            if (chunk.isEmpty()) {
+                delay(2)
+                continue
+            }
+            feedRemoteChunk(chunk)
+        }
+    }
+
+    private fun feedRemoteChunk(chunk: ByteArray) {
+        if (handle == 0L) return
+        val wasImageLoading = bridge.nativeIsImageLoading(handle)
+        flushPtyWrites()
+        bridge.nativeWriteRemote(handle, chunk)
+        flushPtyWrites()
+        val isImageLoading = bridge.nativeIsImageLoading(handle)
+        when {
+            wasImageLoading && !isImageLoading -> {
+                requestSnapshot(force = true)
+            }
+            !isImageLoading -> requestSnapshot()
         }
     }
 
@@ -588,13 +681,20 @@ class TerminalSessionEngine(
         }
         nativeSsh.close()
         moshService.close()
+        localShellService.close()
         handle = bridge.nativeCreate(cols, rows, 1000)
         applyTerminalOptions()
 
         when (params.transport) {
             Transport.Mosh -> establishMoshConnection(params, username)
+            Transport.LocalShell -> establishLocalShellConnection()
             else -> establishSshConnection(params, username)
         }
+    }
+
+    private fun establishLocalShellConnection() {
+        check(localShellService.isAvailable()) { "Native local shell unavailable" }
+        localShellService.start(cols, rows, screenWidth, screenHeight)
     }
 
     private fun establishSshConnection(params: ConnectionParams, username: String) {
@@ -805,10 +905,10 @@ class TerminalSessionEngine(
     }
 
     private fun writeRemote(data: ByteArray) {
-        if (lastConnectionParams?.transport == Transport.Mosh) {
-            moshService.sendInput(data)
-        } else {
-            nativeSsh.write(data)
+        when (lastConnectionParams?.transport) {
+            Transport.Mosh -> moshService.sendInput(data)
+            Transport.LocalShell -> localShellService.write(data)
+            else -> nativeSsh.write(data)
         }
     }
 
@@ -844,11 +944,13 @@ class TerminalSessionEngine(
     }
 
     private fun resizeRemote(cols: Int, rows: Int, widthPx: Int, heightPx: Int) {
-        if (lastConnectionParams?.transport == Transport.Mosh) {
-            Log.d("TerminalSession", "MOSH: resizeRemote ${cols}x${rows}")
-            moshService.resize(cols, rows)
-        } else {
-            nativeSsh.resize(cols, rows, widthPx, heightPx)
+        when (lastConnectionParams?.transport) {
+            Transport.Mosh -> {
+                Log.d("TerminalSession", "MOSH: resizeRemote ${cols}x${rows}")
+                moshService.resize(cols, rows)
+            }
+            Transport.LocalShell -> localShellService.resize(cols, rows, widthPx, heightPx)
+            else -> nativeSsh.resize(cols, rows, widthPx, heightPx)
         }
     }
 
