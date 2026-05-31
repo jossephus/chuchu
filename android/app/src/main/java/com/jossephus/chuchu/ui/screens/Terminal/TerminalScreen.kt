@@ -1,10 +1,14 @@
 package com.jossephus.chuchu.ui.screens.Terminal
 
+import android.Manifest
+import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
+import android.provider.Settings
 import android.provider.OpenableColumns
 import android.view.inputmethod.InputMethodManager
 import android.webkit.MimeTypeMap
@@ -17,6 +21,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,26 +42,34 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jossephus.chuchu.data.db.AppDatabase
@@ -81,6 +95,7 @@ import com.jossephus.chuchu.ui.terminal.CustomActionModifier
 import com.jossephus.chuchu.ui.terminal.GhosttyKey
 import com.jossephus.chuchu.ui.terminal.GhosttyKeyAction
 import com.jossephus.chuchu.ui.terminal.KeyboardAccessoryBar
+import com.jossephus.chuchu.ui.terminal.DictationState
 import com.jossephus.chuchu.ui.terminal.ModifierState
 import com.jossephus.chuchu.ui.terminal.TerminalAccessoryDispatcher
 import com.jossephus.chuchu.ui.terminal.TerminalAccessoryLayoutStore
@@ -89,16 +104,19 @@ import com.jossephus.chuchu.ui.terminal.TerminalCustomAction
 import com.jossephus.chuchu.ui.terminal.TerminalCustomKeyGroup
 import com.jossephus.chuchu.ui.terminal.TerminalInputView
 import com.jossephus.chuchu.ui.terminal.TerminalSpecialKey
+import com.jossephus.chuchu.ui.terminal.VoiceDictationController
 import com.jossephus.chuchu.ui.terminal.decodeCustomActionValue
 import com.jossephus.chuchu.ui.terminal.modifierStateForCustomAction
 import com.jossephus.chuchu.ui.terminal.toGhosttyKey
 import com.jossephus.chuchu.ui.theme.ChuColors
+import com.jossephus.chuchu.ui.theme.ChuSymbolsFontFamily
 import com.jossephus.chuchu.ui.theme.ChuTypography
 import com.jossephus.chuchu.ui.theme.GhosttyThemeRegistry
 import com.jossephus.chuchu.ui.theme.resolveActiveThemeName
 import com.jossephus.chuchu.ui.theme.toRgbIntArray
 import com.jossephus.chuchu.ui.theme.toTerminalPaletteBytes
 import java.io.File
+import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
@@ -129,6 +147,92 @@ private fun TerminalViewModel.dispatchTextWithModifierState(
             onHardwareKey(ghosttyKey, codepoint, mods, GhosttyKeyAction.Release)
         } else {
             onTextInput(modifierState.applyToText(char.toString()))
+        }
+    }
+}
+
+private fun Context.findActivity(): Activity? {
+    var current: Context? = this
+    while (current is ContextWrapper) {
+        if (current is Activity) return current
+        current = current.baseContext
+    }
+    return null
+}
+
+private fun openApplicationSettings(context: Context) {
+    val intent =
+        Intent(
+            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            Uri.fromParts("package", context.packageName, null),
+        )
+    context.startActivity(intent)
+}
+
+@Composable
+private fun DictationPreviewRow(
+    previewText: String,
+    rmsDb: Float,
+    modifier: Modifier = Modifier,
+) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+    val scrollState = rememberScrollState()
+    val micIntensity = ((rmsDb + 2f) / 12f).coerceIn(0.2f, 1f)
+
+    LaunchedEffect(previewText, scrollState) {
+        snapshotFlow { scrollState.maxValue }.collect { maxValue ->
+            if (scrollState.value != maxValue) {
+                scrollState.scrollTo(maxValue)
+            }
+        }
+    }
+
+    Row(
+        modifier =
+            modifier.fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 4.dp)
+                .background(colors.surface)
+                .border(1.dp, colors.border)
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ChuText(
+            text = "\uf130",
+            style = TextStyle(
+                fontFamily = ChuSymbolsFontFamily,
+                fontWeight = typography.label.fontWeight,
+                fontStyle = typography.label.fontStyle,
+                fontSize = 16.sp,
+                lineHeight = 16.sp,
+            ),
+            color = colors.accent.copy(alpha = micIntensity),
+        )
+        Box(modifier = Modifier.weight(1f)) {
+            Box(modifier = Modifier.horizontalScroll(scrollState)) {
+                ChuText(
+                    text = previewText,
+                    style = typography.labelSmall,
+                    color = colors.textSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Clip,
+                    softWrap = false,
+                )
+            }
+            if (scrollState.maxValue > 0) {
+                Box(
+                    modifier =
+                        Modifier.align(Alignment.CenterStart)
+                            .width(18.dp)
+                            .fillMaxHeight()
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(colors.surface, colors.surface.copy(alpha = 0f))
+                                )
+                            )
+                )
+            }
         }
     }
 }
@@ -540,9 +644,89 @@ fun TerminalScreen(
                         }
                     }
                     var modifierState by remember { mutableStateOf(ModifierState()) }
+                    var showDictationPermissionDialog by remember { mutableStateOf(false) }
+                    var requestedAudioPermission by remember { mutableStateOf(false) }
 
                     fun resetModifiers() {
                         modifierState = modifierState.reset()
+                    }
+
+                    val onDictationTextState =
+                        rememberUpdatedState<(String) -> Unit> { text ->
+                            if (text.isBlank()) return@rememberUpdatedState
+                            if (chuchuKeys.isPrefixActive) {
+                                chuchuKeys.reset()
+                            }
+                            vm.dispatchTextWithModifierState(text, modifierState)
+                            resetModifiers()
+                            requestInputFocus()
+                        }
+                    val onDictationErrorState =
+                        rememberUpdatedState<(String) -> Unit> { message ->
+                            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                        }
+                    val voiceDictationController =
+                        remember(context) {
+                            VoiceDictationController(
+                                context = context,
+                                onFinalText = { onDictationTextState.value(it) },
+                                onError = { onDictationErrorState.value(it) },
+                            )
+                        }
+                    val dictationState by voiceDictationController.state.collectAsStateWithLifecycle()
+
+                    DisposableEffect(voiceDictationController) {
+                        onDispose { voiceDictationController.release() }
+                    }
+
+                    LaunchedEffect(selectedTab) {
+                        if (selectedTab != ConnectionTab.Terminal) {
+                            voiceDictationController.cancel()
+                        }
+                    }
+
+                    val recordAudioPermissionLauncher =
+                        rememberLauncherForActivityResult(
+                            contract = ActivityResultContracts.RequestPermission()
+                        ) { granted ->
+                            if (granted) {
+                                voiceDictationController.start(Locale.getDefault())
+                                requestInputFocus()
+                            } else {
+                                val activity = context.findActivity()
+                                val shouldShowRationale =
+                                    activity?.shouldShowRequestPermissionRationale(
+                                        Manifest.permission.RECORD_AUDIO
+                                    ) == true
+                                if (requestedAudioPermission && !shouldShowRationale) {
+                                    showDictationPermissionDialog = true
+                                } else {
+                                    Toast.makeText(
+                                        context,
+                                        "Microphone permission is required for dictation",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                            }
+                        }
+
+                    fun toggleVoiceDictation() {
+                        if (dictationState is DictationState.Listening) {
+                            voiceDictationController.stop()
+                            return
+                        }
+                        val hasPermission =
+                            ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.RECORD_AUDIO,
+                            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                        if (hasPermission) {
+                            voiceDictationController.start(Locale.getDefault())
+                            requestInputFocus()
+                            return
+                        }
+                        requestedAudioPermission = true
+                        recordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                     }
 
                     fun pasteClipboard(): Boolean {
@@ -747,6 +931,23 @@ fun TerminalScreen(
                     LaunchedEffect(Unit) {
                         requestInputFocus()
                         vm.onFocusChanged(true)
+                    }
+                    if (showDictationPermissionDialog) {
+                        ChuDialog(
+                            title = "Microphone permission",
+                            confirmLabel = "Settings",
+                            dismissLabel = "Not now",
+                            onConfirm = {
+                                showDictationPermissionDialog = false
+                                openApplicationSettings(context)
+                            },
+                            onDismiss = { showDictationPermissionDialog = false },
+                        ) {
+                            ChuText(
+                                "Allow microphone access in Android Settings to use voice dictation in the terminal.",
+                                style = typography.body,
+                            )
+                        }
                     }
                     Column(
                         modifier =
@@ -1005,13 +1206,10 @@ fun TerminalScreen(
                                         Modifier.align(Alignment.BottomStart).size(1.dp).alpha(0f),
                                     factory = { viewContext ->
                                         TerminalInputView(viewContext)
-                                            .apply {
+                                                .apply {
                                                 onTerminalText = { text ->
                                                     if (!chuchuKeys.handleText(text)) {
-                                                        vm.dispatchTextWithModifierState(
-                                                            text,
-                                                            modifierState,
-                                                        )
+                                                        vm.dispatchTextWithModifierState(text, modifierState)
                                                         resetModifiers()
                                                     }
                                                 }
@@ -1143,6 +1341,7 @@ fun TerminalScreen(
 
                         Spacer(modifier = Modifier.height(6.dp))
                         if (selectedTab == ConnectionTab.Terminal) {
+                            val listeningState = dictationState as? DictationState.Listening
                             AnimatedVisibility(
                                 visible = chuchuKeys.isPrefixActive,
                                 enter = fadeIn(),
@@ -1172,6 +1371,18 @@ fun TerminalScreen(
                                     }
                                 }
                             }
+                            AnimatedVisibility(
+                                visible = listeningState != null,
+                                enter = fadeIn(),
+                                exit = fadeOut(),
+                            ) {
+                                DictationPreviewRow(
+                                    previewText =
+                                        listeningState?.partialText?.ifBlank { "listening..." }
+                                            ?: "listening...",
+                                    rmsDb = listeningState?.rmsDb ?: 0f,
+                                )
+                            }
                             KeyboardAccessoryBar(
                                 items = accessoryLayout,
                                 modifierState = modifierState,
@@ -1183,6 +1394,8 @@ fun TerminalScreen(
                                 },
                                 chuchuKeyActive = chuchuKeys.isPrefixActive,
                                 onOpenFiles = { vm.selectConnectionTab(ConnectionTab.Files) },
+                                onToggleDictation = ::toggleVoiceDictation,
+                                dictationActive = dictationState is DictationState.Listening,
                                 useSingleRow = useSingleRowAccessoryBar,
                                 modifier = Modifier.padding(bottom = 2.dp),
                             )

@@ -17,6 +17,7 @@ fun ChuText(
     color: Color = ChuColors.current.textPrimary,
     maxLines: Int = Int.MAX_VALUE,
     overflow: TextOverflow = TextOverflow.Clip,
+    softWrap: Boolean = true,
 ) {
     BasicText(
         text = text,
@@ -24,5 +25,6 @@ fun ChuText(
         style = style.copy(color = color),
         maxLines = maxLines,
         overflow = overflow,
+        softWrap = softWrap,
     )
 }

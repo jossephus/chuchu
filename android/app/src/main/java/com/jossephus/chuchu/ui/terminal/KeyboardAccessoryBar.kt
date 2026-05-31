@@ -34,6 +34,8 @@ fun KeyboardAccessoryBar(
     onChuchuKey: (() -> Unit)? = null,
     chuchuKeyActive: Boolean = false,
     onOpenFiles: (() -> Unit)? = null,
+    onToggleDictation: (() -> Unit)? = null,
+    dictationActive: Boolean = false,
     useSingleRow: Boolean = false,
     horizontalPadding: Dp = 8.dp,
     verticalPadding: Dp = 6.dp,
@@ -67,6 +69,12 @@ fun KeyboardAccessoryBar(
                 buttonHeight = buttonHeight,
                 buttonPadding = buttonPadding,
             )
+            DictationButton(
+                onToggleDictation = onToggleDictation,
+                dictationActive = dictationActive,
+                buttonHeight = buttonHeight,
+                buttonPadding = buttonPadding,
+            )
             SettingsButton(
                 onSettings = onSettings,
                 buttonHeight = buttonHeight,
@@ -97,6 +105,12 @@ fun KeyboardAccessoryBar(
             onChuchuKey = onChuchuKey,
             chuchuKeyActive = chuchuKeyActive,
             onOpenFiles = onOpenFiles,
+            buttonHeight = buttonHeight,
+            buttonPadding = buttonPadding,
+        )
+        DictationButton(
+            onToggleDictation = onToggleDictation,
+            dictationActive = dictationActive,
             buttonHeight = buttonHeight,
             buttonPadding = buttonPadding,
         )
@@ -198,6 +212,36 @@ private fun SettingsButton(
         contentPadding = buttonPadding,
     ) {
         ChuText("⚙", style = typography.label)
+    }
+}
+
+@Composable
+private fun DictationButton(
+    onToggleDictation: (() -> Unit)?,
+    dictationActive: Boolean,
+    buttonHeight: Dp,
+    buttonPadding: PaddingValues,
+) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+    if (onToggleDictation == null) return
+    ChuButton(
+        onClick = onToggleDictation,
+        variant = if (dictationActive) ChuButtonVariant.Filled else ChuButtonVariant.Outlined,
+        modifier = Modifier.height(buttonHeight),
+        contentPadding = buttonPadding,
+    ) {
+        ChuText(
+            text = "\uf130",
+            style = TextStyle(
+                fontFamily = ChuSymbolsFontFamily,
+                fontWeight = typography.label.fontWeight,
+                fontStyle = typography.label.fontStyle,
+                fontSize = 16.sp,
+                lineHeight = 16.sp,
+            ),
+            color = if (dictationActive) colors.onAccent else colors.textPrimary,
+        )
     }
 }
 
