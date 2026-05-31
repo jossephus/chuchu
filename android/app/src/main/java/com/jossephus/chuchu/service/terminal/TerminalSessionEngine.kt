@@ -317,29 +317,42 @@ class TerminalSessionEngine(
         newScreenHeight: Int,
     ) {
         scope.launch(dispatcher) {
-            if (newCols <= 0 || newRows <= 0) return@launch
-            if (newCellWidth <= 0 || newCellHeight <= 0) return@launch
-            cols = newCols
-            rows = newRows
-            cellWidth = newCellWidth
-            cellHeight = newCellHeight
-            screenWidth = newScreenWidth
-            screenHeight = newScreenHeight
-            if (handle != 0L) {
-                bridge.nativeResize(handle, cols, rows, cellWidth, cellHeight)
-                bridge.nativeSetMouseEncodingSize(
-                    handle,
-                    screenWidth,
-                    screenHeight,
-                    cellWidth,
-                    cellHeight,
-                    0,
-                    0,
-                    0,
-                    0,
-                )
-                resizeRemote(cols, rows, screenWidth, screenHeight)
-                requestSnapshot(force = true)
+            try {
+                if (newCols <= 0 || newRows <= 0) return@launch
+                if (newCellWidth <= 0 || newCellHeight <= 0) return@launch
+                cols = newCols
+                rows = newRows
+                cellWidth = newCellWidth
+                cellHeight = newCellHeight
+                screenWidth = newScreenWidth
+                screenHeight = newScreenHeight
+                if (handle != 0L) {
+                    bridge.nativeResize(handle, cols, rows, cellWidth, cellHeight)
+                    bridge.nativeSetMouseEncodingSize(
+                        handle,
+                        screenWidth,
+                        screenHeight,
+                        cellWidth,
+                        cellHeight,
+                        0,
+                        0,
+                        0,
+                        0,
+                    )
+                    resizeRemote(cols, rows, screenWidth, screenHeight)
+                    requestSnapshot(force = true)
+                }
+            } catch (e: Exception) {
+                Log.e("TerminalSession", "Resize failed", e)
+                if (!disconnectRequested && lastConnectionParams != null) {
+                    scheduleReconnect("Connection interrupted: ${e.message ?: "resize failed"}")
+                } else {
+                    _state.value =
+                        _state.value.copy(
+                            status = SessionStatus.Error,
+                            error = "Resize failed: ${e.message}",
+                        )
+                }
             }
         }
     }
