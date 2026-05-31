@@ -78,7 +78,7 @@ class TerminalSessionRepository private constructor(application: Application) {
 
     init {
         scope.launch {
-            _tabs
+            combine(_tabs, _activeTabId) { tabs, _ -> tabs }
                 .flatMapLatest { tabs ->
                     if (tabs.isEmpty()) {
                         flowOf(emptyList())
@@ -120,7 +120,7 @@ class TerminalSessionRepository private constructor(application: Application) {
     private fun currentNotificationLabel(): String {
         val tabs = _tabs.value
         if (tabs.isEmpty()) return "Active session"
-        val active = activeTab.value ?: tabs.first()
+        val active = tabs.firstOrNull { it.id == _activeTabId.value } ?: tabs.first()
         if (tabs.size == 1) return active.spec.notificationLabel
         return "${tabs.size} sessions  ·  ${active.spec.notificationLabel}"
     }
