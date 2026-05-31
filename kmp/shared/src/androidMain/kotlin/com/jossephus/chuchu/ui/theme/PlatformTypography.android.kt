@@ -1,5 +1,6 @@
 package com.jossephus.chuchu.ui.theme
 
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -9,6 +10,7 @@ actual val ChuSymbolsFontFamily: FontFamily = FontFamily(
     Font(R.font.symbols_nerd_font_mono_regular, FontWeight.Normal),
 )
 
+@Composable
 actual fun monoFamily(option: ChuFontOption): FontFamily {
     val resId = getFontResourceId(option)
     return FontFamily(

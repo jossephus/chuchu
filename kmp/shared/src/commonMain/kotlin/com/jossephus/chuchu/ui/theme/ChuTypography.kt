@@ -8,6 +8,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import kotlinproject.shared.generated.resources.*
 
 @Immutable
 data class ChuTypeScale(
@@ -41,45 +42,60 @@ enum class ChuFontOption(
 
 expect val ChuSymbolsFontFamily: FontFamily
 
+@Composable
 expect fun monoFamily(option: ChuFontOption): FontFamily
 
 expect fun getFontResourceId(option: ChuFontOption): Int
 
-fun chuTypographyFor(option: ChuFontOption): ChuTypeScale {
-    val mono = monoFamily(option)
+@Composable
+fun monoFamilyFromResources(option: ChuFontOption): FontFamily {
+    val fontResource = when (option) {
+        ChuFontOption.JetBrainsMono -> Res.font.jetbrains_mono_regular
+        ChuFontOption.FiraCode -> Res.font.fira_code_regular
+        ChuFontOption.Hack -> Res.font.hack_regular
+        ChuFontOption.GeistMono -> Res.font.geist_mono_regular
+    }
+    return FontFamily(
+        org.jetbrains.compose.resources.Font(fontResource, FontWeight.Normal),
+        org.jetbrains.compose.resources.Font(fontResource, FontWeight.Medium),
+        org.jetbrains.compose.resources.Font(fontResource, FontWeight.SemiBold),
+    )
+}
+
+fun chuTypographyFor(fontFamily: FontFamily): ChuTypeScale {
     return ChuTypeScale(
         headline = TextStyle(
-            fontFamily = mono,
+            fontFamily = fontFamily,
             fontWeight = FontWeight.SemiBold,
             fontSize = 22.sp,
             lineHeight = 28.sp,
         ),
         title = TextStyle(
-            fontFamily = mono,
+            fontFamily = fontFamily,
             fontWeight = FontWeight.Medium,
             fontSize = 16.sp,
             lineHeight = 22.sp,
         ),
         body = TextStyle(
-            fontFamily = mono,
+            fontFamily = fontFamily,
             fontWeight = FontWeight.Normal,
             fontSize = 14.sp,
             lineHeight = 20.sp,
         ),
         bodySmall = TextStyle(
-            fontFamily = mono,
+            fontFamily = fontFamily,
             fontWeight = FontWeight.Normal,
             fontSize = 12.sp,
             lineHeight = 18.sp,
         ),
         label = TextStyle(
-            fontFamily = mono,
+            fontFamily = fontFamily,
             fontWeight = FontWeight.Medium,
             fontSize = 13.sp,
             lineHeight = 18.sp,
         ),
         labelSmall = TextStyle(
-            fontFamily = mono,
+            fontFamily = fontFamily,
             fontWeight = FontWeight.Medium,
             fontSize = 11.sp,
             lineHeight = 16.sp,
@@ -87,7 +103,7 @@ fun chuTypographyFor(option: ChuFontOption): ChuTypeScale {
     )
 }
 
-val ChuDefaultTypography: ChuTypeScale = chuTypographyFor(ChuFontOption.default)
+val ChuDefaultTypography: ChuTypeScale = chuTypographyFor(FontFamily.Default)
 
 val LocalChuTypography = staticCompositionLocalOf { ChuDefaultTypography }
 val LocalChuFont = staticCompositionLocalOf { ChuFontOption.default }

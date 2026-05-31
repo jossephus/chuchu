@@ -62,7 +62,7 @@ fun SettingsScreen(
     onTerminalCustomActionsChanged: (List<TerminalCustomKeyGroup>) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
-    themeSelectorContent: @Composable (darkThemeName: String, onDarkThemeSelected: (String) -> Unit, lightThemeName: String, onLightThemeSelected: (String) -> Unit, themeMode: ThemeMode, onThemeModeChanged: (ThemeMode) -> Unit) -> Unit = { _, _, _, _, _, _ -> },
+    platformContext: Any? = null,
     backupSheetContent: (@Composable (visible: Boolean, onDismiss: () -> Unit) -> Unit)? = null,
 ) {
     val colors = ChuColors.current
@@ -156,7 +156,7 @@ fun SettingsScreen(
                         onAppLockEnabledChanged = onAppLockEnabledChanged,
                         onRequireAuthOnConnectChanged = onRequireAuthOnConnectChanged,
                         onOpenBackup = { showBackupSheet = true },
-                        themeSelectorContent = themeSelectorContent,
+                        platformContext = platformContext,
                     )
                     SettingsCategory.Terminal -> TerminalSettings(
                         currentAccessoryLayoutIds = currentAccessoryLayoutIds,
@@ -208,11 +208,19 @@ private fun GeneralSettings(
     onAppLockEnabledChanged: (Boolean) -> Unit,
     onRequireAuthOnConnectChanged: (Boolean) -> Unit,
     onOpenBackup: () -> Unit = {},
-    themeSelectorContent: @Composable (darkThemeName: String, onDarkThemeSelected: (String) -> Unit, lightThemeName: String, onLightThemeSelected: (String) -> Unit, themeMode: ThemeMode, onThemeModeChanged: (ThemeMode) -> Unit) -> Unit = { _, _, _, _, _, _ -> },
+    platformContext: Any? = null,
 ) {
     val typography = ChuTypography.current
     val colors = ChuColors.current
-    themeSelectorContent(currentTheme, onThemeSelected, lightThemeName, onLightThemeSelected, themeMode, onThemeModeChanged)
+    ThemeSelectorSection(
+        darkThemeName = currentTheme,
+        onDarkThemeSelected = onThemeSelected,
+        lightThemeName = lightThemeName,
+        onLightThemeSelected = onLightThemeSelected,
+        themeMode = themeMode,
+        onThemeModeChanged = onThemeModeChanged,
+        platformContext = platformContext,
+    )
     Spacer(modifier = Modifier.height(16.dp))
     FontSelectorSection(
         currentFont = currentFont,

@@ -49,8 +49,15 @@ data class FileBrowserUiState(
 fun formatFileSize(bytes: Long): String {
     return when {
         bytes < 1024 -> "$bytes b"
-        bytes < 1024 * 1024 -> "${"%.1f".format(bytes / 1024.0)} kb"
-        bytes < 1024 * 1024 * 1024 -> "${"%.1f".format(bytes / (1024.0 * 1024.0))} mb"
-        else -> "${"%.1f".format(bytes / (1024.0 * 1024.0 * 1024.0))} gb"
+        bytes < 1024 * 1024 -> formatOneDecimal(bytes / 1024.0) + " kb"
+        bytes < 1024 * 1024 * 1024 -> formatOneDecimal(bytes / (1024.0 * 1024.0)) + " mb"
+        else -> formatOneDecimal(bytes / (1024.0 * 1024.0 * 1024.0)) + " gb"
     }
+}
+
+private fun formatOneDecimal(value: Double): String {
+    val rounded = (value * 10).toLong()
+    val intPart = (rounded / 10).toString()
+    val decPart = (rounded % 10).toString()
+    return "$intPart.$decPart"
 }

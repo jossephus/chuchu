@@ -19,3 +19,7 @@ fmt:
 lint:
 	ktlint --editorconfig=android/.editorconfig "android/app/src/**/*.kt" "android/**/*.gradle.kts"
 
+ios:   
+	./kmp/gradlew -p kmp :shared:linkDebugFrameworkIosSimulatorArm64
+	xcodebuild -project kmp/iosApp/iosApp.xcodeproj -scheme iosApp -sdk iphonesimulator -destination "platform=iOS Simulator,name=iPhone 17" build 
+	xcrun simctl boot "iPhone 17" 2>&1; sleep 5; xcrun simctl install booted "/Users/jossephus/Library/Developer/Xcode/DerivedData/iosApp-clcgwcnhbwsoitczpujrqdkeacjh/Build/Products/Debug-iphonesimulator/KotlinProject.app" 2>&1; xcrun simctl launch booted com.jossephus.chuchu.KotlinProject

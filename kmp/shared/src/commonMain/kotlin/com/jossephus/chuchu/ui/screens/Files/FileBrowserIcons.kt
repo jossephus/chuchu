@@ -12,6 +12,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import kotlin.math.cos
+import kotlin.math.PI
 import kotlin.math.sin
 
 // ── Toolbar & action icons ──────────────────────────────────────────────
@@ -135,7 +136,7 @@ fun RefreshIcon(color: Color, modifier: Modifier = Modifier) {
         drawPath(arcPath, color, style = Stroke(width = stroke))
 
         // Arrowhead at the end of the arc (at ~75° direction)
-        val endAngleRad = (75.0 * Math.PI / 180.0)
+        val endAngleRad = (75.0 * PI / 180.0)
         val tipX = cx + radius * cos(endAngleRad).toFloat()
         val tipY = cy + radius * sin(endAngleRad).toFloat()
         val headLen = w * 0.18f
@@ -337,7 +338,7 @@ private fun DrawScope.drawSymlinkIcon(w: Float, h: Float, color: Color) {
     }
     drawPath(arcPath, color, style = Stroke(width = arrowStroke))
 
-    val endAngleRad = (330.0 * Math.PI / 180.0)
+    val endAngleRad = (330.0 * PI / 180.0)
     val tipX = cx + arrowR * cos(endAngleRad).toFloat()
     val tipY = cy + arrowR * sin(endAngleRad).toFloat()
     val headLen = w * 0.18f

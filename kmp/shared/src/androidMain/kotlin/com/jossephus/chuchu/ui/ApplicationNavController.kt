@@ -35,7 +35,6 @@ import com.jossephus.chuchu.ui.screens.ServerList.ServerListViewModel
 import com.jossephus.chuchu.ui.screens.Settings.SettingsBackupViewModel
 import com.jossephus.chuchu.ui.screens.Settings.SettingsScreen
 import com.jossephus.chuchu.ui.screens.Settings.SshBackupSheet
-import com.jossephus.chuchu.ui.screens.Settings.ThemeSelectorSection
 import com.jossephus.chuchu.ui.screens.Terminal.TerminalScreen
 import com.jossephus.chuchu.ui.screens.Terminal.TerminalViewModel
 import com.jossephus.chuchu.ui.security.VerificationResult
@@ -132,6 +131,7 @@ fun ApplicationNavController() {
             val backupViewModel: SettingsBackupViewModel = viewModel(
                 factory = SettingsBackupViewModel.factory(application),
             )
+            val ctx = LocalContext.current
             val themeName by settingsRepo.themeName.collectAsStateWithLifecycle()
             val fontName by settingsRepo.fontName.collectAsStateWithLifecycle()
             val appLockEnabled by settingsRepo.appLockEnabled.collectAsStateWithLifecycle()
@@ -166,16 +166,7 @@ fun ApplicationNavController() {
                         navController.popBackStack()
                     }
                 },
-                themeSelectorContent = { dt, odt, lt, olt, tm, otm ->
-                    ThemeSelectorSection(
-                        darkThemeName = dt,
-                        onDarkThemeSelected = odt,
-                        lightThemeName = lt,
-                        onLightThemeSelected = olt,
-                        themeMode = tm,
-                        onThemeModeChanged = otm,
-                    )
-                },
+                platformContext = ctx,
                 backupSheetContent = { visible, onDismiss ->
                     SshBackupSheet(
                         visible = visible,
