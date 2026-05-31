@@ -73,6 +73,8 @@ class TerminalSessionRepository private constructor(application: Application) {
             .stateIn(scope, SharingStarted.Eagerly, emptySet())
 
     private var attachedClients = 0
+    private var foregroundServiceRunning = false
+    private var foregroundNotificationLabel: String? = null
 
     init {
         scope.launch {
@@ -93,10 +95,15 @@ class TerminalSessionRepository private constructor(application: Application) {
                                 state.status == SessionStatus.Connected ||
                                 state.status == SessionStatus.Reconnecting
                         }
-                    if (anyAlive) {
-                        SessionForegroundService.start(appContext, currentNotificationLabel())
-                    } else {
+                    val label = if (anyAlive) currentNotificationLabel() else null
+                    if (anyAlive && (!foregroundServiceRunning || foregroundNotificationLabel != label)) {
+                        SessionForegroundService.start(appContext, label ?: "Active session")
+                        foregroundServiceRunning = true
+                        foregroundNotificationLabel = label
+                    } else if (!anyAlive && foregroundServiceRunning) {
                         SessionForegroundService.stop(appContext)
+                        foregroundServiceRunning = false
+                        foregroundNotificationLabel = null
                     }
                 }
         }
