@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,7 +41,10 @@ import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuSymbolsFontFamily
 import com.jossephus.chuchu.ui.theme.ChuTypography
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
+
+private const val INITIAL_REPEAT_DELAY_MS = 400L
+private const val REPEAT_INTERVAL_MS = 50L
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -243,20 +245,6 @@ private fun RepeatableAccessoryButton(
     var pressed by remember { mutableStateOf(false) }
     val currentOnAction by rememberUpdatedState(onAction)
 
-    // After the pointer handler sends the initial press, repeat after
-    // a 400ms initial delay at 50ms intervals until released.
-    // Emit one haptic tick when the delayed repeat begins.
-    LaunchedEffect(pressed, item.action) {
-        if (!pressed) return@LaunchedEffect
-        delay(400L)
-        if (!pressed) return@LaunchedEffect
-        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-        while (true) {
-            currentOnAction(item.action)
-            delay(50L)
-        }
-    }
-
     Box(
         modifier = Modifier
             .height(buttonHeight)
@@ -265,8 +253,22 @@ private fun RepeatableAccessoryButton(
                     awaitFirstDown().consume()
                     pressed = true
                     currentOnAction(item.action)
+
                     try {
-                        waitForUpOrCancellation()?.consume()
+                        val releasedDuringDelay = withTimeoutOrNull(INITIAL_REPEAT_DELAY_MS) {
+                            waitForUpOrCancellation()
+                        }
+
+                        if (releasedDuringDelay == null) {
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            while (true) {
+                                currentOnAction(item.action)
+                                val released = withTimeoutOrNull(REPEAT_INTERVAL_MS) {
+                                    waitForUpOrCancellation()
+                                }
+                                if (released != null) break
+                            }
+                        }
                     } finally {
                         pressed = false
                     }
