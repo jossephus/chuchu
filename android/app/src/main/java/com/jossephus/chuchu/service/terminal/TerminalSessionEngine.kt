@@ -627,7 +627,7 @@ class TerminalSessionEngine(
         )
         // Use exec channel to bypass shell init noise and MOTD.
         // Falls back to shell if the remote server doesn't support exec.
-        val moshCommand = "env LANG=C.UTF-8 LC_ALL=C.UTF-8 mosh-server new -s -c 256"
+        val moshCommand = "env LANG=C.UTF-8 LC_ALL=C.UTF-8 PATH=\"/opt/homebrew/bin:/usr/local/bin:/home/linuxbrew/.linuxbrew/bin:/opt/local/bin:\$PATH\" mosh-server new -s -c 256"
         val execOpened = runCatching { nativeSsh.openExec(moshCommand) }.getOrDefault(false)
         if (!execOpened) {
             Log.w("TerminalSession", "MOSH: exec channel unavailable, falling back to shell")
