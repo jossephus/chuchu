@@ -73,6 +73,20 @@ android {
     buildFeatures {
         compose = true
     }
+    packaging {
+        jniLibs {
+            // The sherpa-onnx AAR ships ~30 MB of native libraries per ABI that
+            // are only needed by the optional offline Parakeet dictation engine.
+            // We strip them from the APK and download them on demand at first
+            // use via ParakeetRuntimeStore so the base install stays small.
+            excludes += setOf(
+                "lib/*/libonnxruntime.so",
+                "lib/*/libsherpa-onnx-jni.so",
+                "lib/*/libsherpa-onnx-c-api.so",
+                "lib/*/libsherpa-onnx-cxx-api.so",
+            )
+        }
+    }
 }
 
 dependencies {

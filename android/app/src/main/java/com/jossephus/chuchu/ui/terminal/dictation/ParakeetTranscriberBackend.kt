@@ -5,6 +5,7 @@ import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.content.Context
 import com.jossephus.chuchu.data.voice.ParakeetModelStore
+import com.jossephus.chuchu.data.voice.ParakeetRuntimeStore
 import com.jossephus.chuchu.data.voice.VoiceModels
 import com.jossephus.chuchu.ui.terminal.DictationState
 import com.k2fsa.sherpa.onnx.FeatureConfig
@@ -27,6 +28,7 @@ import kotlinx.coroutines.sync.withLock
 
 class ParakeetTranscriberBackend(
     private val context: Context,
+    private val runtimeStore: ParakeetRuntimeStore,
     private val modelStore: ParakeetModelStore,
     private val onFinalText: (String) -> Unit,
     private val onError: (String) -> Unit,
@@ -94,6 +96,12 @@ class ParakeetTranscriberBackend(
 
     private fun ensureRecognizer() {
         if (recognizer != null) return
+        // Load native libraries BEFORE referencing any com.k2fsa.sherpa.onnx
+        // type. The sherpa-onnx Kotlin companions call
+        // `System.loadLibrary("sherpa-onnx-jni")` in their static init, and we
+        // strip that .so from the APK — `ensureLoaded` installs it into the
+        // classloader's native search path and dlopen's it.
+        runtimeStore.ensureLoaded()
         val modelDir = modelStore.installedModelDir() ?: throw IllegalStateException("Parakeet model is not installed")
         val modelConfig = OfflineModelConfig(
             transducer = OfflineTransducerModelConfig(

@@ -77,6 +77,7 @@ import com.jossephus.chuchu.data.repository.HostRepository
 import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.data.repository.SshKeyRepository
 import com.jossephus.chuchu.data.voice.ParakeetModelStore
+import com.jossephus.chuchu.data.voice.ParakeetRuntimeStore
 import com.jossephus.chuchu.data.voice.VoiceModels
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.service.terminal.SessionStatus
@@ -671,6 +672,7 @@ fun TerminalScreen(
                             Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
                         }
                     val parakeetModelStore = remember(context) { ParakeetModelStore(context) }
+                    val parakeetRuntimeStore = remember(context) { ParakeetRuntimeStore(context) }
                     val systemBackend =
                         remember(context) {
                             SystemTranscriberBackend(
@@ -683,13 +685,15 @@ fun TerminalScreen(
                         remember(context) {
                             ParakeetTranscriberBackend(
                                 context = context,
+                                runtimeStore = parakeetRuntimeStore,
                                 modelStore = parakeetModelStore,
                                 onFinalText = { onDictationTextState.value(it) },
                                 onError = { onDictationErrorState.value(it) },
                             )
                         }
+                    val parakeetReady = { parakeetRuntimeStore.isInstalled() && parakeetModelStore.isInstalled() }
                     val activeDictationBackend: TranscriberBackend =
-                        if (voiceModelId == VoiceModels.PARAKEET_V2_ID && parakeetModelStore.isInstalled()) {
+                        if (voiceModelId == VoiceModels.PARAKEET_V2_ID && parakeetReady()) {
                             parakeetBackend
                         } else {
                             systemBackend
@@ -715,7 +719,7 @@ fun TerminalScreen(
                             contract = ActivityResultContracts.RequestPermission()
                         ) { granted ->
                             if (granted) {
-                                if (voiceModelId == VoiceModels.PARAKEET_V2_ID && !parakeetModelStore.isInstalled()) {
+                                if (voiceModelId == VoiceModels.PARAKEET_V2_ID && !parakeetReady()) {
                                     settingsRepo.setVoiceModelId(VoiceModels.SYSTEM_ID)
                                 }
                                 activeDictationBackend.start(Locale.getDefault())
@@ -749,10 +753,10 @@ fun TerminalScreen(
                                 Manifest.permission.RECORD_AUDIO,
                             ) == android.content.pm.PackageManager.PERMISSION_GRANTED
                         if (hasPermission) {
-                            if (voiceModelId == VoiceModels.PARAKEET_V2_ID && !parakeetModelStore.isInstalled()) {
+                            if (voiceModelId == VoiceModels.PARAKEET_V2_ID && !parakeetReady()) {
                                 Toast.makeText(
                                     context,
-                                    "Parakeet model missing; switched to System",
+                                    "Parakeet not installed; switched to System",
                                     Toast.LENGTH_SHORT,
                                 ).show()
                                 settingsRepo.setVoiceModelId(VoiceModels.SYSTEM_ID)

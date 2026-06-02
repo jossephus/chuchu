@@ -31,6 +31,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jossephus.chuchu.data.voice.ParakeetModelStore
+import com.jossephus.chuchu.data.voice.ParakeetRuntimeStore
 import com.jossephus.chuchu.data.voice.VoiceModels
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
@@ -221,16 +222,39 @@ private fun VoiceSettings(
     val colors = ChuColors.current
     val typography = ChuTypography.current
     val scope = rememberCoroutineScope()
+    val runtimeStore = remember(context) { ParakeetRuntimeStore(context) }
     val modelStore = remember(context) { ParakeetModelStore(context) }
-    val progress by modelStore.downloadProgress.collectAsStateWithLifecycle()
-    val installStatus by modelStore.status.collectAsStateWithLifecycle()
-    var isInstalled by remember { mutableStateOf(modelStore.isInstalled()) }
+    val runtimeProgress by runtimeStore.downloadProgress.collectAsStateWithLifecycle()
+    val runtimeStatus by runtimeStore.status.collectAsStateWithLifecycle()
+    val modelProgress by modelStore.downloadProgress.collectAsStateWithLifecycle()
+    val modelStatus by modelStore.status.collectAsStateWithLifecycle()
+    var runtimeInstalled by remember { mutableStateOf(runtimeStore.isInstalled()) }
+    var modelInstalled by remember { mutableStateOf(modelStore.isInstalled()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(selectedVoiceModelId, isInstalled) {
-        if (!isInstalled && selectedVoiceModelId == VoiceModels.PARAKEET_V2_ID) {
+    val fullyInstalled = runtimeInstalled && modelInstalled
+    val runtimeBusy = runtimeStatus !is ParakeetRuntimeStore.InstallStatus.Idle
+    val modelBusy = modelStatus !is ParakeetModelStore.InstallStatus.Idle
+    val isBusy = runtimeBusy || modelBusy
+
+    LaunchedEffect(selectedVoiceModelId, fullyInstalled) {
+        if (!fullyInstalled && selectedVoiceModelId == VoiceModels.PARAKEET_V2_ID) {
             onVoiceModelIdChanged(VoiceModels.SYSTEM_ID)
         }
+    }
+
+    val statusLabel: String? = when {
+        runtimeStatus is ParakeetRuntimeStore.InstallStatus.Downloading ->
+            "downloading voice runtime ${((runtimeProgress ?: 0f) * 100).toInt()}%"
+        runtimeStatus is ParakeetRuntimeStore.InstallStatus.Installing ->
+            "installing voice runtime..."
+        modelStatus is ParakeetModelStore.InstallStatus.Downloading ->
+            "downloading voice model ${((modelProgress ?: 0f) * 100).toInt()}%"
+        modelStatus is ParakeetModelStore.InstallStatus.Installing -> {
+            val pct = (modelStatus as ParakeetModelStore.InstallStatus.Installing).progress
+            "installing voice model... ${pct?.let { "${(it * 100).toInt()}%" }.orEmpty()}"
+        }
+        else -> null
     }
 
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -267,49 +291,65 @@ private fun VoiceSettings(
     ) {
         Column(modifier = Modifier.weight(1f)) {
             ChuText("Parakeet TDT v2", style = typography.label)
-            ChuText("English · 670 MB", style = typography.bodySmall, color = colors.textMuted)
-            if (installStatus is ParakeetModelStore.InstallStatus.Installing) {
-                val progressLabel =
-                    (installStatus as ParakeetModelStore.InstallStatus.Installing).progress
-                        ?.let { " ${(it * 100).toInt()}%" }
-                        .orEmpty()
-                ChuText("installing model...$progressLabel", style = typography.bodySmall, color = colors.accent)
-            } else if (progress != null) {
-                ChuText("downloading ${(progress!! * 100).toInt()}%", style = typography.bodySmall, color = colors.accent)
+            ChuText(
+                "English · ${ParakeetRuntimeStore.DISPLAY_SIZE_LABEL} runtime + 670 MB model",
+                style = typography.bodySmall,
+                color = colors.textMuted,
+            )
+            if (statusLabel != null) {
+                ChuText(statusLabel, style = typography.bodySmall, color = colors.accent)
             }
         }
-        if (!isInstalled && progress == null && installStatus !is ParakeetModelStore.InstallStatus.Installing) {
-            ChuButton(
-                onClick = {
-                    scope.launch {
-                        val result = modelStore.download()
-                        if (result.isFailure) {
-                            errorMessage = result.exceptionOrNull()?.message ?: "download failed"
-                        }
-                        isInstalled = modelStore.isInstalled()
-                    }
-                },
-                variant = ChuButtonVariant.Outlined,
-                bracketed = true,
-            ) { ChuText("download", style = typography.labelSmall) }
-        } else if (progress != null || installStatus is ParakeetModelStore.InstallStatus.Installing) {
-            ChuText("...", style = typography.label)
-        } else {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                ChuButton(
-                    onClick = { onVoiceModelIdChanged(VoiceModels.PARAKEET_V2_ID) },
-                    variant = if (selectedVoiceModelId == VoiceModels.PARAKEET_V2_ID) ChuButtonVariant.Filled else ChuButtonVariant.Outlined,
-                    bracketed = true,
-                ) { ChuText("select", style = typography.labelSmall) }
+        when {
+            isBusy -> {
+                ChuText("...", style = typography.label)
+            }
+            !fullyInstalled -> {
                 ChuButton(
                     onClick = {
-                        modelStore.delete()
-                        isInstalled = modelStore.isInstalled()
+                        scope.launch {
+                            errorMessage = null
+                            if (!runtimeStore.isInstalled()) {
+                                val r = runtimeStore.download()
+                                runtimeInstalled = runtimeStore.isInstalled()
+                                if (r.isFailure) {
+                                    errorMessage = r.exceptionOrNull()?.message ?: "runtime download failed"
+                                    return@launch
+                                }
+                            }
+                            if (!modelStore.isInstalled()) {
+                                val r = modelStore.download()
+                                modelInstalled = modelStore.isInstalled()
+                                if (r.isFailure) {
+                                    errorMessage = r.exceptionOrNull()?.message ?: "model download failed"
+                                    return@launch
+                                }
+                            }
+                        }
                     },
-                    variant = ChuButtonVariant.Ghost,
+                    variant = ChuButtonVariant.Outlined,
                     bracketed = true,
-                    borderColor = colors.textMuted,
-                ) { ChuText("delete", style = typography.labelSmall, color = colors.textMuted) }
+                ) { ChuText("download", style = typography.labelSmall) }
+            }
+            else -> {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    ChuButton(
+                        onClick = { onVoiceModelIdChanged(VoiceModels.PARAKEET_V2_ID) },
+                        variant = if (selectedVoiceModelId == VoiceModels.PARAKEET_V2_ID) ChuButtonVariant.Filled else ChuButtonVariant.Outlined,
+                        bracketed = true,
+                    ) { ChuText("select", style = typography.labelSmall) }
+                    ChuButton(
+                        onClick = {
+                            modelStore.delete()
+                            runtimeStore.delete()
+                            modelInstalled = modelStore.isInstalled()
+                            runtimeInstalled = runtimeStore.isInstalled()
+                        },
+                        variant = ChuButtonVariant.Ghost,
+                        bracketed = true,
+                        borderColor = colors.textMuted,
+                    ) { ChuText("delete", style = typography.labelSmall, color = colors.textMuted) }
+                }
             }
         }
     }
