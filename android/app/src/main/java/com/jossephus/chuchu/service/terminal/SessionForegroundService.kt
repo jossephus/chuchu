@@ -8,11 +8,13 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import com.jossephus.chuchu.MainActivity
 import com.jossephus.chuchu.R
 import com.jossephus.chuchu.data.repository.SettingsRepository
@@ -49,7 +51,18 @@ class SessionForegroundService : Service() {
                 if (!label.isNullOrBlank()) {
                     currentLabel = label
                 }
-                startForeground(NOTIFICATION_ID, buildNotification(currentLabel))
+                val type =
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                    } else {
+                        0
+                    }
+                ServiceCompat.startForeground(
+                    this,
+                    NOTIFICATION_ID,
+                    buildNotification(currentLabel),
+                    type,
+                )
                 return START_STICKY
             }
         }
