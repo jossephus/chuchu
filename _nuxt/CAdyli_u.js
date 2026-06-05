@@ -1,1 +1,0 @@
-import{D as a,B as o,j as u,m as c,l as i}from"./CoMSsMNh.js";function x(e){const t=e||o();return t?.ssrContext?.head||t?.runWithContext(()=>{if(u())return c(i)})}function d(e,t={}){const n=x(t.nuxt);if(n)return a(e,{head:n,...t})}const h=(e,t)=>{const n=e.__vccOpts||e;for(const[s,r]of t)n[s]=r;return n};export{h as _,d as u};
