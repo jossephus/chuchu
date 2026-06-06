@@ -14,15 +14,23 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jossephus.chuchu.service.terminal.SessionStatus
+import kotlin.math.roundToInt
 import com.jossephus.chuchu.service.terminal.TabSession
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
@@ -60,18 +68,28 @@ fun TerminalTabStrip(
     val typography = ChuTypography.current
     val scrollState = rememberScrollState()
     val trailingActionWidth = if (tabs.size > 1) 72.dp else 40.dp
+    val tabOffsets = remember { mutableStateMapOf<String, Int>() }
+    val rowRootLeft = remember { mutableStateOf(0) }
+
+    LaunchedEffect(activeTabId) {
+        val target = activeTabId?.let { tabOffsets[it] } ?: return@LaunchedEffect
+        scrollState.animateScrollTo(target)
+    }
 
     Box(
         modifier = modifier
             .fillMaxWidth()
             .background(colors.surfaceVariant)
-            .padding(start = 4.dp, end = 6.dp, top = 3.dp, bottom = 3.dp),
+            .padding(start = 4.dp, end = 6.dp, top = 3.dp, bottom = 5.dp),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(end = trailingActionWidth)
-                .horizontalScroll(scrollState),
+                .horizontalScroll(scrollState)
+                .onGloballyPositioned { coords ->
+                    rowRootLeft.value = coords.localToRoot(Offset.Zero).x.roundToInt()
+                },
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
@@ -81,6 +99,9 @@ fun TerminalTabStrip(
 
                 Box(
                     modifier = Modifier
+                        .onGloballyPositioned { coords ->
+                            tabOffsets[tab.id] = coords.localToRoot(Offset.Zero).x.roundToInt() - rowRootLeft.value + scrollState.value
+                        }
                         .semantics { contentDescription = label }
                         .defaultMinSize(minHeight = 32.dp)
                         .widthIn(min = 44.dp)
