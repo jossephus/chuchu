@@ -5,6 +5,11 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.jossephus.chuchu.data.db.AppDatabase
+import com.jossephus.chuchu.data.repository.HostRepository
+import com.jossephus.chuchu.data.repository.SettingsRepository
+import com.jossephus.chuchu.data.repository.SshKeyRepository
+import com.jossephus.chuchu.model.HostProfile
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
 import com.jossephus.chuchu.service.terminal.HostKeyPrompt
 import com.jossephus.chuchu.service.terminal.SessionState
@@ -29,6 +34,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -38,6 +44,10 @@ import kotlinx.coroutines.withContext
 class TerminalViewModel(application: Application) : AndroidViewModel(application) {
     private val tailscaleStatusChecker = TailscaleStatusChecker(application)
     private val sessionRepository = TerminalSessionRepository.getInstance(application)
+    private val database = AppDatabase.getInstance(application)
+    private val hostRepository = HostRepository(database.hostProfileDao())
+    private val sshKeyRepository = SshKeyRepository(database.sshKeyDao())
+    private val settingsRepository = SettingsRepository.getInstance(application)
 
     private val _tailscaleActive = MutableStateFlow(tailscaleStatusChecker.isActive())
     val tailscaleActive: StateFlow<Boolean> = _tailscaleActive.asStateFlow()
@@ -47,9 +57,18 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     val activeTab: StateFlow<TabSession?> = sessionRepository.activeTab
     val sessionState: StateFlow<SessionState> = sessionRepository.sessionState
     val hostKeyPrompt: StateFlow<HostKeyPrompt?> = sessionRepository.hostKeyPrompt
+    private val _hostsLoaded = MutableStateFlow(false)
+    val hostsLoaded: StateFlow<Boolean> = _hostsLoaded.asStateFlow()
+    val hosts: StateFlow<List<HostProfile>> =
+        hostRepository.observeAll().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     init {
         sessionRepository.attachClient()
+        viewModelScope.launch {
+            hostRepository.observeAll().collect {
+                _hostsLoaded.value = true
+            }
+        }
     }
 
     private val _connectionTabByTab = MutableStateFlow<Map<String, ConnectionTab>>(emptyMap())
@@ -81,6 +100,28 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     fun openTab(spec: TabSpec): TabSession {
         refreshTailscaleStatus()
         return sessionRepository.openTab(spec)
+    }
+
+    data class PreparedTabOpen(
+        val spec: TabSpec,
+        val requiresVerification: Boolean,
+    )
+
+    suspend fun prepareTabOpenForHost(hostId: Long): PreparedTabOpen? {
+        val host = hostRepository.getById(hostId) ?: return null
+        return prepareTabOpen(host)
+    }
+
+    suspend fun prepareTabOpen(host: HostProfile): PreparedTabOpen {
+        val key = host.keyId?.let { sshKeyRepository.getById(it) }
+        val spec = TabSpec.fromHostProfile(
+            host = host,
+            publicKeyOpenSsh = key?.publicKeyOpenSsh.orEmpty(),
+            privateKeyPem = key?.privateKeyPem.orEmpty(),
+        )
+        val requiresVerification =
+            settingsRepository.requireAuthOnConnect.value || host.requireAuthOnConnect
+        return PreparedTabOpen(spec = spec, requiresVerification = requiresVerification)
     }
 
     fun duplicateActiveTab(): TabSession? {

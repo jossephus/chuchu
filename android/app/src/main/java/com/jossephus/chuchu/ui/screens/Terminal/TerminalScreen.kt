@@ -62,10 +62,7 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.jossephus.chuchu.data.db.AppDatabase
-import com.jossephus.chuchu.data.repository.HostRepository
 import com.jossephus.chuchu.data.repository.SettingsRepository
-import com.jossephus.chuchu.data.repository.SshKeyRepository
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.service.terminal.SessionStatus
 import com.jossephus.chuchu.service.terminal.TabSpec
@@ -247,6 +244,8 @@ fun TerminalScreen(
     val tabs by vm.tabs.collectAsStateWithLifecycle()
     val activeTabId by vm.activeTabId.collectAsStateWithLifecycle()
     val activeTab by vm.activeTab.collectAsStateWithLifecycle()
+    val hosts by vm.hosts.collectAsStateWithLifecycle()
+    val hostsLoaded by vm.hostsLoaded.collectAsStateWithLifecycle()
     val activeTabForHost =
         remember(activeTab, hostId) { activeTab?.takeIf { it.spec.hostId == hostId } }
     val selectedTab by vm.selectedTab.collectAsStateWithLifecycle()
@@ -274,7 +273,6 @@ fun TerminalScreen(
     val tabMode by settingsRepo.terminalTabMode.collectAsStateWithLifecycle()
     val currentAccessoryLayoutIds by settingsRepo.accessoryLayoutIds.collectAsStateWithLifecycle()
     val useSingleRowAccessoryBar by settingsRepo.accessoryBarSingleRow.collectAsStateWithLifecycle()
-    val requireAuthOnConnectSetting by settingsRepo.requireAuthOnConnect.collectAsStateWithLifecycle()
     val currentTerminalCustomKeyGroups by
         settingsRepo.terminalCustomKeyGroups.collectAsStateWithLifecycle()
 
@@ -333,6 +331,79 @@ fun TerminalScreen(
         terminalPrefs.edit().putFloat("terminal_font_size_sp", terminalFontSizeSp).apply()
     }
 
+    val hasTabsForHost =
+        remember(tabs, hostId) {
+            if (hostId == null) false else tabs.any { it.spec.hostId == hostId }
+        }
+    val tabsForHost =
+        remember(tabs, hostId) {
+            if (hostId == null) emptyList() else tabs.filter { it.spec.hostId == hostId }
+        }
+    val activeHostCount =
+        remember(tabs) {
+            tabs.map { it.spec.hostId ?: it.spec.sessionKey }
+                .distinct()
+                .size
+        }
+    val currentHostName = activeTab?.spec?.displayName?.takeIf { it.isNotBlank() }
+        ?: activeTab?.spec?.host?.takeIf { it.isNotBlank() }
+    val pickerScope = rememberCoroutineScope()
+
+    val openPreparedTab: (TabSpec, Boolean, Boolean) -> Unit = { spec, requiresVerification, fromPicker ->
+        val openOrPrompt: (TabSpec) -> Unit = { preparedSpec ->
+            if (
+                preparedSpec.authMethod == AuthMethod.KeyWithPassphrase &&
+                    preparedSpec.keyPassphrase.isBlank()
+            ) {
+                passphraseFromPicker = fromPicker
+                pendingTabSpec = preparedSpec
+                showPassphrasePrompt = true
+            } else {
+                vm.openTab(preparedSpec)
+            }
+        }
+
+        if (requiresVerification) {
+            requireUserVerification(
+                context = context,
+                title = "Verify to connect",
+                subtitle = "Authenticate to open this server session",
+            ) { result ->
+                if (
+                    result == VerificationResult.Success &&
+                        lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+                ) {
+                    openOrPrompt(spec)
+                }
+            }
+        } else {
+            openOrPrompt(spec)
+        }
+    }
+
+    val openAnotherSessionForCurrentHost: () -> Unit = {
+        val currentHostId = activeTab?.spec?.hostId ?: hostId
+        when {
+            activeTab != null -> {
+                vm.duplicateActiveTab()
+                vm.selectConnectionTab(ConnectionTab.Terminal)
+            }
+
+            currentHostId != null -> {
+                pickerScope.launch(Dispatchers.IO) {
+                    val prepared = vm.prepareTabOpenForHost(currentHostId) ?: return@launch
+                    withContext(Dispatchers.Main) {
+                        openPreparedTab(prepared.spec, prepared.requiresVerification, false)
+                    }
+                }
+            }
+
+            else -> {
+                showServerPicker = true
+            }
+        }
+    }
+
     LaunchedEffect(hostId) {
         showPassphrasePrompt = false
         passphraseInput = ""
@@ -343,41 +414,10 @@ fun TerminalScreen(
         if (existing != null) {
             return@LaunchedEffect
         }
-        val db = AppDatabase.getInstance(context)
-        val host = HostRepository(db.hostProfileDao()).getById(hostId) ?: return@LaunchedEffect
-        val key = host.keyId?.let { SshKeyRepository(db.sshKeyDao()).getById(it) }
+        val prepared = vm.prepareTabOpenForHost(hostId) ?: return@LaunchedEffect
         vm.refreshTailscaleStatus()
-        val baseSpec =
-            TabSpec(
-                hostId = host.id,
-                displayName = host.name,
-                host = host.host,
-                port = host.port,
-                username = host.username,
-                password = host.password,
-                authMethod = host.authMethod,
-                publicKeyOpenSsh = key?.publicKeyOpenSsh.orEmpty(),
-                privateKeyPem = key?.privateKeyPem.orEmpty(),
-                keyPassphrase = "",
-                transport = host.transport,
-                postConnectCommand = host.postConnectCommand,
-            )
-        if (host.authMethod == AuthMethod.KeyWithPassphrase && key != null) {
-            pendingTabSpec = baseSpec
-            showPassphrasePrompt = true
-        } else {
-            vm.openTab(baseSpec)
-        }
+        openPreparedTab(prepared.spec, prepared.requiresVerification, false)
     }
-
-    val hasTabsForHost =
-        remember(tabs, hostId) {
-            if (hostId == null) false else tabs.any { it.spec.hostId == hostId }
-        }
-    val tabsForHost =
-        remember(tabs, hostId) {
-            if (hostId == null) emptyList() else tabs.filter { it.spec.hostId == hostId }
-        }
 
     // Strip mode: never auto-back from host-scoped empty state.
     // Classic mode: back when all tabs for the current host are gone.
@@ -474,7 +514,7 @@ fun TerminalScreen(
                         tabs = tabs,
                         activeTabId = activeTabId,
                         onTabSelected = { id -> vm.selectTab(id) },
-                        onAddTab = { showServerPicker = true },
+                        onAddTab = openAnotherSessionForCurrentHost,
                         onOpenManager = { showGlobalTabManager = true },
                     )
                     Box(
@@ -490,7 +530,7 @@ fun TerminalScreen(
                                 )
                                 Spacer(modifier = Modifier.height(12.dp))
                                 ChuButton(
-                                    onClick = { showServerPicker = true },
+                                    onClick = openAnotherSessionForCurrentHost,
                                     modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp),
                                     variant = ChuButtonVariant.Outlined,
                                     bracketed = true,
@@ -550,7 +590,7 @@ fun TerminalScreen(
                         tabs = tabs,
                         activeTabId = activeTabId,
                         onTabSelected = { id -> vm.selectTab(id) },
-                        onAddTab = { showServerPicker = true },
+                        onAddTab = openAnotherSessionForCurrentHost,
                         onOpenManager = { showGlobalTabManager = true },
                     )
                     Box(
@@ -865,9 +905,7 @@ fun TerminalScreen(
                                 onTabSelected = { id ->
                                     vm.selectTab(id)
                                 },
-                                onAddTab = {
-                                    showServerPicker = true
-                                },
+                                onAddTab = openAnotherSessionForCurrentHost,
                                 onOpenManager = {
                                     showGlobalTabManager = true
                                 },
@@ -888,7 +926,7 @@ fun TerminalScreen(
                                     )
                                     Spacer(modifier = Modifier.height(12.dp))
                                     ChuButton(
-                                        onClick = { showServerPicker = true },
+                                        onClick = openAnotherSessionForCurrentHost,
                                         modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp),
                                         variant = ChuButtonVariant.Outlined,
                                         bracketed = true,
@@ -1303,6 +1341,18 @@ fun TerminalScreen(
 
                         Spacer(modifier = Modifier.height(6.dp))
                         if (selectedTab == ConnectionTab.Terminal) {
+                            if (activeHostCount > 1 && currentHostName != null) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                                    horizontalArrangement = Arrangement.End,
+                                ) {
+                                    ChuText(
+                                        text = currentHostName,
+                                        style = typography.labelSmall,
+                                        color = colors.textMuted.copy(alpha = 0.7f),
+                                    )
+                                }
+                            }
                             AnimatedVisibility(
                                 visible = chuchuKeys.isPrefixActive,
                                 enter = fadeIn(),
@@ -1453,7 +1503,7 @@ fun TerminalScreen(
                             tabs = tabs,
                             activeTabId = activeTabId,
                             onTabSelected = { id -> vm.selectTab(id) },
-                            onAddTab = { showServerPicker = true },
+                            onAddTab = openAnotherSessionForCurrentHost,
                             onOpenManager = { showGlobalTabManager = true },
                         )
                         Box(
@@ -1492,57 +1542,19 @@ fun TerminalScreen(
     BackHandler(enabled = showServerPicker) { showServerPicker = false }
     BackHandler(enabled = showGlobalTabManager) { showGlobalTabManager = false }
 
-    val pickerScope = rememberCoroutineScope()
-
     // Strip mode overlays — hoisted outside the when block so they are
     // available from disconnected, error, connecting, and connected states.
     if (tabMode == TerminalTabMode.Strip) {
         TerminalServerPicker(
             visible = showServerPicker,
-            onHostSelected = { spec ->
+            hosts = hosts,
+            loaded = hostsLoaded,
+            onHostSelected = { host ->
                 showServerPicker = false
-                val openOrPrompt: (TabSpec) -> Unit = { s ->
-                    if (s.authMethod == AuthMethod.KeyWithPassphrase &&
-                        s.keyPassphrase.isBlank()
-                    ) {
-                        passphraseFromPicker = true
-                        pendingTabSpec = s
-                        showPassphrasePrompt = true
-                    } else {
-                        vm.openTab(s)
-                    }
-                }
                 pickerScope.launch(Dispatchers.IO) {
-                    val db = AppDatabase.getInstance(context)
-                    val hostRepo = HostRepository(db.hostProfileDao())
-                    val keyRepo = SshKeyRepository(db.sshKeyDao())
-                    val host = hostRepo.getById(spec.hostId ?: -1L)
-                    val key = host?.keyId?.let { keyRepo.getById(it) }
-
-                    val enrichedSpec = spec.copy(
-                        publicKeyOpenSsh = key?.publicKeyOpenSsh.orEmpty(),
-                        privateKeyPem = key?.privateKeyPem.orEmpty(),
-                    )
-
-                    // Check connect verification before proceeding
-                    val hostRequiresAuth = host?.requireAuthOnConnect == true
-                    val mustVerify = requireAuthOnConnectSetting || hostRequiresAuth
-                    if (mustVerify) {
-                        withContext(Dispatchers.Main) {
-                            requireUserVerification(
-                                context = context,
-                                title = "Verify to connect",
-                                subtitle = "Authenticate to open this server session",
-                            ) { result ->
-                                if (result == VerificationResult.Success &&
-                                    lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
-                                ) {
-                                    openOrPrompt(enrichedSpec)
-                                }
-                            }
-                        }
-                    } else {
-                        withContext(Dispatchers.Main) { openOrPrompt(enrichedSpec) }
+                    val prepared = vm.prepareTabOpen(host)
+                    withContext(Dispatchers.Main) {
+                        openPreparedTab(prepared.spec, prepared.requiresVerification, true)
                     }
                 }
             },
@@ -1565,9 +1577,7 @@ fun TerminalScreen(
             onDuplicateTab = { id ->
                 vm.duplicateTab(id)
             },
-            onAddTab = {
-                showServerPicker = true
-            },
+            onAddTab = openAnotherSessionForCurrentHost,
             onDismiss = { showGlobalTabManager = false },
         )
     }

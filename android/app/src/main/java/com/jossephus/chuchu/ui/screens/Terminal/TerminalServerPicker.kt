@@ -18,79 +18,35 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.jossephus.chuchu.data.db.AppDatabase
-import com.jossephus.chuchu.data.repository.HostRepository
 import com.jossephus.chuchu.model.HostProfile
-import com.jossephus.chuchu.service.terminal.TabSpec
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-
-/**
- * Build a [TabSpec] from a [HostProfile].
- */
-internal fun buildTabSpecFromHost(
-    host: HostProfile,
-    keyPassphrase: String = "",
-): TabSpec = TabSpec(
-    hostId = host.id,
-    displayName = host.name,
-    host = host.host,
-    port = host.port,
-    username = host.username,
-    password = host.password,
-    authMethod = host.authMethod,
-    keyPassphrase = keyPassphrase,
-    transport = host.transport,
-    postConnectCommand = host.postConnectCommand,
-)
 
 /**
  * In-terminal server picker for the new tab-strip mode.
  *
- * Shows existing saved hosts.  Selecting a host builds a [TabSpec] and calls
- * [onHostSelected].  The parent is responsible for the passphrase gate before
- * opening the tab.  Dismisses immediately on host selection so dialogs do not
- * stack.
+ * Shows existing saved hosts. Selecting a host calls [onHostSelected].
  */
 @Composable
 fun TerminalServerPicker(
     visible: Boolean,
-    onHostSelected: (TabSpec) -> Unit,
+    hosts: List<HostProfile>,
+    loaded: Boolean,
+    onHostSelected: (HostProfile) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
-    val context = LocalContext.current
-    var hosts by remember { mutableStateOf<List<HostProfile>>(emptyList()) }
-    var loaded by remember { mutableStateOf(false) }
-
-    LaunchedEffect(visible) {
-        if (!visible) return@LaunchedEffect
-        loaded = false
-        val db = AppDatabase.getInstance(context)
-        val hostRepo = HostRepository(db.hostProfileDao())
-        hostRepo.observeAll().collect { allHosts ->
-            hosts = allHosts
-            loaded = true
-        }
-    }
 
     if (!visible) return
 
@@ -144,10 +100,7 @@ fun TerminalServerPicker(
                     items(hosts) { host ->
                         ServerPickerRow(
                             host = host,
-                            onClick = {
-                                val spec = buildTabSpecFromHost(host)
-                                onHostSelected(spec)
-                            },
+                            onClick = { onHostSelected(host) },
                         )
                     }
                 }

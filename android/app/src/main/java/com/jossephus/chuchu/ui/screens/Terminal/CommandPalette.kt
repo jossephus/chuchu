@@ -74,7 +74,7 @@ fun CommandPalette(
   val context = LocalContext.current
   val view = LocalView.current
   val keyboardController = LocalSoftwareKeyboardController.current
-  val entries = remember(tabs) { tabs.map { it to tabAlias(it) } }
+  val entries = remember(tabs) { tabs.map { it to terminalTabAlias(it) } }
   val maxIndex = (entries.size - 1).coerceAtLeast(0)
   LaunchedEffect(entries.size) { onFocusedTabIndexChange(focusedTabIndex.coerceIn(0, maxIndex)) }
   LaunchedEffect(activeTabId, entries) {
@@ -240,47 +240,4 @@ fun CommandPalette(
       )
     }
   }
-}
-
-private fun tabAlias(tab: TabSession): String {
-  val adjectives =
-      listOf(
-          "amber",
-          "brisk",
-          "cedar",
-          "delta",
-          "ember",
-          "frost",
-          "golden",
-          "hazel",
-          "indigo",
-          "jade",
-          "kilo",
-          "lunar",
-          "mango",
-          "nova",
-          "onyx",
-          "pluto",
-      )
-  val nouns =
-      listOf(
-          "otter",
-          "falcon",
-          "pine",
-          "river",
-          "comet",
-          "harbor",
-          "meadow",
-          "quartz",
-          "signal",
-          "orbit",
-          "anchor",
-          "summit",
-          "thunder",
-          "voyager",
-          "willow",
-          "zenith",
-      )
-  val seed = tab.id.hashCode().let { if (it == Int.MIN_VALUE) 0 else kotlin.math.abs(it) }
-  return "${adjectives[seed % adjectives.size]}-${nouns[(seed / adjectives.size) % nouns.size]}"
 }

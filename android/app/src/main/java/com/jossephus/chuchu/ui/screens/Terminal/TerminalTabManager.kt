@@ -196,7 +196,7 @@ fun TerminalTabManager(
                             val isFocused = idx == focusedTabIndex
                             val state by tab.sessionState.collectAsStateWithLifecycle()
                             val status = state.status
-                            val label = tab.spec.tabLabel
+                            val label = terminalTabAlias(tab)
                             val title = state.title?.takeIf { it.isNotBlank() }
                             val userHost = "${tab.spec.username}@${tab.spec.host}:${tab.spec.port}"
                             val workingDirectory = state.pwd?.takeIf { it.isNotBlank() }

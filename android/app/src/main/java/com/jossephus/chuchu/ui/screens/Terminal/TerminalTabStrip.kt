@@ -5,48 +5,30 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.defaultMinSize
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jossephus.chuchu.service.terminal.SessionStatus
 import com.jossephus.chuchu.service.terminal.TabSession
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuText
-import com.jossephus.chuchu.ui.theme.ChuColorPalette
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
-
-/**
- * Status color for a session status dot.
- */
-private fun statusColor(status: SessionStatus, colors: ChuColorPalette): Color = when (status) {
-    SessionStatus.Connected -> colors.success
-    SessionStatus.Connecting,
-    SessionStatus.Reconnecting -> colors.accent
-    SessionStatus.Disconnected,
-    SessionStatus.Error -> colors.error
-}
 
 /**
  * Human-readable status text for accessibility.
@@ -62,8 +44,8 @@ internal fun statusLabel(status: SessionStatus): String = when (status) {
 /**
  * Always-visible global top tab strip for strip mode.
  *
- * Shows all active terminal sessions, even with one tab.
- * Each clickable target respects the Android 48dp accessibility minimum.
+ * Shows all active terminal sessions in a compact top strip.
+ * The tab list scrolls; primary actions stay pinned on the right.
  */
 @Composable
 fun TerminalTabStrip(
@@ -77,107 +59,91 @@ fun TerminalTabStrip(
     val colors = ChuColors.current
     val typography = ChuTypography.current
     val scrollState = rememberScrollState()
+    val trailingActionWidth = if (tabs.size > 1) 72.dp else 40.dp
 
-    Row(
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = 48.dp)
             .background(colors.surfaceVariant)
-            .horizontalScroll(scrollState)
-            .padding(horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
+            .padding(start = 4.dp, end = 6.dp, top = 3.dp, bottom = 3.dp),
     ) {
-        tabs.forEach { tab ->
-            val isActive = tab.id == activeTabId
-            val sessionState by tab.sessionState.collectAsStateWithLifecycle()
-            val status = sessionState.status
-            val label = tab.spec.tabLabel
-            val statusText = statusLabel(status)
-            val contentDesc = "$statusText — $label"
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(end = trailingActionWidth)
+                .horizontalScroll(scrollState),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            tabs.forEach { tab ->
+                val isActive = tab.id == activeTabId
+                val label = terminalTabAlias(tab)
 
-            Box(
-                modifier = Modifier
-                    .semantics { contentDescription = contentDesc }
-                    .defaultMinSize(minHeight = 48.dp)
-                    .widthIn(min = 48.dp)
-                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
-                    .background(
-                        if (isActive) colors.accent.copy(alpha = 0.15f)
-                        else Color.Transparent
-                    )
-                    .clickable { onTabSelected(tab.id) }
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                Box(
+                    modifier = Modifier
+                        .semantics { contentDescription = label }
+                        .defaultMinSize(minHeight = 32.dp)
+                        .widthIn(min = 44.dp)
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                        .background(
+                            if (isActive) colors.accent.copy(alpha = 0.16f)
+                            else Color.Transparent
+                        )
+                        .clickable { onTabSelected(tab.id) }
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    // Status dot
-                    Box(
-                        modifier = Modifier
-                            .size(6.dp)
-                            .clip(CircleShape)
-                            .background(statusColor(status, colors))
-                    )
-                    // Host/profile label
                     ChuText(
                         text = label,
                         style = typography.labelSmall,
-                        color = if (isActive) colors.accent else colors.textPrimary,
+                        color = if (isActive) colors.accent else colors.textSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    if (isActive) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(start = 2.dp, end = 2.dp, bottom = 1.dp)
+                                .fillMaxWidth()
+                                .height(1.dp)
+                                .background(colors.accent),
+                        )
+                    }
                 }
             }
         }
 
-        if (tabs.isNotEmpty()) {
-            Spacer(modifier = Modifier.width(2.dp))
-            Box(
-                modifier = Modifier
-                    .width(1.dp)
-                    .height(16.dp)
-                    .background(colors.border.copy(alpha = 0.4f))
-            )
-            Spacer(modifier = Modifier.width(2.dp))
-        }
-
-        // + button — opens the in-terminal server picker
-        ChuButton(
-            onClick = onAddTab,
-            modifier = Modifier.defaultMinSize(minHeight = 48.dp, minWidth = 48.dp),
-            variant = ChuButtonVariant.Ghost,
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                horizontal = 10.dp,
-                vertical = 4.dp,
-            ),
-            contentDescription = "new connection",
+        Row(
+            modifier = Modifier.align(Alignment.CenterEnd),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            ChuText("+", style = typography.label, color = colors.accent)
-        }
+            if (tabs.size > 1) {
+                ChuButton(
+                    onClick = onOpenManager,
+                    modifier = Modifier.defaultMinSize(minHeight = 32.dp, minWidth = 32.dp),
+                    variant = ChuButtonVariant.Ghost,
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                    contentDescription = "all tabs",
+                ) {
+                    ChuText(
+                        if (tabs.size > 99) "≡" else "${tabs.size}",
+                        style = typography.labelSmall,
+                        color = colors.textMuted,
+                    )
+                }
+            }
 
-        // Overflow/all-tabs button — opens the expanded tab manager
-        if (tabs.size > 1) {
             ChuButton(
-                onClick = onOpenManager,
-                modifier = Modifier.defaultMinSize(minHeight = 48.dp, minWidth = 48.dp),
+                onClick = onAddTab,
+                modifier = Modifier.defaultMinSize(minHeight = 32.dp, minWidth = 32.dp),
                 variant = ChuButtonVariant.Ghost,
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                    horizontal = 8.dp,
-                    vertical = 4.dp,
-                ),
-                contentDescription = "all tabs",
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                contentDescription = "new connection",
             ) {
-                ChuText(
-                    if (tabs.size > 99) "≡" else "${tabs.size}",
-                    style = typography.labelSmall,
-                    color = colors.textMuted,
-                )
+                ChuText("+", style = typography.label, color = colors.accent)
             }
         }
-
-        Spacer(modifier = Modifier.width(4.dp))
     }
 }
