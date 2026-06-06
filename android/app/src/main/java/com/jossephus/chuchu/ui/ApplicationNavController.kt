@@ -100,6 +100,7 @@ fun ApplicationNavController() {
             val accessoryLayoutIds by settingsRepo.accessoryLayoutIds.collectAsStateWithLifecycle()
             val accessoryBarSingleRow by settingsRepo.accessoryBarSingleRow.collectAsStateWithLifecycle()
             val customKeyGroups by settingsRepo.terminalCustomKeyGroups.collectAsStateWithLifecycle()
+            val tabMode by settingsRepo.terminalTabMode.collectAsStateWithLifecycle()
             val themeMode by settingsRepo.themeMode.collectAsStateWithLifecycle()
             val lightThemeName by settingsRepo.lightThemeName.collectAsStateWithLifecycle()
             SettingsScreen(
@@ -110,6 +111,8 @@ fun ApplicationNavController() {
                 currentAccessoryLayoutIds = accessoryLayoutIds,
                 accessoryBarSingleRow = accessoryBarSingleRow,
                 currentTerminalCustomKeyGroups = customKeyGroups,
+                currentTabMode = tabMode,
+                onTabModeChanged = settingsRepo::setTerminalTabMode,
                 themeMode = themeMode,
                 lightThemeName = lightThemeName,
                 onThemeSelected = settingsRepo::setTheme,

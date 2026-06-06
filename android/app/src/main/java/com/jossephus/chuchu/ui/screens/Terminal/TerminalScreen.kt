@@ -9,6 +9,7 @@ import android.provider.OpenableColumns
 import android.view.inputmethod.InputMethodManager
 import android.webkit.MimeTypeMap
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -29,6 +30,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -57,11 +59,10 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.FileProvider
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.jossephus.chuchu.data.db.AppDatabase
-import com.jossephus.chuchu.data.repository.HostRepository
 import com.jossephus.chuchu.data.repository.SettingsRepository
-import com.jossephus.chuchu.data.repository.SshKeyRepository
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.service.terminal.SessionStatus
 import com.jossephus.chuchu.service.terminal.TabSpec
@@ -74,6 +75,7 @@ import com.jossephus.chuchu.ui.screens.Files.ConnectionTab
 import com.jossephus.chuchu.ui.screens.Files.FileBrowserScreen
 import com.jossephus.chuchu.ui.screens.Files.UploadProgress
 import com.jossephus.chuchu.ui.screens.Files.formatFileSize
+import com.jossephus.chuchu.ui.screens.Terminal.TerminalTabMode
 import com.jossephus.chuchu.ui.terminal.AccessoryAction
 import com.jossephus.chuchu.ui.terminal.ChuchuHint
 import com.jossephus.chuchu.ui.terminal.ChuchuKeyBindings
@@ -98,6 +100,8 @@ import com.jossephus.chuchu.ui.theme.GhosttyThemeRegistry
 import com.jossephus.chuchu.ui.theme.resolveActiveThemeName
 import com.jossephus.chuchu.ui.theme.toRgbIntArray
 import com.jossephus.chuchu.ui.theme.toTerminalPaletteBytes
+import com.jossephus.chuchu.ui.security.requireUserVerification
+import com.jossephus.chuchu.ui.security.VerificationResult
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
@@ -240,12 +244,15 @@ fun TerminalScreen(
     val tabs by vm.tabs.collectAsStateWithLifecycle()
     val activeTabId by vm.activeTabId.collectAsStateWithLifecycle()
     val activeTab by vm.activeTab.collectAsStateWithLifecycle()
+    val hosts by vm.hosts.collectAsStateWithLifecycle()
+    val hostsLoaded by vm.hostsLoaded.collectAsStateWithLifecycle()
     val activeTabForHost =
         remember(activeTab, hostId) { activeTab?.takeIf { it.spec.hostId == hostId } }
     val selectedTab by vm.selectedTab.collectAsStateWithLifecycle()
     val fileBrowserState by vm.fileBrowserState.collectAsStateWithLifecycle()
     val hostKeyPrompt by vm.hostKeyPrompt.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val haptics = LocalHapticFeedback.current
     val density = LocalDensity.current
     val colors = ChuColors.current
@@ -263,6 +270,7 @@ fun TerminalScreen(
         darkThemeName = currentTheme,
         lightThemeName = lightThemeName,
     )
+    val tabMode by settingsRepo.terminalTabMode.collectAsStateWithLifecycle()
     val currentAccessoryLayoutIds by settingsRepo.accessoryLayoutIds.collectAsStateWithLifecycle()
     val useSingleRowAccessoryBar by settingsRepo.accessoryBarSingleRow.collectAsStateWithLifecycle()
     val currentTerminalCustomKeyGroups by
@@ -282,23 +290,33 @@ fun TerminalScreen(
     var showPassphrasePrompt by remember { mutableStateOf(false) }
     var passphraseInput by remember { mutableStateOf("") }
     var pendingTabSpec by remember { mutableStateOf<TabSpec?>(null) }
+    var passphraseFromPicker by remember { mutableStateOf(false) }
     var showTabSheet by remember { mutableStateOf(false) }
+    var showServerPicker by remember { mutableStateOf(false) }
+    var showGlobalTabManager by remember { mutableStateOf(false) }
     var hasSeenTabsForHost by remember(hostId) { mutableStateOf(false) }
     var focusedTabIndex by remember { mutableStateOf(0) }
     var terminalFontSizeSp by remember {
         mutableStateOf(terminalPrefs.getFloat("terminal_font_size_sp", 14f).coerceAtLeast(0.1f))
     }
     val chuchuKeys =
-        remember(vm) {
+        remember(vm, tabMode) {
+            val isStrip = tabMode == TerminalTabMode.Strip
             ChuchuKeyBindings(
                 hints =
                     listOf(
-                        ChuchuHint(key = "t", description = "tabs"),
+                        ChuchuHint(key = "t", description = if (isStrip) "tab manager" else "tabs"),
                         ChuchuHint(key = "n", description = "new tab"),
                     ),
                 handlers =
                     mapOf(
-                        't' to { showTabSheet = true },
+                        't' to {
+                            if (isStrip) {
+                                showGlobalTabManager = true
+                            } else {
+                                showTabSheet = true
+                            }
+                        },
                         'n' to
                             {
                                 vm.duplicateActiveTab()
@@ -313,42 +331,6 @@ fun TerminalScreen(
         terminalPrefs.edit().putFloat("terminal_font_size_sp", terminalFontSizeSp).apply()
     }
 
-    LaunchedEffect(hostId) {
-        showPassphrasePrompt = false
-        passphraseInput = ""
-        pendingTabSpec = null
-        if (hostId == null) return@LaunchedEffect
-        val existing = vm.selectTabForHost(hostId)
-        if (existing != null) {
-            return@LaunchedEffect
-        }
-        val db = AppDatabase.getInstance(context)
-        val host = HostRepository(db.hostProfileDao()).getById(hostId) ?: return@LaunchedEffect
-        val key = host.keyId?.let { SshKeyRepository(db.sshKeyDao()).getById(it) }
-        vm.refreshTailscaleStatus()
-        val baseSpec =
-            TabSpec(
-                hostId = host.id,
-                displayName = host.name,
-                host = host.host,
-                port = host.port,
-                username = host.username,
-                password = host.password,
-                authMethod = host.authMethod,
-                publicKeyOpenSsh = key?.publicKeyOpenSsh.orEmpty(),
-                privateKeyPem = key?.privateKeyPem.orEmpty(),
-                keyPassphrase = "",
-                transport = host.transport,
-                postConnectCommand = host.postConnectCommand,
-            )
-        if (host.authMethod == AuthMethod.KeyWithPassphrase && key != null) {
-            pendingTabSpec = baseSpec
-            showPassphrasePrompt = true
-        } else {
-            vm.openTab(baseSpec)
-        }
-    }
-
     val hasTabsForHost =
         remember(tabs, hostId) {
             if (hostId == null) false else tabs.any { it.spec.hostId == hostId }
@@ -357,8 +339,90 @@ fun TerminalScreen(
         remember(tabs, hostId) {
             if (hostId == null) emptyList() else tabs.filter { it.spec.hostId == hostId }
         }
+    val activeHostCount =
+        remember(tabs) {
+            tabs.map { it.spec.hostId ?: it.spec.sessionKey }
+                .distinct()
+                .size
+        }
+    val currentHostName = activeTab?.spec?.displayName?.takeIf { it.isNotBlank() }
+        ?: activeTab?.spec?.host?.takeIf { it.isNotBlank() }
+    val pickerScope = rememberCoroutineScope()
 
-    LaunchedEffect(hostId, hasTabsForHost) {
+    val openPreparedTab: (TabSpec, Boolean, Boolean) -> Unit = { spec, requiresVerification, fromPicker ->
+        val openOrPrompt: (TabSpec) -> Unit = { preparedSpec ->
+            if (
+                preparedSpec.authMethod == AuthMethod.KeyWithPassphrase &&
+                    preparedSpec.keyPassphrase.isBlank()
+            ) {
+                passphraseFromPicker = fromPicker
+                pendingTabSpec = preparedSpec
+                showPassphrasePrompt = true
+            } else {
+                vm.openTab(preparedSpec)
+            }
+        }
+
+        if (requiresVerification) {
+            requireUserVerification(
+                context = context,
+                title = "Verify to connect",
+                subtitle = "Authenticate to open this server session",
+            ) { result ->
+                if (
+                    result == VerificationResult.Success &&
+                        lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+                ) {
+                    openOrPrompt(spec)
+                }
+            }
+        } else {
+            openOrPrompt(spec)
+        }
+    }
+
+    val openAnotherSessionForCurrentHost: () -> Unit = {
+        val currentHostId = activeTab?.spec?.hostId ?: hostId
+        when {
+            activeTab != null -> {
+                vm.duplicateActiveTab()
+                vm.selectConnectionTab(ConnectionTab.Terminal)
+            }
+
+            currentHostId != null -> {
+                pickerScope.launch(Dispatchers.IO) {
+                    val prepared = vm.prepareTabOpenForHost(currentHostId) ?: return@launch
+                    withContext(Dispatchers.Main) {
+                        openPreparedTab(prepared.spec, prepared.requiresVerification, false)
+                    }
+                }
+            }
+
+            else -> {
+                showServerPicker = true
+            }
+        }
+    }
+
+    LaunchedEffect(hostId) {
+        showPassphrasePrompt = false
+        passphraseInput = ""
+        pendingTabSpec = null
+        passphraseFromPicker = false
+        if (hostId == null) return@LaunchedEffect
+        val existing = vm.selectTabForHost(hostId)
+        if (existing != null) {
+            return@LaunchedEffect
+        }
+        val prepared = vm.prepareTabOpenForHost(hostId) ?: return@LaunchedEffect
+        vm.refreshTailscaleStatus()
+        openPreparedTab(prepared.spec, prepared.requiresVerification, false)
+    }
+
+    // Strip mode: never auto-back from host-scoped empty state.
+    // Classic mode: back when all tabs for the current host are gone.
+    LaunchedEffect(hostId, hasTabsForHost, tabMode) {
+        if (tabMode == TerminalTabMode.Strip) return@LaunchedEffect
         if (hostId == null) return@LaunchedEffect
         if (hasTabsForHost) {
             hasSeenTabsForHost = true
@@ -386,12 +450,16 @@ fun TerminalScreen(
                 }
                 passphraseInput = ""
                 pendingTabSpec = null
+                passphraseFromPicker = false
             },
             onDismiss = {
                 showPassphrasePrompt = false
                 passphraseInput = ""
                 pendingTabSpec = null
-                onBack()
+                if (!passphraseFromPicker) {
+                    onBack()
+                }
+                passphraseFromPicker = false
             },
         ) {
             ChuTextField(
@@ -440,34 +508,111 @@ fun TerminalScreen(
     when (sessionState.status) {
         SessionStatus.Disconnected,
         SessionStatus.Error -> {
-            Column(
-                modifier = screenInsetsModifier.fillMaxSize().padding(16.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                if (sessionState.error != null) {
-                    ChuText(sessionState.error!!, color = colors.error, style = typography.body)
-                    Spacer(modifier = Modifier.height(16.dp))
-                    ChuButton(
-                        onClick = vm::reconnect,
-                        modifier = Modifier.fillMaxWidth(),
-                        variant = ChuButtonVariant.Filled,
+            if (tabMode == TerminalTabMode.Strip) {
+                Column(modifier = screenInsetsModifier.fillMaxSize()) {
+                    TerminalTabStrip(
+                        tabs = tabs,
+                        activeTabId = activeTabId,
+                        onTabSelected = { id -> vm.selectTab(id) },
+                        onAddTab = openAnotherSessionForCurrentHost,
+                        onOpenManager = { showGlobalTabManager = true },
+                    )
+                    Box(
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        ChuText("Retry", style = typography.label, color = colors.onAccent)
+                        if (tabs.isEmpty()) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                ChuText(
+                                    "no terminal sessions",
+                                    style = typography.body,
+                                    color = colors.textMuted,
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                ChuButton(
+                                    onClick = openAnotherSessionForCurrentHost,
+                                    modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp),
+                                    variant = ChuButtonVariant.Outlined,
+                                    bracketed = true,
+                                ) {
+                                    ChuText(
+                                        "+ new connection",
+                                        style = typography.label,
+                                        color = colors.accent,
+                                    )
+                                }
+                            }
+                        } else if (sessionState.error != null) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                ChuText(sessionState.error!!, color = colors.error, style = typography.body)
+                                Spacer(modifier = Modifier.height(16.dp))
+                                ChuButton(
+                                    onClick = vm::reconnect,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    variant = ChuButtonVariant.Filled,
+                                ) {
+                                    ChuText("Retry", style = typography.label, color = colors.onAccent)
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                Column(
+                    modifier = screenInsetsModifier.fillMaxSize().padding(16.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    if (sessionState.error != null) {
+                        ChuText(sessionState.error!!, color = colors.error, style = typography.body)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        ChuButton(
+                            onClick = vm::reconnect,
+                            modifier = Modifier.fillMaxWidth(),
+                            variant = ChuButtonVariant.Filled,
+                        ) {
+                            ChuText("Retry", style = typography.label, color = colors.onAccent)
+                        }
                     }
                 }
             }
         }
 
         SessionStatus.Connecting -> {
-            Column(
-                modifier = screenInsetsModifier.fillMaxSize().padding(16.dp),
-                verticalArrangement = Arrangement.Center,
-            ) {
-                ChuText(
-                    "Connecting to ${activeTabForHost?.spec?.host ?: ""}...",
-                    style = typography.body,
-                )
+            val hostLabel = if (tabMode == TerminalTabMode.Strip) {
+                activeTab?.spec?.tabLabel?.let { "$it..." } ?: "..."
+            } else {
+                activeTabForHost?.spec?.host?.let { "$it..." } ?: "..."
+            }
+            if (tabMode == TerminalTabMode.Strip) {
+                Column(modifier = screenInsetsModifier.fillMaxSize()) {
+                    TerminalTabStrip(
+                        tabs = tabs,
+                        activeTabId = activeTabId,
+                        onTabSelected = { id -> vm.selectTab(id) },
+                        onAddTab = openAnotherSessionForCurrentHost,
+                        onOpenManager = { showGlobalTabManager = true },
+                    )
+                    Box(
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        ChuText(
+                            "Connecting to $hostLabel",
+                            style = typography.body,
+                        )
+                    }
+                }
+            } else {
+                Column(
+                    modifier = screenInsetsModifier.fillMaxSize().padding(16.dp),
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    ChuText(
+                        "Connecting to $hostLabel",
+                        style = typography.body,
+                    )
+                }
             }
         }
 
@@ -746,10 +891,55 @@ fun TerminalScreen(
                     Column(
                         modifier =
                             Modifier.fillMaxSize()
-                                .blur(if (showTabSheet) 10.dp else 0.dp)
+                                .blur(
+                                    if (showTabSheet || showGlobalTabManager || showServerPicker) 10.dp
+                                    else 0.dp
+                                )
                                 .imePadding()
                     ) {
-                        if (selectedTab == ConnectionTab.Files) {
+                        // Tab strip (strip mode only — always visible even with zero tabs)
+                        if (tabMode == TerminalTabMode.Strip) {
+                            TerminalTabStrip(
+                                tabs = tabs,
+                                activeTabId = activeTabId,
+                                onTabSelected = { id ->
+                                    vm.selectTab(id)
+                                },
+                                onAddTab = openAnotherSessionForCurrentHost,
+                                onOpenManager = {
+                                    showGlobalTabManager = true
+                                },
+                            )
+                        }
+
+                        // Empty state in strip mode when all tabs are closed
+                        if (tabMode == TerminalTabMode.Strip && tabs.isEmpty()) {
+                            Box(
+                                modifier = Modifier.weight(1f).fillMaxWidth(),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    ChuText(
+                                        "no terminal sessions",
+                                        style = typography.body,
+                                        color = colors.textMuted,
+                                    )
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    ChuButton(
+                                        onClick = openAnotherSessionForCurrentHost,
+                                        modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp),
+                                        variant = ChuButtonVariant.Outlined,
+                                        bracketed = true,
+                                    ) {
+                                        ChuText(
+                                            "+ new connection",
+                                            style = typography.label,
+                                            color = colors.accent,
+                                        )
+                                    }
+                                }
+                            }
+                        } else if (selectedTab == ConnectionTab.Files) {
                             FileBrowserScreen(
                                 state = fileBrowserState,
                                 onGoUp = vm::goUpDirectory,
@@ -1011,7 +1201,18 @@ fun TerminalScreen(
                                                 }
                                                 onTerminalKey = { key, codepoint, mods, action, charCode ->
                                                     var shouldForwardToTerminal = true
-                                                    if (showTabSheet && tabsForHost.isNotEmpty()) {
+                                                    val overlayOpen = showTabSheet || showGlobalTabManager
+                                                    val overlayTabs = if (showGlobalTabManager) tabs else tabsForHost
+                                                    if (
+                                                        overlayOpen &&
+                                                            overlayTabs.isEmpty() &&
+                                                            action == GhosttyKeyAction.Press &&
+                                                            key == TerminalSpecialKey.Escape.engineKey
+                                                    ) {
+                                                        showTabSheet = false
+                                                        showGlobalTabManager = false
+                                                        shouldForwardToTerminal = false
+                                                    } else if (overlayOpen && overlayTabs.isNotEmpty()) {
                                                         var consumedByTabSwitcher = true
                                                         val isPress =
                                                             action == GhosttyKeyAction.Press
@@ -1025,9 +1226,14 @@ fun TerminalScreen(
                                                                         ConnectionTab.Terminal
                                                                     )
                                                                     showTabSheet = false
+                                                                    showGlobalTabManager = false
                                                                 }
                                                                 't' -> {
-                                                                    showTabSheet = true
+                                                                    if (tabMode == TerminalTabMode.Strip) {
+                                                                        showGlobalTabManager = true
+                                                                    } else {
+                                                                        showTabSheet = true
+                                                                    }
                                                                 }
                                                                 else -> {}
                                                             }
@@ -1041,29 +1247,31 @@ fun TerminalScreen(
                                                                 TerminalSpecialKey.Up.engineKey ->
                                                                     focusedTabIndex =
                                                                         (focusedTabIndex - 1).mod(
-                                                                            tabsForHost.size
+                                                                            overlayTabs.size
                                                                         )
 
                                                                 TerminalSpecialKey.Right.engineKey,
                                                                 TerminalSpecialKey.Down.engineKey ->
                                                                     focusedTabIndex =
                                                                         (focusedTabIndex + 1).mod(
-                                                                            tabsForHost.size
+                                                                            overlayTabs.size
                                                                         )
 
                                                                 TerminalSpecialKey.Enter
                                                                     .engineKey -> {
-                                                                    tabsForHost
+                                                                    overlayTabs
                                                                         .getOrNull(focusedTabIndex)
                                                                         ?.let {
                                                                             vm.selectTab(it.id)
                                                                             showTabSheet = false
+                                                                            showGlobalTabManager = false
                                                                         }
                                                                 }
 
                                                                 TerminalSpecialKey.Escape
                                                                     .engineKey -> {
                                                                     showTabSheet = false
+                                                                    showGlobalTabManager = false
                                                                 }
 
                                                                 else ->
@@ -1133,6 +1341,18 @@ fun TerminalScreen(
 
                         Spacer(modifier = Modifier.height(6.dp))
                         if (selectedTab == ConnectionTab.Terminal) {
+                            if (activeHostCount > 1 && currentHostName != null) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                                    horizontalArrangement = Arrangement.End,
+                                ) {
+                                    ChuText(
+                                        text = currentHostName,
+                                        style = typography.labelSmall,
+                                        color = colors.textMuted.copy(alpha = 0.7f),
+                                    )
+                                }
+                            }
                             AnimatedVisibility(
                                 visible = chuchuKeys.isPrefixActive,
                                 enter = fadeIn(),
@@ -1275,21 +1495,91 @@ fun TerminalScreen(
                         onDismiss = { showTabSheet = false },
                     )
                 }
+
             } else {
-                Column(
-                    modifier = screenInsetsModifier.fillMaxSize().padding(16.dp),
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    val message =
-                        if (isReconnecting) {
-                            "Reconnecting to ${activeTabForHost?.spec?.host ?: ""}..."
-                        } else {
-                            "Preparing terminal..."
+                if (tabMode == TerminalTabMode.Strip) {
+                    Column(modifier = screenInsetsModifier.fillMaxSize()) {
+                        TerminalTabStrip(
+                            tabs = tabs,
+                            activeTabId = activeTabId,
+                            onTabSelected = { id -> vm.selectTab(id) },
+                            onAddTab = openAnotherSessionForCurrentHost,
+                            onOpenManager = { showGlobalTabManager = true },
+                        )
+                        Box(
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            val hostForMessage = activeTab?.spec?.tabLabel?.let { " $it" } ?: ""
+                            val message =
+                                if (isReconnecting) {
+                                    "Reconnecting to${hostForMessage}..."
+                                } else {
+                                    "Preparing terminal..."
+                                }
+                            ChuText(message, style = typography.body)
                         }
-                    ChuText(message, style = typography.body)
+                    }
+                } else {
+                    Column(
+                        modifier = screenInsetsModifier.fillMaxSize().padding(16.dp),
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        val hostForMessage = activeTabForHost?.spec?.host?.let { " $it" } ?: ""
+                        val message =
+                            if (isReconnecting) {
+                                "Reconnecting to${hostForMessage}..."
+                            } else {
+                                "Preparing terminal..."
+                            }
+                        ChuText(message, style = typography.body)
+                    }
                 }
             }
         }
+    }
+
+    BackHandler(enabled = showServerPicker) { showServerPicker = false }
+    BackHandler(enabled = showGlobalTabManager) { showGlobalTabManager = false }
+
+    // Strip mode overlays — hoisted outside the when block so they are
+    // available from disconnected, error, connecting, and connected states.
+    if (tabMode == TerminalTabMode.Strip) {
+        TerminalServerPicker(
+            visible = showServerPicker,
+            hosts = hosts,
+            loaded = hostsLoaded,
+            onHostSelected = { host ->
+                showServerPicker = false
+                pickerScope.launch(Dispatchers.IO) {
+                    val prepared = vm.prepareTabOpen(host)
+                    withContext(Dispatchers.Main) {
+                        openPreparedTab(prepared.spec, prepared.requiresVerification, true)
+                    }
+                }
+            },
+            onDismiss = { showServerPicker = false },
+        )
+
+        TerminalTabManager(
+            visible = showGlobalTabManager,
+            tabs = tabs,
+            activeTabId = activeTabId,
+            focusedTabIndex = focusedTabIndex,
+            onFocusedTabIndexChange = { focusedTabIndex = it },
+            onSelectTab = { id ->
+                vm.selectTab(id)
+                showGlobalTabManager = false
+            },
+            onCloseTab = { id ->
+                vm.closeTab(id)
+            },
+            onDuplicateTab = { id ->
+                vm.duplicateTab(id)
+            },
+            onAddTab = openAnotherSessionForCurrentHost,
+            onDismiss = { showGlobalTabManager = false },
+        )
     }
 }
 

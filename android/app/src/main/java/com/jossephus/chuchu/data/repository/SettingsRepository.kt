@@ -2,6 +2,7 @@ package com.jossephus.chuchu.data.repository
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.jossephus.chuchu.ui.screens.Terminal.TerminalTabMode
 import com.jossephus.chuchu.ui.terminal.TerminalAccessoryLayoutStore
 import com.jossephus.chuchu.ui.theme.ChuFontOption
 import com.jossephus.chuchu.ui.theme.ThemeMode
@@ -39,6 +40,11 @@ class SettingsRepository(context: Context) {
     private val _requireAuthOnConnect = MutableStateFlow(prefs.getBoolean(KEY_REQUIRE_AUTH_ON_CONNECT, false))
     val requireAuthOnConnect: StateFlow<Boolean> = _requireAuthOnConnect.asStateFlow()
 
+    private val _terminalTabMode = MutableStateFlow(
+        parseTabMode(prefs.getString(KEY_TAB_MODE, TerminalTabMode.Classic.name)),
+    )
+    val terminalTabMode: StateFlow<TerminalTabMode> = _terminalTabMode.asStateFlow()
+
     private val _themeMode = MutableStateFlow(parseThemeMode(prefs.getString(KEY_THEME_MODE, ThemeMode.Dark.name)))
     val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
 
@@ -74,6 +80,11 @@ class SettingsRepository(context: Context) {
     fun setAccessoryBarSingleRow(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_ACCESSORY_BAR_SINGLE_ROW, enabled).apply()
         _accessoryBarSingleRow.value = enabled
+    }
+
+    fun setTerminalTabMode(mode: TerminalTabMode) {
+        prefs.edit().putString(KEY_TAB_MODE, mode.name).apply()
+        _terminalTabMode.value = mode
     }
 
     fun setAppLockEnabled(enabled: Boolean) {
@@ -118,6 +129,7 @@ class SettingsRepository(context: Context) {
         private const val KEY_ACCESSORY_LAYOUT = "terminal_accessory_layout"
         private const val KEY_TERMINAL_CUSTOM_ACTIONS = "terminal_custom_actions"
         private const val KEY_ACCESSORY_BAR_SINGLE_ROW = "terminal_accessory_bar_single_row"
+        private const val KEY_TAB_MODE = "terminal_tab_mode"
         private const val KEY_APP_LOCK_ENABLED = "app_lock_enabled"
         private const val KEY_REQUIRE_AUTH_ON_CONNECT = "require_auth_on_connect"
         private const val KEY_THEME_MODE = "theme_mode"
@@ -137,5 +149,12 @@ class SettingsRepository(context: Context) {
 
         private fun parseThemeMode(value: String?): ThemeMode =
             ThemeMode.entries.find { it.name == value } ?: ThemeMode.Dark
+
+        private fun parseTabMode(value: String?): TerminalTabMode =
+            try {
+                TerminalTabMode.valueOf(value ?: TerminalTabMode.Classic.name)
+            } catch (_: IllegalArgumentException) {
+                TerminalTabMode.Classic
+            }
     }
 }

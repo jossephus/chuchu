@@ -28,6 +28,7 @@ import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuSwitch
 import com.jossephus.chuchu.ui.components.ChuText
+import com.jossephus.chuchu.ui.screens.Terminal.TerminalTabMode
 import com.jossephus.chuchu.ui.terminal.TerminalCustomKeyGroup
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
@@ -47,6 +48,8 @@ fun SettingsScreen(
     currentAccessoryLayoutIds: List<String>,
     accessoryBarSingleRow: Boolean,
     currentTerminalCustomKeyGroups: List<TerminalCustomKeyGroup>,
+    currentTabMode: TerminalTabMode = TerminalTabMode.Classic,
+    onTabModeChanged: (TerminalTabMode) -> Unit = {},
     themeMode: ThemeMode,
     lightThemeName: String,
     onThemeSelected: (String) -> Unit,
@@ -164,6 +167,8 @@ fun SettingsScreen(
                         onAccessoryBarSingleRowChanged = onAccessoryBarSingleRowChanged,
                         currentTerminalCustomKeyGroups = currentTerminalCustomKeyGroups,
                         onEditCustomActions = { showCustomActionEditor = true },
+                        currentTabMode = currentTabMode,
+                        onTabModeChanged = onTabModeChanged,
                     )
                 }
             }
@@ -257,7 +262,7 @@ private fun GeneralSettings(
     Spacer(modifier = Modifier.height(16.dp))
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         ChuText("ssh hosts & keys backup", style = typography.label)
