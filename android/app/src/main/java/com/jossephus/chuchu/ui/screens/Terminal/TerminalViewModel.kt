@@ -34,8 +34,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -57,18 +57,13 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     val activeTab: StateFlow<TabSession?> = sessionRepository.activeTab
     val sessionState: StateFlow<SessionState> = sessionRepository.sessionState
     val hostKeyPrompt: StateFlow<HostKeyPrompt?> = sessionRepository.hostKeyPrompt
-    private val _hostsLoaded = MutableStateFlow(false)
-    val hostsLoaded: StateFlow<Boolean> = _hostsLoaded.asStateFlow()
     val hosts: StateFlow<List<HostProfile>> =
         hostRepository.observeAll().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val hostsLoaded: StateFlow<Boolean> =
+        hosts.map { true }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     init {
         sessionRepository.attachClient()
-        viewModelScope.launch {
-            hostRepository.observeAll().collect {
-                _hostsLoaded.value = true
-            }
-        }
     }
 
     private val _connectionTabByTab = MutableStateFlow<Map<String, ConnectionTab>>(emptyMap())

@@ -54,6 +54,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.jossephus.chuchu.service.terminal.SessionStatus
+import com.jossephus.chuchu.service.terminal.SessionState
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import com.jossephus.chuchu.service.terminal.TabSession
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
@@ -61,6 +64,12 @@ import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.theme.ChuColorPalette
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
+
+private data class TabRowState(
+    val status: SessionStatus,
+    val title: String?,
+    val pwd: String?,
+)
 
 /**
  * Global expanded tab manager for strip mode.
@@ -194,12 +203,18 @@ fun TerminalTabManager(
                         itemsIndexed(entries, key = { _, tab -> tab.id }) { idx, tab ->
                             val isActive = tab.id == activeTabId
                             val isFocused = idx == focusedTabIndex
-                            val state by tab.sessionState.collectAsStateWithLifecycle()
-                            val status = state.status
                             val label = terminalTabAlias(tab)
-                            val title = state.title?.takeIf { it.isNotBlank() }
                             val userHost = "${tab.spec.username}@${tab.spec.host}:${tab.spec.port}"
-                            val workingDirectory = state.pwd?.takeIf { it.isNotBlank() }
+                            val rowState by remember(tab) {
+                                tab.sessionState
+                                    .map { TabRowState(it.status, it.title, it.pwd) }
+                                    .distinctUntilChanged()
+                            }.collectAsStateWithLifecycle(
+                                initialValue = TabRowState(SessionStatus.Disconnected, null, null)
+                            )
+                            val status = rowState.status
+                            val title = rowState.title?.takeIf { it.isNotBlank() }
+                            val workingDirectory = rowState.pwd?.takeIf { it.isNotBlank() }
                             val statusText = statusLabel(status)
 
                             Row(

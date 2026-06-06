@@ -31,6 +31,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
+import kotlinx.coroutines.flow.map
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -125,8 +126,10 @@ fun CommandPalette(
               val (tab, alias) = entries[idx]
               val isActive = tab.id == activeTabId
               val isFocused = idx == focusedTabIndex
-              val state by tab.sessionState.collectAsStateWithLifecycle()
-              val displayLabel = state.title?.takeIf { it.isNotBlank() } ?: alias
+              val title by remember(tab) {
+                  tab.sessionState.map { it.title?.takeIf(String::isNotBlank) }
+              }.collectAsStateWithLifecycle(initialValue = null)
+              val displayLabel = title ?: alias
               Row(
                   modifier =
                       Modifier.fillMaxWidth()
@@ -173,9 +176,11 @@ fun CommandPalette(
         }
         val focusedTab = entries.getOrNull(focusedTabIndex)?.first
         if (focusedTab != null) {
-          val focusedState by focusedTab.sessionState.collectAsStateWithLifecycle()
-          val focusedSnapshot = focusedState.snapshot
-          if (focusedSnapshot != null) {
+          val focusedSnapshot by remember(focusedTab) {
+              focusedTab.sessionState.map { it.snapshot }
+          }.collectAsStateWithLifecycle(initialValue = null)
+          val snapshot = focusedSnapshot
+          if (snapshot != null) {
             Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(colors.border))
             Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
               Box(
@@ -187,7 +192,7 @@ fun CommandPalette(
                           .align(Alignment.Center)
               ) {
                 TerminalCanvas(
-                    snapshot = focusedSnapshot,
+                    snapshot = snapshot,
                     fontSizeSp = 10.5f,
                     fitSnapshotToCanvas = true,
                     enableGestures = false,
