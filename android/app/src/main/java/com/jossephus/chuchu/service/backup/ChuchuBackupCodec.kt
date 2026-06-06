@@ -7,15 +7,6 @@ import com.jossephus.chuchu.data.backup.BackupSshKey
 import com.jossephus.chuchu.data.backup.InvalidBackupPassphraseException
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.Transport
-import java.nio.CharBuffer
-import java.nio.charset.StandardCharsets
-import java.security.GeneralSecurityException
-import java.security.SecureRandom
-import javax.crypto.AEADBadTagException
-import javax.crypto.Cipher
-import javax.crypto.Mac
-import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.SecretKeySpec
 
 object ChuchuBackupCodec {
     const val FORMAT_VERSION: Int = 1
@@ -31,11 +22,8 @@ object ChuchuBackupCodec {
     private const val PAYLOAD_MAGIC: Int = 0x4348504c // CHPL
     private const val MAX_ITEMS: Int = 100_000
     private const val MAX_STRING_BYTES: Int = 4 * 1024 * 1024
-    private const val AES_KEY_SIZE_BYTES: Int = 32
-    private const val GCM_TAG_SIZE_BITS: Int = 128
 
     private val nativeBridge = NativeBackupBridge()
-    private val secureRandom = SecureRandom()
 
     fun encrypt(
         payload: BackupPayload,
@@ -44,18 +32,10 @@ object ChuchuBackupCodec {
         require(passphrase.isNotEmpty()) { "Backup passphrase must not be empty" }
         val plaintext = encodePayload(payload)
         return try {
-            val nativeEncrypted = if (nativeBridge.isLoaded()) {
-                try {
-                    val result = nativeBridge.nativeEncrypt(plaintext, passphrase)
-                        ?: throw BackupFormatException("Native backup encryption failed")
-                    decodeNativeResult(result, allowInvalidPassphrase = false)
-                } catch (_: UnsatisfiedLinkError) {
-                    null
-                }
-            } else {
-                null
-            }
-            nativeEncrypted ?: encryptWithJvm(plaintext, passphrase)
+            if (!nativeBridge.isLoaded()) throw BackupFormatException("Native backup encryption is unavailable")
+            val result = nativeBridge.nativeEncrypt(plaintext, passphrase)
+                ?: throw BackupFormatException("Native backup encryption failed")
+            decodeNativeResult(result, allowInvalidPassphrase = false)
         } finally {
             plaintext.fill(0)
         }
@@ -64,17 +44,10 @@ object ChuchuBackupCodec {
     @Throws(BackupFormatException::class, InvalidBackupPassphraseException::class)
     fun decrypt(bytes: ByteArray, passphrase: CharArray): BackupPayload {
         require(passphrase.isNotEmpty()) { "Backup passphrase must not be empty" }
-        val plaintext = if (nativeBridge.isLoaded()) {
-            try {
-                val result = nativeBridge.nativeDecrypt(bytes, passphrase)
-                    ?: throw BackupFormatException("Native backup decryption failed")
-                decodeNativeResult(result, allowInvalidPassphrase = true)
-            } catch (_: UnsatisfiedLinkError) {
-                decryptWithJvm(bytes, passphrase)
-            }
-        } else {
-            decryptWithJvm(bytes, passphrase)
-        }
+        if (!nativeBridge.isLoaded()) throw BackupFormatException("Native backup decryption is unavailable")
+        val result = nativeBridge.nativeDecrypt(bytes, passphrase)
+            ?: throw BackupFormatException("Native backup decryption failed")
+        val plaintext = decodeNativeResult(result, allowInvalidPassphrase = true)
         return try {
             decodePayload(plaintext)
         } finally {
@@ -198,217 +171,6 @@ object ChuchuBackupCodec {
         return BackupPayload(keys = keys, hosts = hosts)
     }
 
-
-    @Throws(BackupFormatException::class)
-    private fun encryptWithJvm(plaintext: ByteArray, passphrase: CharArray): ByteArray {
-        val salt = ByteArray(SALT_SIZE_BYTES).also { secureRandom.nextBytes(it) }
-        val iv = ByteArray(IV_SIZE_BYTES).also { secureRandom.nextBytes(it) }
-        val metadata = encodeContainerMetadata(salt = salt, iv = iv)
-        val passphraseBytes = passphraseToUtf16BigEndianBytes(passphrase)
-        val keyBytes = deriveAesKey(passphraseBytes = passphraseBytes, salt = salt, iterations = KDF_ITERATIONS)
-        return try {
-            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(
-                Cipher.ENCRYPT_MODE,
-                SecretKeySpec(keyBytes, "AES"),
-                GCMParameterSpec(GCM_TAG_SIZE_BITS, iv),
-            )
-            cipher.updateAAD(metadata)
-            val ciphertext = cipher.doFinal(plaintext)
-            if (ciphertext.size > MAX_BACKUP_SIZE_BYTES) {
-                throw BackupFormatException("Backup ciphertext is too large")
-            }
-            val totalSize = metadata.size + Int.SIZE_BYTES + ciphertext.size
-            if (totalSize > MAX_BACKUP_SIZE_BYTES) {
-                throw BackupFormatException("Backup file is too large")
-            }
-            ByteWriter(initialCapacity = totalSize).apply {
-                writeBytes(metadata)
-                writeBytesWithLength(ciphertext)
-            }.toByteArray()
-        } catch (error: GeneralSecurityException) {
-            throw BackupFormatException(error.message ?: "Backup encryption failed")
-        } finally {
-            keyBytes.fill(0)
-            passphraseBytes.fill(0)
-        }
-    }
-
-    @Throws(BackupFormatException::class, InvalidBackupPassphraseException::class)
-    private fun decryptWithJvm(bytes: ByteArray, passphrase: CharArray): ByteArray {
-        if (bytes.size > MAX_BACKUP_SIZE_BYTES) throw BackupFormatException("Backup file is too large")
-        val container = readContainer(bytes)
-        val primaryPassphraseBytes = passphraseToUtf16BigEndianBytes(passphrase)
-        return try {
-            decryptContainer(container, primaryPassphraseBytes)
-        } catch (_: InvalidBackupPassphraseException) {
-            val legacyPassphraseBytes = passphraseToUtf8Bytes(passphrase)
-            try {
-                decryptContainer(container, legacyPassphraseBytes)
-            } finally {
-                legacyPassphraseBytes.fill(0)
-            }
-        } finally {
-            primaryPassphraseBytes.fill(0)
-        }
-    }
-
-    private fun passphraseToUtf8Bytes(passphrase: CharArray): ByteArray {
-        val byteBuffer = StandardCharsets.UTF_8.encode(CharBuffer.wrap(passphrase))
-        return try {
-            ByteArray(byteBuffer.remaining()).also { byteBuffer.get(it) }
-        } finally {
-            byteBuffer.clear()
-            if (byteBuffer.hasArray()) {
-                byteBuffer.array().fill(0)
-            }
-        }
-    }
-
-    @Throws(BackupFormatException::class)
-    private fun readContainer(bytes: ByteArray): BackupContainer {
-        val metadataWriter = ByteWriter()
-        val reader = ByteReader(bytes)
-
-        fun readMetadataInt(label: String): Int {
-            val value = reader.readInt()
-            metadataWriter.writeInt(value)
-            return value
-        }
-
-        if (readMetadataInt("magic") != CONTAINER_MAGIC) throw BackupFormatException("Invalid backup file")
-        val version = readMetadataInt("format version")
-        if (version != FORMAT_VERSION) throw BackupFormatException("Unsupported backup format version")
-        val kdfId = readMetadataInt("KDF")
-        if (kdfId != KDF_ID_PBKDF2_HMAC_SHA1) throw BackupFormatException("Unsupported backup KDF")
-        val iterations = readMetadataInt("KDF iterations")
-        if (iterations != KDF_ITERATIONS) throw BackupFormatException("Unsupported backup KDF iterations")
-        val cipherId = readMetadataInt("cipher")
-        if (cipherId != CIPHER_ID_AES_256_GCM) throw BackupFormatException("Unsupported backup cipher")
-
-        val saltSize = readMetadataInt("salt length")
-        if (saltSize != SALT_SIZE_BYTES) throw BackupFormatException("Invalid salt")
-        val salt = reader.readExactBytes(saltSize, "salt")
-        metadataWriter.writeBytes(salt)
-
-        val ivSize = readMetadataInt("initialization vector length")
-        if (ivSize != IV_SIZE_BYTES) throw BackupFormatException("Invalid initialization vector")
-        val iv = reader.readExactBytes(ivSize, "initialization vector")
-        metadataWriter.writeBytes(iv)
-
-        val ciphertextSize = reader.readPositiveInt("ciphertext length")
-        if (ciphertextSize > MAX_BACKUP_SIZE_BYTES) {
-            throw BackupFormatException("Backup ciphertext is too large")
-        }
-        val ciphertext = reader.readExactBytes(ciphertextSize, "ciphertext")
-        if (!reader.isEof()) throw BackupFormatException("Unexpected trailing backup data")
-
-        return BackupContainer(
-            metadata = metadataWriter.toByteArray(),
-            salt = salt,
-            iv = iv,
-            ciphertext = ciphertext,
-        )
-    }
-
-    @Throws(BackupFormatException::class, InvalidBackupPassphraseException::class)
-    private fun decryptContainer(container: BackupContainer, passphraseBytes: ByteArray): ByteArray {
-        val keyBytes = deriveAesKey(
-            passphraseBytes = passphraseBytes,
-            salt = container.salt,
-            iterations = KDF_ITERATIONS,
-        )
-        return try {
-            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(
-                Cipher.DECRYPT_MODE,
-                SecretKeySpec(keyBytes, "AES"),
-                GCMParameterSpec(GCM_TAG_SIZE_BITS, container.iv),
-            )
-            cipher.updateAAD(container.metadata)
-            cipher.doFinal(container.ciphertext)
-        } catch (_: AEADBadTagException) {
-            throw InvalidBackupPassphraseException()
-        } catch (error: GeneralSecurityException) {
-            throw BackupFormatException(error.message ?: "Backup decryption failed")
-        } finally {
-            keyBytes.fill(0)
-        }
-    }
-
-    @Throws(BackupFormatException::class)
-    private fun deriveAesKey(passphraseBytes: ByteArray, salt: ByteArray, iterations: Int): ByteArray =
-        try {
-            val mac = Mac.getInstance("HmacSHA1")
-            mac.init(SecretKeySpec(passphraseBytes, "HmacSHA1"))
-            val output = ByteArray(AES_KEY_SIZE_BYTES)
-            var generated = 0
-            var blockIndex = 1
-            while (generated < output.size) {
-                var u = ByteArray(0)
-                var block = ByteArray(0)
-                try {
-                    mac.update(salt)
-                    u = mac.doFinal(int32Bytes(blockIndex))
-                    block = u.copyOf()
-                    repeat(iterations - 1) {
-                        val previousU = u
-                        try {
-                            u = mac.doFinal(previousU)
-                        } finally {
-                            previousU.fill(0)
-                        }
-                        for (index in block.indices) {
-                            block[index] = (block[index].toInt() xor u[index].toInt()).toByte()
-                        }
-                    }
-                    val copySize = minOf(block.size, output.size - generated)
-                    block.copyInto(output, destinationOffset = generated, startIndex = 0, endIndex = copySize)
-                    generated += copySize
-                    blockIndex += 1
-                } finally {
-                    u.fill(0)
-                    block.fill(0)
-                }
-            }
-            output
-        } catch (error: GeneralSecurityException) {
-            throw BackupFormatException(error.message ?: "Backup key derivation failed")
-        }
-
-    private fun encodeContainerMetadata(salt: ByteArray, iv: ByteArray): ByteArray =
-        ByteWriter().apply {
-            writeInt(CONTAINER_MAGIC)
-            writeInt(FORMAT_VERSION)
-            writeInt(KDF_ID_PBKDF2_HMAC_SHA1)
-            writeInt(KDF_ITERATIONS)
-            writeInt(CIPHER_ID_AES_256_GCM)
-            writeBytesWithLength(salt)
-            writeBytesWithLength(iv)
-        }.toByteArray()
-
-    private fun passphraseToUtf16BigEndianBytes(passphrase: CharArray): ByteArray {
-        val bytes = ByteArray(passphrase.size * 2)
-        passphrase.forEachIndexed { index, char ->
-            bytes[index * 2] = (char.code ushr 8).toByte()
-            bytes[index * 2 + 1] = char.code.toByte()
-        }
-        return bytes
-    }
-
-    private fun int32Bytes(value: Int): ByteArray = byteArrayOf(
-        (value ushr 24).toByte(),
-        (value ushr 16).toByte(),
-        (value ushr 8).toByte(),
-        value.toByte(),
-    )
-
-    private data class BackupContainer(
-        val metadata: ByteArray,
-        val salt: ByteArray,
-        val iv: ByteArray,
-        val ciphertext: ByteArray,
-    )
 
     private fun decodeNativeResult(result: ByteArray, allowInvalidPassphrase: Boolean): ByteArray {
         if (result.isEmpty()) throw BackupFormatException("Invalid native backup response")

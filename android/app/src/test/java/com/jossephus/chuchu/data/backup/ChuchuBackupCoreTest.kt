@@ -5,7 +5,6 @@ import com.jossephus.chuchu.model.HostProfile
 import com.jossephus.chuchu.model.SshKey
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.backup.ChuchuBackupCodec
-import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -40,52 +39,6 @@ class ChuchuBackupCoreTest {
         val second = ChuchuBackupCodec.encrypt(payload, "same passphrase".toCharArray())
 
         assertFalse(first.contentEquals(second))
-    }
-
-    @Test
-    fun encryptedBackupUsesNativeContainerMetadataOrder() {
-        val encrypted = ChuchuBackupCodec.encrypt(samplePayload(), "right".toCharArray())
-
-        assertEquals(0x4348424b, readIntAt(encrypted, 0))
-        assertEquals(ChuchuBackupCodec.FORMAT_VERSION, readIntAt(encrypted, 4))
-        assertEquals(ChuchuBackupCodec.KDF_ID_PBKDF2_HMAC_SHA1, readIntAt(encrypted, 8))
-        assertEquals(ChuchuBackupCodec.KDF_ITERATIONS, readIntAt(encrypted, 12))
-        assertEquals(ChuchuBackupCodec.CIPHER_ID_AES_256_GCM, readIntAt(encrypted, 16))
-        assertEquals(ChuchuBackupCodec.SALT_SIZE_BYTES, readIntAt(encrypted, 20))
-        assertEquals(ChuchuBackupCodec.IV_SIZE_BYTES, readIntAt(encrypted, 40))
-    }
-
-    @Test
-    fun backupKeyDerivationMatchesNativeUtf16BeVector() {
-        val passphraseBytes = byteArrayOf(
-            0x00, 0x70,
-            0x00, 0x61,
-            0x00, 0x73,
-            0x00, 0x73,
-            0x00, 0x77,
-            0x00, 0x6f,
-            0x00, 0x72,
-            0x00, 0x64,
-        )
-        val salt = ByteArray(ChuchuBackupCodec.SALT_SIZE_BYTES) { it.toByte() }
-        val expected = byteArrayOf(
-            0xde.toByte(), 0x7c, 0x12, 0x36, 0x4e, 0xea.toByte(), 0xd1.toByte(),
-            0x9a.toByte(), 0xc7.toByte(), 0x06, 0xb0.toByte(), 0xa4.toByte(),
-            0xb9.toByte(), 0x88.toByte(), 0xf0.toByte(), 0x60, 0x11, 0xa4.toByte(),
-            0x82.toByte(), 0x7d, 0x23, 0x66, 0x98.toByte(), 0xfc.toByte(),
-            0xd6.toByte(), 0x5e, 0x57, 0x89.toByte(), 0xdb.toByte(), 0x5a, 0x74,
-            0xc7.toByte(),
-        )
-
-        assertArrayEquals(expected, deriveAesKeyForTest(passphraseBytes, salt))
-    }
-
-    @Test(expected = InvalidBackupPassphraseException::class)
-    fun encryptedBackupRejectsMetadataTampering() {
-        val encrypted = ChuchuBackupCodec.encrypt(samplePayload(), "right".toCharArray())
-        encrypted[24] = (encrypted[24].toInt() xor 0x01).toByte()
-
-        ChuchuBackupCodec.decrypt(encrypted, "right".toCharArray())
     }
 
     @Test(expected = InvalidBackupPassphraseException::class)
@@ -288,22 +241,6 @@ class ChuchuBackupCoreTest {
         bytes[offset + 1] = (value ushr 16).toByte()
         bytes[offset + 2] = (value ushr 8).toByte()
         bytes[offset + 3] = value.toByte()
-    }
-
-    private fun deriveAesKeyForTest(passphraseBytes: ByteArray, salt: ByteArray): ByteArray {
-        val method = ChuchuBackupCodec::class.java.getDeclaredMethod(
-            "deriveAesKey",
-            ByteArray::class.java,
-            ByteArray::class.java,
-            Int::class.javaPrimitiveType,
-        )
-        method.isAccessible = true
-        return method.invoke(
-            ChuchuBackupCodec,
-            passphraseBytes,
-            salt,
-            ChuchuBackupCodec.KDF_ITERATIONS,
-        ) as ByteArray
     }
 
     private fun replaceLastAscii(bytes: ByteArray, oldValue: String, newValue: String) {

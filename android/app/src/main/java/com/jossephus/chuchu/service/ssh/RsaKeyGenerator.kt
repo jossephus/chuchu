@@ -1,11 +1,11 @@
 package com.jossephus.chuchu.service.ssh
 
-import android.util.Base64
 import com.jossephus.chuchu.model.SshKey
 import java.io.ByteArrayOutputStream
 import java.nio.charset.StandardCharsets
 import java.security.KeyPairGenerator
 import java.security.interfaces.RSAPublicKey
+import java.util.Base64
 
 class RsaKeyGenerator {
     fun generate(name: String, bits: Int = 3072): SshKey {
@@ -24,7 +24,7 @@ class RsaKeyGenerator {
     }
 
     private fun encodePrivateKeyPem(privateDer: ByteArray): String {
-        val body = Base64.encodeToString(privateDer, Base64.NO_WRAP).chunked(64).joinToString("\n")
+        val body = Base64.getMimeEncoder(64, "\n".toByteArray()).encodeToString(privateDer)
         return "-----BEGIN PRIVATE KEY-----\n$body\n-----END PRIVATE KEY-----\n"
     }
 
@@ -35,7 +35,7 @@ class RsaKeyGenerator {
             writeMpInt(out, publicKey.modulus.toByteArray())
             out.toByteArray()
         }
-        val payload = Base64.encodeToString(blob, Base64.NO_WRAP)
+        val payload = Base64.getEncoder().encodeToString(blob)
         return "ssh-rsa $payload $comment"
     }
 

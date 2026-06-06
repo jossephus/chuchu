@@ -10,6 +10,7 @@ import com.jossephus.chuchu.service.mosh.NativeMoshService
 import com.jossephus.chuchu.service.ssh.HostKeyStore
 import com.jossephus.chuchu.service.ssh.NativeSshService
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
+import java.nio.file.Path
 import java.util.concurrent.Executors
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -58,6 +59,7 @@ data class HostKeyPrompt(
 
 class TerminalSessionEngine(
     private val scope: CoroutineScope,
+    _userHomeDir: Path,
     private val hostKeyStore: HostKeyStore,
     private val tailscaleStatusChecker: TailscaleStatusChecker,
 ) {

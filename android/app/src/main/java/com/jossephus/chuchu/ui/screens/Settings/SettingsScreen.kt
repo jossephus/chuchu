@@ -100,7 +100,7 @@ fun SettingsScreen(
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -270,6 +270,7 @@ private fun GeneralSettings(
             onClick = onOpenBackup,
             variant = ChuButtonVariant.Outlined,
             bracketed = true,
+            modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
         ) {
             ChuText("manage", style = typography.label)
