@@ -1,11 +1,12 @@
 package com.jossephus.chuchu.service.terminal
 
 import android.app.Application
+import com.jossephus.chuchu.model.Multiplexer
+import com.jossephus.chuchu.service.multiplexer.MultiplexerSessionAllocator
+import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerSession
+import com.jossephus.chuchu.service.multiplexer.TmuxMultiplexerCommands
 import com.jossephus.chuchu.service.ssh.HostKeyStore
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
-import com.jossephus.chuchu.service.tmux.RemoteTmuxSession
-import com.jossephus.chuchu.service.tmux.TmuxCommandBuilder
-import com.jossephus.chuchu.service.tmux.TmuxSessionAllocator
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -131,15 +132,15 @@ class TerminalSessionRepository private constructor(application: Application) {
     fun tabsForHost(hostId: Long?): List<TabSession> =
         _tabs.value.filter { it.spec.hostId == hostId }
 
-    fun openTmuxSessionNamesForHost(hostId: Long?): List<String> =
-        tabsForHost(hostId).mapNotNull { it.spec.tmuxSessionName }
+    fun openMultiplexerSessionNamesForHost(hostId: Long?): List<String> =
+        tabsForHost(hostId).mapNotNull { it.spec.multiplexerSessionName }
 
-    fun nextTmuxSessionName(
+    fun nextMultiplexerSessionName(
         hostId: Long?,
-        remoteSessions: Collection<RemoteTmuxSession>,
-    ): String = TmuxSessionAllocator.nextChuchuSessionName(
+        remoteSessions: Collection<RemoteMultiplexerSession>,
+    ): String = MultiplexerSessionAllocator.nextChuchuSessionName(
         remoteSessions = remoteSessions,
-        localSessionNames = openTmuxSessionNamesForHost(hostId),
+        localSessionNames = openMultiplexerSessionNamesForHost(hostId),
     )
 
     fun openTab(spec: TabSpec): TabSession {
@@ -165,7 +166,7 @@ class TerminalSessionRepository private constructor(application: Application) {
             transport = spec.transport,
             sessionKey = spec.sessionKey,
             postConnectCommand = spec.postConnectCommand,
-            tmuxStartupCommand = spec.tmuxStartupCommand,
+            multiplexerStartupCommand = spec.multiplexerStartupCommand,
         )
         return tab
     }
@@ -192,20 +193,20 @@ class TerminalSessionRepository private constructor(application: Application) {
         reconnectTab(tab)
     }
 
-    fun switchActiveTmuxSession(sessionName: String): Boolean {
+    fun switchActiveMultiplexerSession(sessionName: String): Boolean {
         val tab = activeTab.value ?: return false
         val updatedSpec = tab.spec.copy(
-            startInTmux = true,
-            tmuxSessionName = sessionName,
-            tmuxCreateIfMissing = false,
+            multiplexer = Multiplexer.Tmux,
+            multiplexerSessionName = sessionName,
+            multiplexerCreateIfMissing = false,
         )
         tab.spec = updatedSpec
-        tab.engine.updateTmuxStartupCommand(updatedSpec.tmuxStartupCommand)
-        val command = TmuxCommandBuilder.interactiveAttachExistingCommand(
+        tab.engine.updateMultiplexerStartupCommand(updatedSpec.multiplexerStartupCommand)
+        val command = TmuxMultiplexerCommands.interactiveAttachExistingCommand(
             sessionName = sessionName,
             trustedRemoteName = true,
         )
-        tab.engine.switchTmuxSession(command)
+        tab.engine.switchMultiplexerSession(command)
         return true
     }
 
@@ -223,7 +224,7 @@ class TerminalSessionRepository private constructor(application: Application) {
             transport = spec.transport,
             sessionKey = spec.sessionKey,
             postConnectCommand = spec.postConnectCommand,
-            tmuxStartupCommand = spec.tmuxStartupCommand,
+            multiplexerStartupCommand = spec.multiplexerStartupCommand,
         )
     }
 

@@ -2,6 +2,7 @@ package com.jossephus.chuchu.data.backup
 
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.HostProfile
+import com.jossephus.chuchu.model.Multiplexer
 import com.jossephus.chuchu.model.SshKey
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.backup.ChuchuBackupCodec
@@ -24,7 +25,7 @@ class ChuchuBackupCoreTest {
 
         assertEquals(payload, decrypted)
         assertEquals("echo hello", decrypted.hosts.single().postConnectCommand)
-        assertTrue(decrypted.hosts.single().startInTmux)
+        assertEquals(Multiplexer.Tmux, decrypted.hosts.single().multiplexer)
         assertFalse(String(encrypted, Charsets.ISO_8859_1).contains("PRIVATE KEY"))
     }
 
@@ -186,21 +187,35 @@ class ChuchuBackupCoreTest {
     }
 
     @Test
-    fun payloadV2PreservesStartInTmux() {
-        val decoded = ChuchuBackupCodec.decodePayload(ChuchuBackupCodec.encodePayload(samplePayload()))
+    fun payloadV2PreservesMultiplexerWithStableLowercaseId() {
+        val encoded = ChuchuBackupCodec.encodePayload(samplePayload())
+        val encodedText = String(encoded, Charsets.ISO_8859_1)
+        val decoded = ChuchuBackupCodec.decodePayload(encoded)
 
-        assertTrue(decoded.hosts.single().startInTmux)
+        assertTrue(encodedText.contains("tmux"))
+        assertFalse(encodedText.contains("Tmux"))
+        assertEquals(Multiplexer.Tmux, decoded.hosts.single().multiplexer)
     }
 
     @Test
-    fun payloadV1DefaultsStartInTmuxToFalse() {
+    fun payloadV2ReadsLegacyEnumMultiplexerName() {
+        val encoded = ChuchuBackupCodec.encodePayload(samplePayload())
+        replaceLastAscii(encoded, "tmux", "Tmux")
+
+        val decoded = ChuchuBackupCodec.decodePayload(encoded)
+
+        assertEquals(Multiplexer.Tmux, decoded.hosts.single().multiplexer)
+    }
+
+    @Test
+    fun payloadV1DefaultsMultiplexerToNull() {
         val v2 = ChuchuBackupCodec.encodePayload(samplePayload())
         writeIntAt(v2, offset = Int.SIZE_BYTES, value = 1)
-        val v1 = v2.copyOf(v2.size - 1)
+        val v1 = v2.copyOf(v2.size - encodedNullableStringSize(Multiplexer.Tmux.id))
 
         val decoded = ChuchuBackupCodec.decodePayload(v1)
 
-        assertFalse(decoded.hosts.single().startInTmux)
+        assertNull(decoded.hosts.single().multiplexer)
         assertEquals("echo hello", decoded.hosts.single().postConnectCommand)
     }
 
@@ -249,8 +264,11 @@ class ChuchuBackupCoreTest {
         authMethod = authMethod,
         requireAuthOnConnect = true,
         postConnectCommand = "echo hello",
-        startInTmux = true,
+        multiplexer = Multiplexer.Tmux,
     )
+
+    private fun encodedNullableStringSize(value: String): Int =
+        1 + Int.SIZE_BYTES + value.toByteArray(Charsets.UTF_8).size
 
     private fun ciphertextSizeOffset(bytes: ByteArray): Int {
         var offset = Int.SIZE_BYTES * 5

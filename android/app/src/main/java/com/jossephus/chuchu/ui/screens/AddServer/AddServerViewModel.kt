@@ -10,6 +10,7 @@ import com.jossephus.chuchu.data.repository.HostRepository
 import com.jossephus.chuchu.data.repository.SshKeyRepository
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.HostProfile
+import com.jossephus.chuchu.model.Multiplexer
 import com.jossephus.chuchu.model.SshKey
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.ssh.Ed25519KeyGenerator
@@ -77,7 +78,7 @@ class AddServerViewModel(
                     authMethod = profile.authMethod,
                     requireAuthOnConnect = profile.requireAuthOnConnect,
                     postConnectCommand = profile.postConnectCommand.orEmpty(),
-                    startInTmux = profile.startInTmux,
+                    multiplexer = profile.multiplexer,
                 )
             }
         }
@@ -173,7 +174,7 @@ class AddServerViewModel(
         _form.value = current.copy(
             transport = transport,
             authMethod = nextAuthMethod,
-            startInTmux = if (transport == Transport.Mosh) false else current.startInTmux,
+            multiplexer = current.multiplexer.takeIf { transport != Transport.Mosh && it?.runtimeSupported == true },
         )
     }
 
@@ -197,9 +198,11 @@ class AddServerViewModel(
         _form.value = _form.value.copy(postConnectCommand = command)
     }
 
-    fun updateStartInTmux(enabled: Boolean) {
+    fun updateMultiplexer(multiplexer: Multiplexer?) {
         val current = _form.value
-        _form.value = current.copy(startInTmux = enabled && current.transport != Transport.Mosh)
+        _form.value = current.copy(
+            multiplexer = multiplexer?.takeIf { current.transport != Transport.Mosh && it.runtimeSupported },
+        )
     }
 
     fun testConnection() {
@@ -260,7 +263,7 @@ class AddServerViewModel(
                 authMethod = current.authMethod,
                 requireAuthOnConnect = current.requireAuthOnConnect,
                 postConnectCommand = current.postConnectCommand.trim().ifBlank { null },
-                startInTmux = current.startInTmux && current.transport != Transport.Mosh,
+                multiplexer = current.multiplexer.takeIf { current.transport != Transport.Mosh && it?.runtimeSupported == true },
             )
             hostRepository.upsert(profile)
             onComplete()
@@ -283,7 +286,7 @@ data class AddServerForm(
     val authMethod: AuthMethod = AuthMethod.Password,
     val requireAuthOnConnect: Boolean = false,
     val postConnectCommand: String = "",
-    val startInTmux: Boolean = false,
+    val multiplexer: Multiplexer? = null,
 )
 
 fun AddServerForm.canSave(): Boolean {

@@ -1,6 +1,7 @@
-package com.jossephus.chuchu.service.tmux
+package com.jossephus.chuchu.service.multiplexer
 
 import com.jossephus.chuchu.model.AuthMethod
+import com.jossephus.chuchu.model.Multiplexer
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.ssh.HostKeyStore
 import com.jossephus.chuchu.service.ssh.NativeSshService
@@ -8,55 +9,61 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
-class RemoteTmuxService(
+class RemoteMultiplexerService(
     private val hostKeyStore: HostKeyStore,
     private val hostKeyPolicy: ((String, Int, String, ByteArray) -> Boolean)? = null,
     private val sshFactory: (((String, Int, String, ByteArray) -> Boolean) -> NativeSshService) = { policy ->
         NativeSshService(hostKeyPolicy = policy)
     },
 ) {
-    suspend fun checkAvailability(spec: TmuxConnectionSpec): TmuxAvailability {
-        if (!isSupportedTransport(spec.transport)) return TmuxAvailability.UnsupportedTransport(spec.transport)
+    suspend fun checkAvailability(spec: MultiplexerConnectionSpec): MultiplexerAvailability {
+        if (!spec.multiplexer.runtimeSupported) {
+            return MultiplexerAvailability.UnsupportedMultiplexer(spec.multiplexer)
+        }
+        if (!isSupportedTransport(spec.transport)) return MultiplexerAvailability.UnsupportedTransport(spec.transport)
         return runCatching {
-            val availability = runCommand(spec, TmuxCommandBuilder.availabilityCommand())
-            if (availability.isSuccess) return TmuxAvailability.Available
+            val availability = runCommand(spec, TmuxMultiplexerCommands.availabilityCommand())
+            if (availability.isSuccess) return MultiplexerAvailability.Available
 
-            val probe = runCommand(spec, TmuxCommandBuilder.platformProbeCommand())
+            val probe = runCommand(spec, TmuxMultiplexerCommands.platformProbeCommand())
             if (probe.isSuccess || probe.output.isNotBlank()) {
-                TmuxAvailability.Missing(TmuxInstallMatrix.fromProbeOutput(probe.output))
+                MultiplexerAvailability.Missing(TmuxInstallMatrix.fromProbeOutput(probe.output))
             } else {
-                TmuxAvailability.Error(
-                    message = "Could not check tmux on this host",
+                MultiplexerAvailability.Error(
+                    message = "Could not check ${spec.multiplexer.label} on this host",
                     output = availability.output.ifBlank { probe.output },
                 )
             }
         }.getOrElse { error ->
-            TmuxAvailability.Error(message = error.message ?: "Could not check tmux on this host")
+            MultiplexerAvailability.Error(message = error.message ?: "Could not check ${spec.multiplexer.label} on this host")
         }
     }
 
-    suspend fun listSessions(spec: TmuxConnectionSpec): TmuxCommandResult =
-        runCommand(spec, TmuxCommandBuilder.listSessionsCommand())
+    suspend fun listSessions(spec: MultiplexerConnectionSpec): MultiplexerCommandResult =
+        runCommand(spec, TmuxMultiplexerCommands.listSessionsCommand())
 
-    suspend fun installTmux(
-        spec: TmuxConnectionSpec,
-        candidate: TmuxInstallCandidate,
-    ): TmuxCommandResult {
-        val command = candidate.command ?: return TmuxCommandResult(
+    suspend fun installMultiplexer(
+        spec: MultiplexerConnectionSpec,
+        candidate: MultiplexerInstallCandidate,
+    ): MultiplexerCommandResult {
+        val command = candidate.command ?: return MultiplexerCommandResult(
             exitCode = 1,
             stdout = "",
             stderr = candidate.guidance,
         )
-        return runCommand(spec, TmuxCommandBuilder.installCommand(command), timeoutMs = 120_000)
+        return runCommand(spec, TmuxMultiplexerCommands.installCommand(command), timeoutMs = 120_000)
     }
 
     suspend fun runCommand(
-        spec: TmuxConnectionSpec,
+        spec: MultiplexerConnectionSpec,
         command: String,
         timeoutMs: Long = 20_000,
-    ): TmuxCommandResult = withContext(Dispatchers.IO) {
+    ): MultiplexerCommandResult = withContext(Dispatchers.IO) {
+        if (!spec.multiplexer.runtimeSupported) {
+            return@withContext MultiplexerCommandResult(1, "", "${spec.multiplexer.label} is not supported yet")
+        }
         if (!isSupportedTransport(spec.transport)) {
-            return@withContext TmuxCommandResult(1, "", "tmux is not supported for ${spec.transport}")
+            return@withContext MultiplexerCommandResult(1, "", "${spec.multiplexer.label} is not supported for ${spec.transport}")
         }
         val ssh = sshFactory { host, port, algorithm, keyBytes ->
             hostKeyPolicy?.invoke(host, port, algorithm, keyBytes)
@@ -74,7 +81,7 @@ class RemoteTmuxService(
                 keyPassphrase = spec.keyPassphrase,
             )
             if (!service.openExec(withExitEnvelope(command))) {
-                return@withContext TmuxCommandResult(1, "", "Remote server did not open an exec channel")
+                return@withContext MultiplexerCommandResult(1, "", "Remote server did not open an exec channel")
             }
             readExecOutput(service, timeoutMs)
         }
@@ -94,12 +101,12 @@ class RemoteTmuxService(
     }
 
     private fun withExitEnvelope(command: String): String =
-        "$command; printf '\\nCHUCHU_EXIT:%s\\n' \"\$?\""
+        "$command; printf '\nCHUCHU_EXIT:%s\n' \"\$?\""
 
     private suspend fun readExecOutput(
         service: NativeSshService,
         timeoutMs: Long,
-    ): TmuxCommandResult {
+    ): MultiplexerCommandResult {
         val output = StringBuilder()
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
@@ -112,18 +119,18 @@ class RemoteTmuxService(
                 delay(25)
             }
         }
-        return TmuxCommandResult(124, output.toString(), "Command timed out")
+        return MultiplexerCommandResult(124, output.toString(), "Command timed out")
     }
 
-    private fun parseCommandEnvelope(output: String): TmuxCommandResult {
+    private fun parseCommandEnvelope(output: String): MultiplexerCommandResult {
         val marker = Regex("(?:^|\\n)CHUCHU_EXIT:(\\d+)\\s*$").find(output)
-            ?: return TmuxCommandResult(
+            ?: return MultiplexerCommandResult(
                 exitCode = 125,
                 stdout = output,
                 stderr = "Missing command exit marker",
             )
         val exitCode = marker.groupValues.getOrNull(1)?.toIntOrNull() ?: 125
         val cleanOutput = output.substring(0, marker.range.first).trimEnd()
-        return TmuxCommandResult(exitCode = exitCode, stdout = cleanOutput, stderr = "")
+        return MultiplexerCommandResult(exitCode = exitCode, stdout = cleanOutput, stderr = "")
     }
 }

@@ -72,7 +72,7 @@ class TerminalSessionEngine(
         val keyPassphrase: String,
         val transport: Transport,
         val postConnectCommand: String? = null,
-        val tmuxStartupCommand: String? = null,
+        val multiplexerStartupCommand: String? = null,
     )
 
     private val dispatcher: ExecutorCoroutineDispatcher =
@@ -140,7 +140,7 @@ class TerminalSessionEngine(
         transport: Transport,
         sessionKey: String,
         postConnectCommand: String? = null,
-        tmuxStartupCommand: String? = null,
+        multiplexerStartupCommand: String? = null,
     ) {
         disconnectRequested = false
         val params =
@@ -155,7 +155,7 @@ class TerminalSessionEngine(
                 keyPassphrase = keyPassphrase,
                 transport = transport,
                 postConnectCommand = postConnectCommand,
-                tmuxStartupCommand = tmuxStartupCommand,
+                multiplexerStartupCommand = multiplexerStartupCommand,
             )
         lastConnectionParams = params
         scope.launch(dispatcher) {
@@ -251,16 +251,16 @@ class TerminalSessionEngine(
         }
     }
 
-    fun switchTmuxSession(command: String) {
+    fun switchMultiplexerSession(command: String) {
         scope.launch(dispatcher) {
             if (handle == 0L) return@launch
-            sendInteractiveCommand(command, "tmux switch")
+            sendInteractiveCommand(command, "multiplexer switch")
         }
     }
 
-    fun updateTmuxStartupCommand(command: String?) {
+    fun updateMultiplexerStartupCommand(command: String?) {
         scope.launch(dispatcher) {
-            lastConnectionParams = lastConnectionParams?.copy(tmuxStartupCommand = command)
+            lastConnectionParams = lastConnectionParams?.copy(multiplexerStartupCommand = command)
         }
     }
 
@@ -827,9 +827,9 @@ class TerminalSessionEngine(
     }
 
     private fun sendStartupCommand(params: ConnectionParams) {
-        val tmuxCommand = params.tmuxStartupCommand?.trim().orEmpty()
-        if (tmuxCommand.isNotEmpty() && params.transport != Transport.Mosh) {
-            sendInteractiveCommand(tmuxCommand, "tmux startup")
+        val multiplexerCommand = params.multiplexerStartupCommand?.trim().orEmpty()
+        if (multiplexerCommand.isNotEmpty() && params.transport != Transport.Mosh) {
+            sendInteractiveCommand(multiplexerCommand, "multiplexer startup")
             return
         }
         sendPostConnectCommand(params.postConnectCommand)

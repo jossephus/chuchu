@@ -10,7 +10,15 @@ import com.jossephus.chuchu.data.repository.HostRepository
 import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.data.repository.SshKeyRepository
 import com.jossephus.chuchu.model.HostProfile
+import com.jossephus.chuchu.model.Multiplexer
 import com.jossephus.chuchu.model.Transport
+import com.jossephus.chuchu.service.multiplexer.MultiplexerAvailability
+import com.jossephus.chuchu.service.multiplexer.MultiplexerCommandResult
+import com.jossephus.chuchu.service.multiplexer.MultiplexerConnectionSpec
+import com.jossephus.chuchu.service.multiplexer.MultiplexerInstallCandidate
+import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerService
+import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerSession
+import com.jossephus.chuchu.service.multiplexer.TmuxMultiplexerCommands
 import com.jossephus.chuchu.service.ssh.HostKeyStore
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
 import com.jossephus.chuchu.service.terminal.HostKeyPrompt
@@ -18,13 +26,6 @@ import com.jossephus.chuchu.service.terminal.SessionState
 import com.jossephus.chuchu.service.terminal.TabSession
 import com.jossephus.chuchu.service.terminal.TabSpec
 import com.jossephus.chuchu.service.terminal.TerminalSessionRepository
-import com.jossephus.chuchu.service.tmux.RemoteTmuxService
-import com.jossephus.chuchu.service.tmux.RemoteTmuxSession
-import com.jossephus.chuchu.service.tmux.TmuxAvailability
-import com.jossephus.chuchu.service.tmux.TmuxCommandBuilder
-import com.jossephus.chuchu.service.tmux.TmuxCommandResult
-import com.jossephus.chuchu.service.tmux.TmuxConnectionSpec
-import com.jossephus.chuchu.service.tmux.TmuxInstallCandidate
 import com.jossephus.chuchu.ui.screens.Files.ConnectionTab
 import com.jossephus.chuchu.ui.screens.Files.FileBrowserEntry
 import com.jossephus.chuchu.ui.screens.Files.FileBrowserUiState
@@ -62,22 +63,23 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     private val hostKeyStore = HostKeyStore(
         application.getSharedPreferences("host_keys", Application.MODE_PRIVATE),
     )
-    private val remoteTmuxService = RemoteTmuxService(
+    private val remoteMultiplexerService = RemoteMultiplexerService(
         hostKeyStore = hostKeyStore,
-        hostKeyPolicy = ::verifyTmuxHostKey,
+        hostKeyPolicy = ::verifyMultiplexerHostKey,
     )
 
-    private sealed class PendingTmuxAction(open val spec: TabSpec) {
-        data class Open(override val spec: TabSpec) : PendingTmuxAction(spec)
-        data class Reconnect(val tabId: String, override val spec: TabSpec) : PendingTmuxAction(spec)
+    private sealed class PendingMultiplexerAction(open val spec: TabSpec) {
+        data class Open(override val spec: TabSpec) : PendingMultiplexerAction(spec)
+        data class Reconnect(val tabId: String, override val spec: TabSpec) : PendingMultiplexerAction(spec)
     }
 
-    private val _tmuxState = MutableStateFlow(TmuxUiState())
-    val tmuxState: StateFlow<TmuxUiState> = _tmuxState.asStateFlow()
-    private var pendingTmuxAction: PendingTmuxAction? = null
-    private var tmuxActionGeneration = 0L
-    private val tmuxHostKeyDecisionLock = Any()
-    private var tmuxHostKeyDecision: CompletableDeferred<Boolean>? = null
+    private val _multiplexerState = MutableStateFlow(MultiplexerUiState())
+    val multiplexerState: StateFlow<MultiplexerUiState> = _multiplexerState.asStateFlow()
+    private var pendingMultiplexerAction: PendingMultiplexerAction? = null
+    private var multiplexerActionGeneration = 0L
+    private var multiplexerSessionListGeneration = 0L
+    private val multiplexerHostKeyDecisionLock = Any()
+    private var multiplexerHostKeyDecision: CompletableDeferred<Boolean>? = null
 
     private val _tailscaleActive = MutableStateFlow(tailscaleStatusChecker.isActive())
     val tailscaleActive: StateFlow<Boolean> = _tailscaleActive.asStateFlow()
@@ -149,8 +151,9 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         return PreparedTabOpen(spec = spec, requiresVerification = requiresVerification)
     }
 
-    private fun tmuxConnectionSpec(spec: TabSpec): TmuxConnectionSpec =
-        TmuxConnectionSpec(
+    private fun multiplexerConnectionSpec(spec: TabSpec): MultiplexerConnectionSpec =
+        MultiplexerConnectionSpec(
+            multiplexer = spec.multiplexer ?: Multiplexer.Tmux,
             host = spec.host,
             port = spec.port,
             username = spec.username,
@@ -162,17 +165,17 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             transport = spec.transport,
         )
 
-    private fun parseSuccessfulTmuxSessionList(
-        commandResult: TmuxCommandResult,
-        fallbackMessage: String = "Failed to list tmux sessions",
-    ): List<RemoteTmuxSession> {
+    private fun parseSuccessfulMultiplexerSessionList(
+        commandResult: MultiplexerCommandResult,
+        fallbackMessage: String = "Failed to list multiplexer sessions",
+    ): List<RemoteMultiplexerSession> {
         if (!commandResult.isSuccess) {
             throw IllegalStateException(commandResult.stderr.ifBlank { fallbackMessage })
         }
-        return TmuxCommandBuilder.parseSessionList(commandResult.stdout)
+        return TmuxMultiplexerCommands.parseSessionList(commandResult.stdout)
     }
 
-    private fun verifyTmuxHostKey(
+    private fun verifyMultiplexerHostKey(
         host: String,
         port: Int,
         algorithm: String,
@@ -181,15 +184,15 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         val existing = hostKeyStore.loadKey(host, port, algorithm)
         if (existing != null && existing.contentEquals(keyBytes)) return true
 
-        val deferred = synchronized(tmuxHostKeyDecisionLock) {
-            val current = tmuxHostKeyDecision
+        val deferred = synchronized(multiplexerHostKeyDecisionLock) {
+            val current = multiplexerHostKeyDecision
             if (current != null) {
                 null
             } else {
-                CompletableDeferred<Boolean>().also { tmuxHostKeyDecision = it }
+                CompletableDeferred<Boolean>().also { multiplexerHostKeyDecision = it }
             }
         } ?: return false
-        _tmuxState.value = _tmuxState.value.copy(
+        _multiplexerState.value = _multiplexerState.value.copy(
             hostKeyPrompt = HostKeyPrompt(
                 host = host,
                 port = port,
@@ -202,23 +205,23 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         if (accepted) {
             hostKeyStore.saveKey(host, port, algorithm, keyBytes)
         }
-        synchronized(tmuxHostKeyDecisionLock) {
-            if (tmuxHostKeyDecision === deferred) tmuxHostKeyDecision = null
+        synchronized(multiplexerHostKeyDecisionLock) {
+            if (multiplexerHostKeyDecision === deferred) multiplexerHostKeyDecision = null
         }
-        _tmuxState.value = _tmuxState.value.copy(hostKeyPrompt = null)
+        _multiplexerState.value = _multiplexerState.value.copy(hostKeyPrompt = null)
         return accepted
     }
 
-    fun onTmuxHostKeyDecision(accepted: Boolean) {
-        val deferred = synchronized(tmuxHostKeyDecisionLock) { tmuxHostKeyDecision }
+    fun onMultiplexerHostKeyDecision(accepted: Boolean) {
+        val deferred = synchronized(multiplexerHostKeyDecisionLock) { multiplexerHostKeyDecision }
         deferred?.complete(accepted)
-        _tmuxState.value = _tmuxState.value.copy(hostKeyPrompt = null)
+        _multiplexerState.value = _multiplexerState.value.copy(hostKeyPrompt = null)
     }
 
     fun duplicateActiveTab(): TabSession? {
         val current = sessionRepository.activeTab.value ?: return null
-        if (current.spec.startInTmux && current.spec.transport != Transport.Mosh) {
-            startTmuxDuplicate(current.spec)
+        if (current.spec.usesRuntimeMultiplexer) {
+            startMultiplexerDuplicate(current.spec)
             return null
         }
         return openTab(current.spec)
@@ -226,34 +229,34 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
 
     fun duplicateTab(tabId: String): TabSession? {
         val tab = sessionRepository.tabs.value.firstOrNull { it.id == tabId } ?: return null
-        if (tab.spec.startInTmux && tab.spec.transport != Transport.Mosh) {
-            startTmuxDuplicate(tab.spec)
+        if (tab.spec.usesRuntimeMultiplexer) {
+            startMultiplexerDuplicate(tab.spec)
             return null
         }
         return openTab(tab.spec)
     }
 
-    private fun startTmuxDuplicate(spec: TabSpec) {
+    private fun startMultiplexerDuplicate(spec: TabSpec) {
         viewModelScope.launch(Dispatchers.IO) {
             val result = runCatching {
-                val listResult = remoteTmuxService.listSessions(tmuxConnectionSpec(spec))
-                val remoteSessions = parseSuccessfulTmuxSessionList(listResult)
-                sessionRepository.nextTmuxSessionName(spec.hostId, remoteSessions)
+                val listResult = remoteMultiplexerService.listSessions(multiplexerConnectionSpec(spec))
+                val remoteSessions = parseSuccessfulMultiplexerSessionList(listResult)
+                sessionRepository.nextMultiplexerSessionName(spec.hostId, remoteSessions)
             }
             withContext(Dispatchers.Main) {
                 result.fold(
                     onSuccess = { name ->
                         openTab(
                             spec.copy(
-                                startInTmux = true,
-                                tmuxSessionName = name,
-                                tmuxCreateIfMissing = true,
+                                multiplexer = spec.multiplexer ?: Multiplexer.Tmux,
+                                multiplexerSessionName = name,
+                                multiplexerCreateIfMissing = true,
                             ),
                         )
                     },
                     onFailure = { error ->
-                        _tmuxState.value = _tmuxState.value.copy(
-                            preflightError = error.message ?: "Could not create tmux session",
+                        _multiplexerState.value = _multiplexerState.value.copy(
+                            preflightError = error.message ?: "Could not create multiplexer session",
                         )
                     },
                 )
@@ -261,50 +264,58 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun initiateTmuxOpen(spec: TabSpec) {
-        beginTmuxAction(PendingTmuxAction.Open(spec))
+    fun initiateMultiplexerOpen(spec: TabSpec) {
+        beginMultiplexerAction(PendingMultiplexerAction.Open(spec))
     }
 
-    private fun initiateTmuxReconnect(tab: TabSession) {
-        beginTmuxAction(PendingTmuxAction.Reconnect(tab.id, tab.spec))
+    private fun initiateMultiplexerReconnect(tab: TabSession) {
+        beginMultiplexerAction(PendingMultiplexerAction.Reconnect(tab.id, tab.spec))
     }
 
-    private fun beginTmuxAction(action: PendingTmuxAction) {
-        val actionGeneration = ++tmuxActionGeneration
-        pendingTmuxAction = action
+    private fun beginMultiplexerAction(action: PendingMultiplexerAction) {
+        val actionGeneration = ++multiplexerActionGeneration
+        pendingMultiplexerAction = action
         val spec = action.spec
-        val reconnectRecovery = action is PendingTmuxAction.Reconnect
+        val label = spec.multiplexer?.label ?: Multiplexer.Tmux.label
+        val reconnectRecovery = action is PendingMultiplexerAction.Reconnect
         if (spec.transport == Transport.Mosh) {
-            _tmuxState.value = TmuxUiState(
-                preflightError = "tmux is not supported for Mosh connections",
+            _multiplexerState.value = MultiplexerUiState(
+                preflightError = "$label is not supported for Mosh connections",
                 reconnectRecovery = reconnectRecovery,
             )
             return
         }
-        _tmuxState.value = TmuxUiState(reconnectRecovery = reconnectRecovery)
+        if (spec.multiplexer != null && spec.multiplexer.runtimeSupported.not()) {
+            _multiplexerState.value = MultiplexerUiState(
+                preflightError = "${spec.multiplexer.label} is not supported yet",
+                reconnectRecovery = reconnectRecovery,
+            )
+            return
+        }
+        _multiplexerState.value = MultiplexerUiState(reconnectRecovery = reconnectRecovery)
         viewModelScope.launch(Dispatchers.IO) {
-            val tmuxSpec = tmuxConnectionSpec(spec)
-            when (val availability = remoteTmuxService.checkAvailability(tmuxSpec)) {
-                is TmuxAvailability.Available -> {
-                    val result = runCatching { resolveTmuxSessionName(action, tmuxSpec) }
+            val multiplexerSpec = multiplexerConnectionSpec(spec)
+            when (val availability = remoteMultiplexerService.checkAvailability(multiplexerSpec)) {
+                is MultiplexerAvailability.Available -> {
+                    val result = runCatching { resolveMultiplexerSessionName(action, multiplexerSpec) }
                     withContext(Dispatchers.Main) {
-                        if (!isCurrentTmuxAction(actionGeneration, action)) return@withContext
+                        if (!isCurrentMultiplexerAction(actionGeneration, action)) return@withContext
                         result.fold(
                             onSuccess = { sessionName ->
-                                completeTmuxAction(actionGeneration, action, sessionName)
+                                completeMultiplexerAction(actionGeneration, action, sessionName)
                             },
                             onFailure = { error ->
-                                _tmuxState.value = _tmuxState.value.copy(
-                                    preflightError = error.message ?: "Could not prepare tmux session",
+                                _multiplexerState.value = _multiplexerState.value.copy(
+                                    preflightError = error.message ?: "Could not prepare multiplexer session",
                                 )
                             },
                         )
                     }
                 }
-                is TmuxAvailability.Missing -> {
+                is MultiplexerAvailability.Missing -> {
                     withContext(Dispatchers.Main) {
-                        if (!isCurrentTmuxAction(actionGeneration, action)) return@withContext
-                        _tmuxState.value = _tmuxState.value.copy(
+                        if (!isCurrentMultiplexerAction(actionGeneration, action)) return@withContext
+                        _multiplexerState.value = _multiplexerState.value.copy(
                             missingDialogVisible = true,
                             installCandidate = availability.installCandidate,
                             installOutput = "",
@@ -313,18 +324,26 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                         )
                     }
                 }
-                is TmuxAvailability.UnsupportedTransport -> {
+                is MultiplexerAvailability.UnsupportedMultiplexer -> {
                     withContext(Dispatchers.Main) {
-                        if (!isCurrentTmuxAction(actionGeneration, action)) return@withContext
-                        _tmuxState.value = _tmuxState.value.copy(
-                            preflightError = "tmux is not supported for ${spec.transport}",
+                        if (!isCurrentMultiplexerAction(actionGeneration, action)) return@withContext
+                        _multiplexerState.value = _multiplexerState.value.copy(
+                            preflightError = "${availability.multiplexer.label} is not supported yet",
                         )
                     }
                 }
-                is TmuxAvailability.Error -> {
+                is MultiplexerAvailability.UnsupportedTransport -> {
                     withContext(Dispatchers.Main) {
-                        if (!isCurrentTmuxAction(actionGeneration, action)) return@withContext
-                        _tmuxState.value = _tmuxState.value.copy(
+                        if (!isCurrentMultiplexerAction(actionGeneration, action)) return@withContext
+                        _multiplexerState.value = _multiplexerState.value.copy(
+                            preflightError = "$label is not supported for ${spec.transport}",
+                        )
+                    }
+                }
+                is MultiplexerAvailability.Error -> {
+                    withContext(Dispatchers.Main) {
+                        if (!isCurrentMultiplexerAction(actionGeneration, action)) return@withContext
+                        _multiplexerState.value = _multiplexerState.value.copy(
                             preflightError = availability.message,
                         )
                     }
@@ -333,42 +352,42 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private suspend fun resolveTmuxSessionName(
-        action: PendingTmuxAction,
-        tmuxSpec: TmuxConnectionSpec,
+    private suspend fun resolveMultiplexerSessionName(
+        action: PendingMultiplexerAction,
+        multiplexerSpec: MultiplexerConnectionSpec,
     ): String {
-        val existingName = action.spec.tmuxSessionName?.takeIf { it.isNotBlank() }
-        if (existingName != null && action.spec.tmuxCreateIfMissing) return existingName
-        val listResult = remoteTmuxService.listSessions(tmuxSpec)
-        val remoteSessions = parseSuccessfulTmuxSessionList(listResult)
+        val existingName = action.spec.multiplexerSessionName?.takeIf { it.isNotBlank() }
+        if (existingName != null && action.spec.multiplexerCreateIfMissing) return existingName
+        val listResult = remoteMultiplexerService.listSessions(multiplexerSpec)
+        val remoteSessions = parseSuccessfulMultiplexerSessionList(listResult)
         if (existingName != null) {
             if (remoteSessions.any { it.name == existingName }) return existingName
-            throw IllegalStateException("tmux session \"$existingName\" is no longer available")
+            throw IllegalStateException("multiplexer session \"$existingName\" is no longer available")
         }
-        return sessionRepository.nextTmuxSessionName(action.spec.hostId, remoteSessions)
+        return sessionRepository.nextMultiplexerSessionName(action.spec.hostId, remoteSessions)
     }
 
-    private fun isCurrentTmuxAction(actionGeneration: Long, action: PendingTmuxAction): Boolean =
-        tmuxActionGeneration == actionGeneration && pendingTmuxAction == action
+    private fun isCurrentMultiplexerAction(actionGeneration: Long, action: PendingMultiplexerAction): Boolean =
+        multiplexerActionGeneration == actionGeneration && pendingMultiplexerAction == action
 
-    private fun completeTmuxAction(
+    private fun completeMultiplexerAction(
         actionGeneration: Long,
-        action: PendingTmuxAction,
+        action: PendingMultiplexerAction,
         sessionName: String,
     ) {
-        if (!isCurrentTmuxAction(actionGeneration, action)) return
+        if (!isCurrentMultiplexerAction(actionGeneration, action)) return
         val nextSpec = action.spec.copy(
-            startInTmux = true,
-            tmuxSessionName = sessionName,
-            tmuxCreateIfMissing = action.spec.tmuxCreateIfMissing,
+            multiplexer = action.spec.multiplexer ?: Multiplexer.Tmux,
+            multiplexerSessionName = sessionName,
+            multiplexerCreateIfMissing = action.spec.multiplexerCreateIfMissing,
         )
-        pendingTmuxAction = null
-        _tmuxState.value = TmuxUiState()
+        pendingMultiplexerAction = null
+        _multiplexerState.value = MultiplexerUiState()
         when (action) {
-            is PendingTmuxAction.Open -> openTab(nextSpec)
-            is PendingTmuxAction.Reconnect -> {
+            is PendingMultiplexerAction.Open -> openTab(nextSpec)
+            is PendingMultiplexerAction.Reconnect -> {
                 if (!reconnectTabWithSpec(action.tabId, nextSpec)) {
-                    _tmuxState.value = TmuxUiState(
+                    _multiplexerState.value = MultiplexerUiState(
                         preflightError = "Terminal session is no longer available",
                         reconnectRecovery = true,
                     )
@@ -385,31 +404,52 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         return true
     }
 
-    fun listTmuxSessionsForCurrentHost() {
+    fun listMultiplexerSessionsForCurrentHost() {
         val tab = sessionRepository.activeTab.value ?: return
-        _tmuxState.value = _tmuxState.value.copy(sessionsLoading = true, sessionsError = null)
+        val requestGeneration = ++multiplexerSessionListGeneration
+        val sourceTabId = tab.id
+        val sourceHostId = tab.spec.hostId
+        _multiplexerState.value = _multiplexerState.value.copy(
+            sessions = emptyList(),
+            sessionsLoading = true,
+            sessionsError = null,
+            sessionsSourceTabId = sourceTabId,
+            sessionsSourceHostId = sourceHostId,
+        )
         viewModelScope.launch(Dispatchers.IO) {
-            val result = runCatching { remoteTmuxService.listSessions(tmuxConnectionSpec(tab.spec)) }
+            val result = runCatching { remoteMultiplexerService.listSessions(multiplexerConnectionSpec(tab.spec)) }
             withContext(Dispatchers.Main) {
+                val activeTab = sessionRepository.activeTab.value
+                if (requestGeneration != multiplexerSessionListGeneration || activeTab?.id != sourceTabId) {
+                    return@withContext
+                }
                 result.fold(
                     onSuccess = { commandResult ->
                         if (commandResult.isSuccess) {
-                            _tmuxState.value = _tmuxState.value.copy(
-                                sessions = TmuxCommandBuilder.parseSessionList(commandResult.stdout),
+                            _multiplexerState.value = _multiplexerState.value.copy(
+                                sessions = TmuxMultiplexerCommands.parseSessionList(commandResult.stdout),
                                 sessionsLoading = false,
                                 sessionsError = null,
+                                sessionsSourceTabId = sourceTabId,
+                                sessionsSourceHostId = sourceHostId,
                             )
                         } else {
-                            _tmuxState.value = _tmuxState.value.copy(
+                            _multiplexerState.value = _multiplexerState.value.copy(
+                                sessions = emptyList(),
                                 sessionsLoading = false,
                                 sessionsError = commandResult.stderr.ifBlank { "Failed to list sessions" },
+                                sessionsSourceTabId = sourceTabId,
+                                sessionsSourceHostId = sourceHostId,
                             )
                         }
                     },
                     onFailure = { error ->
-                        _tmuxState.value = _tmuxState.value.copy(
+                        _multiplexerState.value = _multiplexerState.value.copy(
+                            sessions = emptyList(),
                             sessionsLoading = false,
                             sessionsError = error.message ?: "Failed to list sessions",
+                            sessionsSourceTabId = sourceTabId,
+                            sessionsSourceHostId = sourceHostId,
                         )
                     },
                 )
@@ -417,29 +457,29 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun createNextTmuxSession() {
+    fun createNextMultiplexerSession() {
         val tab = sessionRepository.activeTab.value ?: return
         viewModelScope.launch(Dispatchers.IO) {
             val result = runCatching {
-                val listResult = remoteTmuxService.listSessions(tmuxConnectionSpec(tab.spec))
-                val remoteSessions = parseSuccessfulTmuxSessionList(listResult)
-                sessionRepository.nextTmuxSessionName(tab.spec.hostId, remoteSessions)
+                val listResult = remoteMultiplexerService.listSessions(multiplexerConnectionSpec(tab.spec))
+                val remoteSessions = parseSuccessfulMultiplexerSessionList(listResult)
+                sessionRepository.nextMultiplexerSessionName(tab.spec.hostId, remoteSessions)
             }
             withContext(Dispatchers.Main) {
                 result.fold(
                     onSuccess = { name ->
                         openTab(
                             tab.spec.copy(
-                                startInTmux = true,
-                                tmuxSessionName = name,
-                                tmuxCreateIfMissing = true,
+                                multiplexer = tab.spec.multiplexer ?: Multiplexer.Tmux,
+                                multiplexerSessionName = name,
+                                multiplexerCreateIfMissing = true,
                             ),
                         )
-                        listTmuxSessionsForCurrentHost()
+                        listMultiplexerSessionsForCurrentHost()
                     },
                     onFailure = { error ->
-                        _tmuxState.value = _tmuxState.value.copy(
-                            sessionsError = error.message ?: "Could not create tmux session",
+                        _multiplexerState.value = _multiplexerState.value.copy(
+                            sessionsError = error.message ?: "Could not create multiplexer session",
                         )
                     },
                 )
@@ -447,37 +487,49 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun switchToTmuxSession(name: String) {
-        sessionRepository.switchActiveTmuxSession(name)
+    fun switchToMultiplexerSession(name: String, sourceTabId: String?) {
+        val activeTab = sessionRepository.activeTab.value
+        val state = _multiplexerState.value
+        if (activeTab == null || sourceTabId == null || activeTab.id != sourceTabId || state.sessionsSourceTabId != sourceTabId) {
+            _multiplexerState.value = state.copy(
+                sessions = emptyList(),
+                sessionsLoading = false,
+                sessionsError = "Session list is stale. Refresh sessions and try again.",
+                sessionsSourceTabId = activeTab?.id,
+                sessionsSourceHostId = activeTab?.spec?.hostId,
+            )
+            return
+        }
+        sessionRepository.switchActiveMultiplexerSession(name)
     }
 
     fun confirmRunInstall() {
-        val candidate = _tmuxState.value.installCandidate ?: return
-        val action = pendingTmuxAction ?: return
-        val actionGeneration = tmuxActionGeneration
+        val candidate = _multiplexerState.value.installCandidate ?: return
+        val action = pendingMultiplexerAction ?: return
+        val actionGeneration = multiplexerActionGeneration
         val spec = action.spec
-        _tmuxState.value = _tmuxState.value.copy(
+        _multiplexerState.value = _multiplexerState.value.copy(
             installRunning = true,
             installOutput = "",
             installError = null,
         )
         viewModelScope.launch(Dispatchers.IO) {
             val result = runCatching {
-                remoteTmuxService.installTmux(tmuxConnectionSpec(spec), candidate)
+                remoteMultiplexerService.installMultiplexer(multiplexerConnectionSpec(spec), candidate)
             }
             withContext(Dispatchers.Main) {
-                if (!isCurrentTmuxAction(actionGeneration, action)) return@withContext
+                if (!isCurrentMultiplexerAction(actionGeneration, action)) return@withContext
                 result.fold(
                     onSuccess = { commandResult ->
                         if (commandResult.isSuccess) {
-                            _tmuxState.value = _tmuxState.value.copy(
+                            _multiplexerState.value = _multiplexerState.value.copy(
                                 installRunning = false,
                                 installOutput = commandResult.stdout,
                                 missingDialogVisible = false,
                             )
-                            beginTmuxAction(action)
+                            beginMultiplexerAction(action)
                         } else {
-                            _tmuxState.value = _tmuxState.value.copy(
+                            _multiplexerState.value = _multiplexerState.value.copy(
                                 installRunning = false,
                                 installOutput = commandResult.output,
                                 installError = "Install failed (exit ${commandResult.exitCode})",
@@ -485,7 +537,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                         }
                     },
                     onFailure = { error ->
-                        _tmuxState.value = _tmuxState.value.copy(
+                        _multiplexerState.value = _multiplexerState.value.copy(
                             installRunning = false,
                             installError = error.message ?: "Install failed",
                         )
@@ -495,35 +547,35 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun retryPendingTmuxOpen() {
-        val action = pendingTmuxAction ?: return
-        beginTmuxAction(action)
+    fun retryPendingMultiplexerOpen() {
+        val action = pendingMultiplexerAction ?: return
+        beginMultiplexerAction(action)
     }
 
-    fun connectPendingWithoutTmux(): Boolean {
-        val action = pendingTmuxAction ?: return false
+    fun connectPendingWithoutMultiplexer(): Boolean {
+        val action = pendingMultiplexerAction ?: return false
         val plainSpec = action.spec.copy(
-            startInTmux = false,
-            tmuxSessionName = null,
-            tmuxCreateIfMissing = true,
+            multiplexer = null,
+            multiplexerSessionName = null,
+            multiplexerCreateIfMissing = true,
         )
-        _tmuxState.value = TmuxUiState()
-        pendingTmuxAction = null
-        tmuxActionGeneration += 1
+        _multiplexerState.value = MultiplexerUiState()
+        pendingMultiplexerAction = null
+        multiplexerActionGeneration += 1
         return when (action) {
-            is PendingTmuxAction.Open -> {
+            is PendingMultiplexerAction.Open -> {
                 openTab(plainSpec)
                 true
             }
-            is PendingTmuxAction.Reconnect -> reconnectTabWithSpec(action.tabId, plainSpec)
+            is PendingMultiplexerAction.Reconnect -> reconnectTabWithSpec(action.tabId, plainSpec)
         }
     }
 
-    fun dismissMissingTmuxDialog(onBack: () -> Unit) {
-        val shouldNavigateBack = pendingTmuxAction is PendingTmuxAction.Open
-        _tmuxState.value = TmuxUiState()
-        pendingTmuxAction = null
-        tmuxActionGeneration += 1
+    fun dismissMissingMultiplexerDialog(onBack: () -> Unit) {
+        val shouldNavigateBack = pendingMultiplexerAction is PendingMultiplexerAction.Open
+        _multiplexerState.value = MultiplexerUiState()
+        pendingMultiplexerAction = null
+        multiplexerActionGeneration += 1
         if (shouldNavigateBack) onBack()
     }
 
@@ -541,8 +593,8 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     fun reconnect() {
         refreshTailscaleStatus()
         val tab = sessionRepository.activeTab.value ?: return
-        if (tab.spec.startInTmux && tab.spec.transport != Transport.Mosh) {
-            initiateTmuxReconnect(tab)
+        if (tab.spec.usesRuntimeMultiplexer) {
+            initiateMultiplexerReconnect(tab)
         } else {
             sessionRepository.reconnectActive()
         }
@@ -819,8 +871,8 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     }
 
     override fun onCleared() {
-        tmuxHostKeyDecision?.cancel()
-        tmuxHostKeyDecision = null
+        multiplexerHostKeyDecision?.cancel()
+        multiplexerHostKeyDecision = null
         sessionRepository.detachClient()
     }
 
@@ -847,16 +899,18 @@ private object GhosttyMouseButton {
     const val Left = 1
 }
 
-data class TmuxUiState(
+data class MultiplexerUiState(
     val missingDialogVisible: Boolean = false,
-    val installCandidate: TmuxInstallCandidate? = null,
+    val installCandidate: MultiplexerInstallCandidate? = null,
     val installOutput: String = "",
     val installRunning: Boolean = false,
     val installError: String? = null,
     val preflightError: String? = null,
     val hostKeyPrompt: HostKeyPrompt? = null,
-    val sessions: List<RemoteTmuxSession> = emptyList(),
+    val sessions: List<RemoteMultiplexerSession> = emptyList(),
     val sessionsLoading: Boolean = false,
     val sessionsError: String? = null,
+    val sessionsSourceTabId: String? = null,
+    val sessionsSourceHostId: Long? = null,
     val reconnectRecovery: Boolean = false,
 )

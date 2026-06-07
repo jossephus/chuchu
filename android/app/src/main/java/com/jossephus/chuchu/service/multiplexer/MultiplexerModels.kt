@@ -1,28 +1,30 @@
-package com.jossephus.chuchu.service.tmux
+package com.jossephus.chuchu.service.multiplexer
 
 import com.jossephus.chuchu.model.AuthMethod
+import com.jossephus.chuchu.model.Multiplexer
 import com.jossephus.chuchu.model.Transport
 
-data class RemoteTmuxSession(
+data class RemoteMultiplexerSession(
     val name: String,
     val attached: Boolean,
 )
 
-data class TmuxInstallCandidate(
+data class MultiplexerInstallCandidate(
     val platformLabel: String,
     val command: String?,
     val packageManager: String? = null,
     val guidance: String,
 )
 
-sealed interface TmuxAvailability {
-    data object Available : TmuxAvailability
-    data class Missing(val installCandidate: TmuxInstallCandidate) : TmuxAvailability
-    data class UnsupportedTransport(val transport: Transport) : TmuxAvailability
-    data class Error(val message: String, val output: String = "") : TmuxAvailability
+sealed interface MultiplexerAvailability {
+    data object Available : MultiplexerAvailability
+    data class Missing(val installCandidate: MultiplexerInstallCandidate) : MultiplexerAvailability
+    data class UnsupportedMultiplexer(val multiplexer: Multiplexer) : MultiplexerAvailability
+    data class UnsupportedTransport(val transport: Transport) : MultiplexerAvailability
+    data class Error(val message: String, val output: String = "") : MultiplexerAvailability
 }
 
-data class TmuxCommandResult(
+data class MultiplexerCommandResult(
     val exitCode: Int,
     val stdout: String,
     val stderr: String,
@@ -34,7 +36,8 @@ data class TmuxCommandResult(
         get() = exitCode == 0
 }
 
-data class TmuxConnectionSpec(
+data class MultiplexerConnectionSpec(
+    val multiplexer: Multiplexer,
     val host: String,
     val port: Int,
     val username: String,

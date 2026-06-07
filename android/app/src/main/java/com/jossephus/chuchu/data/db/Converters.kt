@@ -2,6 +2,7 @@ package com.jossephus.chuchu.data.db
 
 import androidx.room.TypeConverter
 import com.jossephus.chuchu.model.AuthMethod
+import com.jossephus.chuchu.model.Multiplexer
 import com.jossephus.chuchu.model.Transport
 
 class Converters {
@@ -17,4 +18,9 @@ class Converters {
     @TypeConverter
     fun toAuthMethod(value: String): AuthMethod = AuthMethod.valueOf(value)
 
+    @TypeConverter
+    fun fromMultiplexer(value: Multiplexer?): String? = value?.id
+
+    @TypeConverter
+    fun toMultiplexer(value: String?): Multiplexer? = value?.let { Multiplexer.fromPersistedValue(it) }
 }

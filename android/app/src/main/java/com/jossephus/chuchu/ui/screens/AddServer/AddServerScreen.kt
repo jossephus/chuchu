@@ -33,6 +33,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jossephus.chuchu.model.AuthMethod
+import com.jossephus.chuchu.model.Multiplexer
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
@@ -262,7 +263,7 @@ fun AddServerScreen(
                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    ChuText("start in tmux", style = typography.label)
+                    ChuText("start in multiplexer", style = typography.label)
                     if (form.transport == Transport.Mosh) {
                         ChuText(
                             "not supported for mosh",
@@ -272,17 +273,23 @@ fun AddServerScreen(
                     }
                 }
                 ChuSwitch(
-                    checked = form.startInTmux && form.transport != Transport.Mosh,
+                    checked = form.multiplexer == Multiplexer.Tmux && form.transport != Transport.Mosh,
                     onCheckedChange = {
                         if (form.transport != Transport.Mosh) {
-                            vm.updateStartInTmux(it)
+                            vm.updateMultiplexer(if (it) Multiplexer.Tmux else null)
                         }
                     },
                 )
             }
-            if (form.startInTmux && form.transport != Transport.Mosh) {
+            if (form.multiplexer == Multiplexer.Tmux && form.transport != Transport.Mosh) {
                 ChuText(
-                    "opens a named tmux session; auto-run runs only when tmux is off",
+                    "opens a named tmux session; the post-connect command only runs when tmux startup is off",
+                    style = typography.bodySmall,
+                    color = colors.textMuted,
+                )
+            } else if (form.transport != Transport.Mosh) {
+                ChuText(
+                    "tmux is the only supported multiplexer for now",
                     style = typography.bodySmall,
                     color = colors.textMuted,
                 )

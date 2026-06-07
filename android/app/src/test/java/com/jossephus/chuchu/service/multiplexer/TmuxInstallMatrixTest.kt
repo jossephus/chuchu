@@ -1,4 +1,4 @@
-package com.jossephus.chuchu.service.tmux
+package com.jossephus.chuchu.service.multiplexer
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -8,17 +8,17 @@ class TmuxInstallMatrixTest {
     @Test
     fun debianUsesAptGet() {
         val candidate = TmuxInstallMatrix.fromProbeOutput(
-            "ID=debian\nPRETTY_NAME=\"Debian GNU/Linux\"\nCHUCHU_UNAME=Linux\nCHUCHU_COMMANDS=apt-get sudo\n",
+            "CHUCHU_ID=debian\nCHUCHU_UNAME=Linux\nCHUCHU_HAS_APT=1\n",
         )
 
         assertEquals("sudo apt-get update && sudo apt-get install -y tmux", candidate.command)
-        assertEquals("apt-get", candidate.packageManager)
+        assertEquals("apt", candidate.packageManager)
     }
 
     @Test
     fun rhelPrefersDnfWhenAvailable() {
         val candidate = TmuxInstallMatrix.fromProbeOutput(
-            "ID=rocky\nID_LIKE=\"rhel fedora\"\nCHUCHU_COMMANDS=dnf yum sudo\n",
+            "CHUCHU_ID=rocky\nCHUCHU_ID_LIKE=rhel fedora\nCHUCHU_HAS_DNF=1\nCHUCHU_HAS_YUM=1\n",
         )
 
         assertEquals("sudo dnf install -y tmux", candidate.command)
@@ -26,12 +26,12 @@ class TmuxInstallMatrixTest {
     }
 
     @Test
-    fun alpineCanUseDoas() {
+    fun alpineUsesApk() {
         val candidate = TmuxInstallMatrix.fromProbeOutput(
-            "ID=alpine\nCHUCHU_COMMANDS=apk doas\n",
+            "CHUCHU_ID=alpine\nCHUCHU_HAS_APK=1\n",
         )
 
-        assertEquals("doas apk add tmux", candidate.command)
+        assertEquals("sudo apk add tmux", candidate.command)
         assertEquals("apk", candidate.packageManager)
     }
 
@@ -40,6 +40,6 @@ class TmuxInstallMatrixTest {
         val candidate = TmuxInstallMatrix.fromProbeOutput("CHUCHU_UNAME=Plan9\n")
 
         assertNull(candidate.command)
-        assertEquals("Install tmux with this host's package manager, then reconnect.", candidate.guidance)
+        assertEquals("Install tmux with this host's package manager, then retry.", candidate.guidance)
     }
 }

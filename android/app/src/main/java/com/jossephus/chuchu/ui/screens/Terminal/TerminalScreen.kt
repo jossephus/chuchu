@@ -68,8 +68,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.service.terminal.SessionStatus
+import com.jossephus.chuchu.service.multiplexer.MultiplexerInstallCandidate
 import com.jossephus.chuchu.service.terminal.TabSpec
-import com.jossephus.chuchu.service.tmux.TmuxInstallCandidate
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuDialog
@@ -330,7 +330,7 @@ fun TerminalScreen(
                     ),
             )
         }
-    val tmuxState by vm.tmuxState.collectAsStateWithLifecycle()
+    val multiplexerState by vm.multiplexerState.collectAsStateWithLifecycle()
 
     LaunchedEffect(terminalFontSizeSp) {
         terminalPrefs.edit().putFloat("terminal_font_size_sp", terminalFontSizeSp).apply()
@@ -363,8 +363,8 @@ fun TerminalScreen(
                 passphraseFromPicker = fromPicker
                 pendingTabSpec = preparedSpec
                 showPassphrasePrompt = true
-            } else if (preparedSpec.startInTmux) {
-                vm.initiateTmuxOpen(preparedSpec)
+            } else if (preparedSpec.usesRuntimeMultiplexer) {
+                vm.initiateMultiplexerOpen(preparedSpec)
             } else {
                 vm.openTab(preparedSpec)
             }
@@ -446,14 +446,14 @@ fun TerminalScreen(
     }
 
     LaunchedEffect(showTabSheet, activeTab?.id) {
-        if (showTabSheet && activeTab?.spec?.startInTmux == true) {
-            vm.listTmuxSessionsForCurrentHost()
+        if (showTabSheet && activeTab?.spec?.usesRuntimeMultiplexer == true) {
+            vm.listMultiplexerSessionsForCurrentHost()
         }
     }
 
     LaunchedEffect(showGlobalTabManager, activeTab?.id) {
-        if (showGlobalTabManager && activeTab?.spec?.startInTmux == true) {
-            vm.listTmuxSessionsForCurrentHost()
+        if (showGlobalTabManager && activeTab?.spec?.usesRuntimeMultiplexer == true) {
+            vm.listMultiplexerSessionsForCurrentHost()
         }
     }
 
@@ -466,8 +466,8 @@ fun TerminalScreen(
                 showPassphrasePrompt = false
                 if (spec != null) {
                     val preparedSpec = spec.copy(keyPassphrase = passphraseInput)
-                    if (preparedSpec.startInTmux) {
-                        vm.initiateTmuxOpen(preparedSpec)
+                    if (preparedSpec.usesRuntimeMultiplexer) {
+                        vm.initiateMultiplexerOpen(preparedSpec)
                     } else {
                         vm.openTab(preparedSpec)
                     }
@@ -529,44 +529,44 @@ fun TerminalScreen(
         }
     }
 
-    val tmuxHostKeyPrompt = tmuxState.hostKeyPrompt
-    if (tmuxHostKeyPrompt != null) {
+    val multiplexerHostKeyPrompt = multiplexerState.hostKeyPrompt
+    if (multiplexerHostKeyPrompt != null) {
         ChuDialog(
-            onDismiss = { vm.onTmuxHostKeyDecision(false) },
+            onDismiss = { vm.onMultiplexerHostKeyDecision(false) },
             title = "Verify host key",
             confirmLabel = "Accept",
             dismissLabel = "Reject",
-            onConfirm = { vm.onTmuxHostKeyDecision(true) },
+            onConfirm = { vm.onMultiplexerHostKeyDecision(true) },
         ) {
-            val previous = tmuxHostKeyPrompt.previousFingerprint
+            val previous = multiplexerHostKeyPrompt.previousFingerprint
             val message = buildString {
-                append("Host: ${tmuxHostKeyPrompt.host}:${tmuxHostKeyPrompt.port}\n")
-                append("Algorithm: ${tmuxHostKeyPrompt.algorithm}\n")
+                append("Host: ${multiplexerHostKeyPrompt.host}:${multiplexerHostKeyPrompt.port}\n")
+                append("Algorithm: ${multiplexerHostKeyPrompt.algorithm}\n")
                 if (previous != null) {
                     append("WARNING: host key changed!\n")
                     append("Old: $previous\n")
                 }
-                append("New: ${tmuxHostKeyPrompt.fingerprint}")
+                append("New: ${multiplexerHostKeyPrompt.fingerprint}")
             }
             ChuText(message, style = typography.body)
         }
     }
 
-    val preflightError = tmuxState.preflightError
+    val preflightError = multiplexerState.preflightError
     LaunchedEffect(preflightError) {
         if (preflightError != null) {
             Toast.makeText(context, preflightError, Toast.LENGTH_LONG).show()
         }
     }
-    if (tmuxState.missingDialogVisible && tmuxState.installCandidate != null) {
-        TmuxMissingDialog(
-            candidate = tmuxState.installCandidate!!,
-            installRunning = tmuxState.installRunning,
-            installOutput = tmuxState.installOutput,
-            installError = tmuxState.installError,
-            onDismiss = { vm.dismissMissingTmuxDialog(onBack) },
+    if (multiplexerState.missingDialogVisible && multiplexerState.installCandidate != null) {
+        MultiplexerMissingDialog(
+            candidate = multiplexerState.installCandidate!!,
+            installRunning = multiplexerState.installRunning,
+            installOutput = multiplexerState.installOutput,
+            installError = multiplexerState.installError,
+            onDismiss = { vm.dismissMissingMultiplexerDialog(onBack) },
             onCopyCommand = {
-                val cmd = tmuxState.installCandidate!!.command
+                val cmd = multiplexerState.installCandidate!!.command
                 if (cmd != null) {
                     val clip = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     clip.setPrimaryClip(ClipData.newPlainText("tmux install command", cmd))
@@ -574,8 +574,8 @@ fun TerminalScreen(
                 }
             },
             onRunInstall = vm::confirmRunInstall,
-            onConnectWithoutTmux = {
-                if (vm.connectPendingWithoutTmux()) {
+            onConnectWithoutMultiplexer = {
+                if (vm.connectPendingWithoutMultiplexer()) {
                     vm.selectConnectionTab(ConnectionTab.Terminal)
                 }
             },
@@ -602,15 +602,15 @@ fun TerminalScreen(
                         if (errorMessage != null) {
                             TerminalRecoveryActions(
                                 message = errorMessage,
-                                isTmuxPreflight = preflightError != null,
-                                dismissTmuxLabel = if (tmuxState.reconnectRecovery) "dismiss" else "back",
-                                onRetryTmux = vm::retryPendingTmuxOpen,
-                                onConnectWithoutTmux = {
-                                    if (vm.connectPendingWithoutTmux()) {
+                                isMultiplexerPreflight = preflightError != null,
+                                dismissMultiplexerLabel = if (multiplexerState.reconnectRecovery) "dismiss" else "back",
+                                onRetryMultiplexer = vm::retryPendingMultiplexerOpen,
+                                onConnectWithoutMultiplexer = {
+                                    if (vm.connectPendingWithoutMultiplexer()) {
                                         vm.selectConnectionTab(ConnectionTab.Terminal)
                                     }
                                 },
-                                onBack = { vm.dismissMissingTmuxDialog(onBack) },
+                                onBack = { vm.dismissMissingMultiplexerDialog(onBack) },
                                 onReconnect = vm::reconnect,
                             )
                         } else if (tabs.isEmpty()) {
@@ -647,15 +647,15 @@ fun TerminalScreen(
                     if (errorMessage != null) {
                         TerminalRecoveryActions(
                             message = errorMessage,
-                            isTmuxPreflight = preflightError != null,
-                            dismissTmuxLabel = if (tmuxState.reconnectRecovery) "dismiss" else "back",
-                            onRetryTmux = vm::retryPendingTmuxOpen,
-                            onConnectWithoutTmux = {
-                                if (vm.connectPendingWithoutTmux()) {
+                            isMultiplexerPreflight = preflightError != null,
+                            dismissMultiplexerLabel = if (multiplexerState.reconnectRecovery) "dismiss" else "back",
+                            onRetryMultiplexer = vm::retryPendingMultiplexerOpen,
+                            onConnectWithoutMultiplexer = {
+                                if (vm.connectPendingWithoutMultiplexer()) {
                                     vm.selectConnectionTab(ConnectionTab.Terminal)
                                 }
                             },
-                            onBack = { vm.dismissMissingTmuxDialog(onBack) },
+                            onBack = { vm.dismissMissingMultiplexerDialog(onBack) },
                             onReconnect = vm::reconnect,
                         )
                     }
@@ -1578,13 +1578,15 @@ fun TerminalScreen(
                             showTabSheet = false
                         },
                         onDismiss = { showTabSheet = false },
-                        tmuxEnabled = activeTab?.spec?.startInTmux == true,
-                        tmuxSessions = tmuxState.sessions,
-                        tmuxSessionsLoading = tmuxState.sessionsLoading,
-                        tmuxSessionsError = tmuxState.sessionsError,
-                        onTmuxRefresh = vm::listTmuxSessionsForCurrentHost,
-                        onTmuxNew = vm::createNextTmuxSession,
-                        onTmuxAttach = vm::switchToTmuxSession,
+                        multiplexerEnabled = activeTab?.spec?.usesRuntimeMultiplexer == true,
+                        multiplexerSessions = multiplexerState.sessions,
+                        multiplexerSessionsLoading = multiplexerState.sessionsLoading,
+                        multiplexerSessionsError = multiplexerState.sessionsError,
+                        onMultiplexerRefresh = vm::listMultiplexerSessionsForCurrentHost,
+                        onMultiplexerNew = vm::createNextMultiplexerSession,
+                        onMultiplexerAttach = { name ->
+                            vm.switchToMultiplexerSession(name, multiplexerState.sessionsSourceTabId)
+                        },
                     )
                 }
 
@@ -1671,13 +1673,15 @@ fun TerminalScreen(
             },
             onAddTab = openAnotherSessionForCurrentHost,
             onDismiss = { showGlobalTabManager = false },
-            tmuxEnabled = activeTab?.spec?.startInTmux == true,
-            tmuxSessions = tmuxState.sessions,
-            tmuxSessionsLoading = tmuxState.sessionsLoading,
-            tmuxSessionsError = tmuxState.sessionsError,
-            onTmuxRefresh = vm::listTmuxSessionsForCurrentHost,
-            onTmuxNew = vm::createNextTmuxSession,
-            onTmuxAttach = vm::switchToTmuxSession,
+            multiplexerEnabled = activeTab?.spec?.usesRuntimeMultiplexer == true,
+            multiplexerSessions = multiplexerState.sessions,
+            multiplexerSessionsLoading = multiplexerState.sessionsLoading,
+            multiplexerSessionsError = multiplexerState.sessionsError,
+            onMultiplexerRefresh = vm::listMultiplexerSessionsForCurrentHost,
+            onMultiplexerNew = vm::createNextMultiplexerSession,
+            onMultiplexerAttach = { name ->
+                vm.switchToMultiplexerSession(name, multiplexerState.sessionsSourceTabId)
+            },
         )
     }
 }
@@ -1685,10 +1689,10 @@ fun TerminalScreen(
 @Composable
 private fun TerminalRecoveryActions(
     message: String,
-    isTmuxPreflight: Boolean,
-    dismissTmuxLabel: String = "back",
-    onRetryTmux: () -> Unit,
-    onConnectWithoutTmux: () -> Unit,
+    isMultiplexerPreflight: Boolean,
+    dismissMultiplexerLabel: String = "back",
+    onRetryMultiplexer: () -> Unit,
+    onConnectWithoutMultiplexer: () -> Unit,
     onBack: () -> Unit,
     onReconnect: () -> Unit,
 ) {
@@ -1697,22 +1701,22 @@ private fun TerminalRecoveryActions(
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         ChuText(message, color = colors.error, style = typography.body)
         Spacer(modifier = Modifier.height(16.dp))
-        if (isTmuxPreflight) {
+        if (isMultiplexerPreflight) {
             ChuButton(
-                onClick = onRetryTmux,
+                onClick = onRetryMultiplexer,
                 modifier = Modifier.fillMaxWidth(),
                 variant = ChuButtonVariant.Filled,
             ) {
-                ChuText("retry tmux", style = typography.label, color = colors.onAccent)
+                ChuText("retry multiplexer", style = typography.label, color = colors.onAccent)
             }
             Spacer(modifier = Modifier.height(8.dp))
             ChuButton(
-                onClick = onConnectWithoutTmux,
+                onClick = onConnectWithoutMultiplexer,
                 modifier = Modifier.fillMaxWidth(),
                 variant = ChuButtonVariant.Outlined,
                 bracketed = true,
             ) {
-                ChuText("connect without tmux", style = typography.label)
+                ChuText("connect without multiplexer", style = typography.label)
             }
             Spacer(modifier = Modifier.height(8.dp))
             ChuButton(
@@ -1722,7 +1726,7 @@ private fun TerminalRecoveryActions(
                 bracketed = true,
                 borderColor = colors.textMuted,
             ) {
-                ChuText(dismissTmuxLabel, style = typography.label, color = colors.textMuted)
+                ChuText(dismissMultiplexerLabel, style = typography.label, color = colors.textMuted)
             }
         } else {
             ChuButton(
@@ -1737,15 +1741,15 @@ private fun TerminalRecoveryActions(
 }
 
 @Composable
-private fun TmuxMissingDialog(
-    candidate: TmuxInstallCandidate,
+private fun MultiplexerMissingDialog(
+    candidate: MultiplexerInstallCandidate,
     installRunning: Boolean,
     installOutput: String,
     installError: String?,
     onDismiss: () -> Unit,
     onCopyCommand: () -> Unit,
     onRunInstall: () -> Unit,
-    onConnectWithoutTmux: () -> Unit,
+    onConnectWithoutMultiplexer: () -> Unit,
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
@@ -1799,13 +1803,13 @@ private fun TmuxMissingDialog(
         }
 
         ChuButton(
-            onClick = onConnectWithoutTmux,
+            onClick = onConnectWithoutMultiplexer,
             variant = ChuButtonVariant.Ghost,
             bracketed = true,
             borderColor = colors.textMuted,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            ChuText("connect without tmux", style = typography.label, color = colors.textMuted)
+            ChuText("connect without multiplexer", style = typography.label, color = colors.textMuted)
         }
 
         if (installRunning) {

@@ -2,8 +2,9 @@ package com.jossephus.chuchu.service.terminal
 
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.HostProfile
+import com.jossephus.chuchu.model.Multiplexer
 import com.jossephus.chuchu.model.Transport
-import com.jossephus.chuchu.service.tmux.TmuxCommandBuilder
+import com.jossephus.chuchu.service.multiplexer.TmuxMultiplexerCommands
 
 data class TabSpec(
     val hostId: Long? = null,
@@ -18,9 +19,9 @@ data class TabSpec(
     val keyPassphrase: String = "",
     val transport: Transport = Transport.SSH,
     val postConnectCommand: String? = null,
-    val startInTmux: Boolean = false,
-    val tmuxSessionName: String? = null,
-    val tmuxCreateIfMissing: Boolean = true,
+    val multiplexer: Multiplexer? = null,
+    val multiplexerSessionName: String? = null,
+    val multiplexerCreateIfMissing: Boolean = true,
 ) {
     val sessionKey: String
         get() = hostId?.let { "host:$it" } ?: "${transport.name}:$username@$host:$port"
@@ -34,14 +35,22 @@ data class TabSpec(
     val tabLabel: String
         get() = displayName.takeIf { it.isNotBlank() } ?: "$username@$host"
 
-    val tmuxStartupCommand: String?
+    val usesRuntimeMultiplexer: Boolean
+        get() = multiplexer?.runtimeSupported == true && transport != Transport.Mosh
+
+    val multiplexerStartupCommand: String?
         get() {
-            if (!startInTmux || transport == Transport.Mosh) return null
-            val name = tmuxSessionName?.takeIf { it.isNotBlank() } ?: return null
-            return if (tmuxCreateIfMissing) {
-                TmuxCommandBuilder.interactiveAttachOrSwitchCommand(name, trustedRemoteName = true)
-            } else {
-                TmuxCommandBuilder.interactiveAttachExistingCommand(name, trustedRemoteName = true)
+            if (!usesRuntimeMultiplexer) return null
+            val name = multiplexerSessionName?.takeIf { it.isNotBlank() } ?: return null
+            return when (multiplexer) {
+                Multiplexer.Tmux -> if (multiplexerCreateIfMissing) {
+                    TmuxMultiplexerCommands.interactiveAttachOrSwitchCommand(name, trustedRemoteName = true)
+                } else {
+                    TmuxMultiplexerCommands.interactiveAttachExistingCommand(name, trustedRemoteName = true)
+                }
+                Multiplexer.Zellij,
+                Multiplexer.Zmx,
+                null -> null
             }
         }
 
@@ -64,7 +73,7 @@ data class TabSpec(
             keyPassphrase = keyPassphrase,
             transport = host.transport,
             postConnectCommand = host.postConnectCommand,
-            startInTmux = host.startInTmux && host.transport != Transport.Mosh,
+            multiplexer = host.multiplexer?.takeIf { it.runtimeSupported && host.transport != Transport.Mosh },
         )
     }
 }

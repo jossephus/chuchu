@@ -6,6 +6,7 @@ import com.jossephus.chuchu.data.backup.BackupPayload
 import com.jossephus.chuchu.data.backup.BackupSshKey
 import com.jossephus.chuchu.data.backup.InvalidBackupPassphraseException
 import com.jossephus.chuchu.model.AuthMethod
+import com.jossephus.chuchu.model.Multiplexer
 import com.jossephus.chuchu.model.Transport
 
 object ChuchuBackupCodec {
@@ -99,7 +100,7 @@ object ChuchuBackupCodec {
             writeStringField(host.authMethod.name, "auth method")
             writer.writeBoolean(host.requireAuthOnConnect)
             writeNullableStringField(host.postConnectCommand, "post-connect command")
-            writer.writeBoolean(host.startInTmux)
+            writeNullableStringField(host.multiplexer?.id, "multiplexer")
         }
 
         val encoded = writer.toByteArray()
@@ -122,6 +123,11 @@ object ChuchuBackupCodec {
         fun <T : Enum<T>> readEnumField(label: String, values: Array<T>): T {
             val value = readStringField(label)
             return values.firstOrNull { it.name == value } ?: throw BackupFormatException("Unknown $label")
+        }
+
+        fun readNullableMultiplexerField(label: String): Multiplexer? {
+            val value = readNullableStringField(label) ?: return null
+            return Multiplexer.fromPersistedValue(value) ?: throw BackupFormatException("Unknown $label")
         }
 
         if (reader.readInt() != PAYLOAD_MAGIC) throw BackupFormatException("Invalid backup payload")
@@ -163,7 +169,11 @@ object ChuchuBackupCodec {
                         authMethod = readEnumField("auth method", enumValues<AuthMethod>()),
                         requireAuthOnConnect = reader.readBoolean(),
                         postConnectCommand = readNullableStringField("post-connect command"),
-                        startInTmux = if (version >= 2) reader.readBoolean() else false,
+                        multiplexer = if (version >= 2) {
+                            readNullableMultiplexerField("multiplexer")
+                        } else {
+                            null
+                        },
                     ),
                 )
             }
