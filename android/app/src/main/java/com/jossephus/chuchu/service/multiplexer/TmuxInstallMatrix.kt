@@ -42,7 +42,7 @@ object TmuxInstallMatrix {
                 command = "sudo pacman -S --needed tmux",
                 guidance = "Install tmux with pacman on the remote host.",
             )
-            values["CHUCHU_HAS_BREW"] == "1" || uname == "darwin" -> MultiplexerInstallCandidate(
+            values["CHUCHU_HAS_BREW"] == "1" && uname == "darwin" -> MultiplexerInstallCandidate(
                 platformLabel = platformLabel(id, idLike, uname, "macOS"),
                 packageManager = "brew",
                 command = "brew install tmux",

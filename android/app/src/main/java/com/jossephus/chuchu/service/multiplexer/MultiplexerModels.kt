@@ -47,4 +47,10 @@ data class MultiplexerConnectionSpec(
     val privateKeyPem: String,
     val keyPassphrase: String,
     val transport: Transport,
-)
+) {
+    override fun toString(): String =
+        "MultiplexerConnectionSpec(" +
+            "multiplexer=$multiplexer, host=$host, port=$port, username=$username, " +
+            "password=<redacted>, authMethod=$authMethod, publicKeyOpenSsh=<redacted>, " +
+            "privateKeyPem=<redacted>, keyPassphrase=<redacted>, transport=$transport)"
+}

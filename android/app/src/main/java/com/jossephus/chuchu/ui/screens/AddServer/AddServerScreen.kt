@@ -279,6 +279,7 @@ fun AddServerScreen(
                             vm.updateMultiplexer(if (it) Multiplexer.Tmux else null)
                         }
                     },
+                    enabled = form.transport != Transport.Mosh,
                 )
             }
             if (form.multiplexer == Multiplexer.Tmux && form.transport != Transport.Mosh) {

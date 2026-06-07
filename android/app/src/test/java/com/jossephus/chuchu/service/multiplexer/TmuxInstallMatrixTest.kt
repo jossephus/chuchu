@@ -36,6 +36,26 @@ class TmuxInstallMatrixTest {
     }
 
     @Test
+    fun macOsUsesBrewOnlyWhenBrewExists() {
+        val candidate = TmuxInstallMatrix.fromProbeOutput(
+            "CHUCHU_UNAME=Darwin\nCHUCHU_HAS_BREW=1\n",
+        )
+
+        assertEquals("brew install tmux", candidate.command)
+        assertEquals("brew", candidate.packageManager)
+    }
+
+    @Test
+    fun macOsWithoutBrewHasManualFallback() {
+        val candidate = TmuxInstallMatrix.fromProbeOutput(
+            "CHUCHU_UNAME=Darwin\nCHUCHU_HAS_BREW=0\n",
+        )
+
+        assertNull(candidate.command)
+        assertEquals("Install tmux with this host's package manager, then retry.", candidate.guidance)
+    }
+
+    @Test
     fun unknownOsHasManualFallback() {
         val candidate = TmuxInstallMatrix.fromProbeOutput("CHUCHU_UNAME=Plan9\n")
 
