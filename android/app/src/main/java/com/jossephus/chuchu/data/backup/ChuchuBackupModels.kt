@@ -62,6 +62,7 @@ data class BackupHostProfile(
     val authMethod: AuthMethod,
     val requireAuthOnConnect: Boolean,
     val postConnectCommand: String?,
+    val startInTmux: Boolean,
 ) {
     fun toEntity(
         idOverride: Long = id,
@@ -79,6 +80,7 @@ data class BackupHostProfile(
         authMethod = authMethod,
         requireAuthOnConnect = requireAuthOnConnect,
         postConnectCommand = postConnectCommand,
+        startInTmux = startInTmux,
     )
 
     companion object {
@@ -95,6 +97,7 @@ data class BackupHostProfile(
             authMethod = host.authMethod,
             requireAuthOnConnect = host.requireAuthOnConnect,
             postConnectCommand = host.postConnectCommand,
+            startInTmux = host.startInTmux,
         )
     }
 }

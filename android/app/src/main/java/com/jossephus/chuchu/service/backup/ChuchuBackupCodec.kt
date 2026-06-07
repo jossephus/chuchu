@@ -10,7 +10,7 @@ import com.jossephus.chuchu.model.Transport
 
 object ChuchuBackupCodec {
     const val FORMAT_VERSION: Int = 1
-    const val PAYLOAD_VERSION: Int = 1
+    const val PAYLOAD_VERSION: Int = 2
     const val KDF_ID_PBKDF2_HMAC_SHA1: Int = 1
     const val CIPHER_ID_AES_256_GCM: Int = 1
     const val KDF_ITERATIONS: Int = 210_000
@@ -99,6 +99,7 @@ object ChuchuBackupCodec {
             writeStringField(host.authMethod.name, "auth method")
             writer.writeBoolean(host.requireAuthOnConnect)
             writeNullableStringField(host.postConnectCommand, "post-connect command")
+            writer.writeBoolean(host.startInTmux)
         }
 
         val encoded = writer.toByteArray()
@@ -125,7 +126,7 @@ object ChuchuBackupCodec {
 
         if (reader.readInt() != PAYLOAD_MAGIC) throw BackupFormatException("Invalid backup payload")
         val version = reader.readInt()
-        if (version != PAYLOAD_VERSION) throw BackupFormatException("Unsupported backup payload version")
+        if (version !in 1..PAYLOAD_VERSION) throw BackupFormatException("Unsupported backup payload version")
 
         val keyCount = reader.readPositiveInt("key count")
         validateItemCount(keyCount, "key count")
@@ -162,6 +163,7 @@ object ChuchuBackupCodec {
                         authMethod = readEnumField("auth method", enumValues<AuthMethod>()),
                         requireAuthOnConnect = reader.readBoolean(),
                         postConnectCommand = readNullableStringField("post-connect command"),
+                        startInTmux = if (version >= 2) reader.readBoolean() else false,
                     ),
                 )
             }

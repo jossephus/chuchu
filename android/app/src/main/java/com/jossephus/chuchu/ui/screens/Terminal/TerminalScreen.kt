@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.offset
@@ -37,6 +38,8 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -66,6 +69,7 @@ import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.service.terminal.SessionStatus
 import com.jossephus.chuchu.service.terminal.TabSpec
+import com.jossephus.chuchu.service.tmux.TmuxInstallCandidate
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuDialog
@@ -326,6 +330,7 @@ fun TerminalScreen(
                     ),
             )
         }
+    val tmuxState by vm.tmuxState.collectAsStateWithLifecycle()
 
     LaunchedEffect(terminalFontSizeSp) {
         terminalPrefs.edit().putFloat("terminal_font_size_sp", terminalFontSizeSp).apply()
@@ -358,6 +363,8 @@ fun TerminalScreen(
                 passphraseFromPicker = fromPicker
                 pendingTabSpec = preparedSpec
                 showPassphrasePrompt = true
+            } else if (preparedSpec.startInTmux) {
+                vm.initiateTmuxOpen(preparedSpec)
             } else {
                 vm.openTab(preparedSpec)
             }
@@ -438,6 +445,18 @@ fun TerminalScreen(
             if (activeIndex >= 0) activeIndex else focusedTabIndex.coerceIn(0, tabsForHost.lastIndex)
     }
 
+    LaunchedEffect(showTabSheet, activeTabForHost?.id) {
+        if (showTabSheet && activeTabForHost?.spec?.startInTmux == true) {
+            vm.listTmuxSessionsForCurrentHost()
+        }
+    }
+
+    LaunchedEffect(showGlobalTabManager, activeTabForHost?.id) {
+        if (showGlobalTabManager && activeTabForHost?.spec?.startInTmux == true) {
+            vm.listTmuxSessionsForCurrentHost()
+        }
+    }
+
     if (showPassphrasePrompt) {
         ChuDialog(
             title = "Key passphrase",
@@ -446,7 +465,12 @@ fun TerminalScreen(
                 val spec = pendingTabSpec
                 showPassphrasePrompt = false
                 if (spec != null) {
-                    vm.openTab(spec.copy(keyPassphrase = passphraseInput))
+                    val preparedSpec = spec.copy(keyPassphrase = passphraseInput)
+                    if (preparedSpec.startInTmux) {
+                        vm.initiateTmuxOpen(preparedSpec)
+                    } else {
+                        vm.openTab(preparedSpec)
+                    }
                 }
                 passphraseInput = ""
                 pendingTabSpec = null
@@ -505,6 +529,59 @@ fun TerminalScreen(
         }
     }
 
+    val tmuxHostKeyPrompt = tmuxState.hostKeyPrompt
+    if (tmuxHostKeyPrompt != null) {
+        ChuDialog(
+            onDismiss = { vm.onTmuxHostKeyDecision(false) },
+            title = "Verify host key",
+            confirmLabel = "Accept",
+            dismissLabel = "Reject",
+            onConfirm = { vm.onTmuxHostKeyDecision(true) },
+        ) {
+            val previous = tmuxHostKeyPrompt.previousFingerprint
+            val message = buildString {
+                append("Host: ${tmuxHostKeyPrompt.host}:${tmuxHostKeyPrompt.port}\n")
+                append("Algorithm: ${tmuxHostKeyPrompt.algorithm}\n")
+                if (previous != null) {
+                    append("WARNING: host key changed!\n")
+                    append("Old: $previous\n")
+                }
+                append("New: ${tmuxHostKeyPrompt.fingerprint}")
+            }
+            ChuText(message, style = typography.body)
+        }
+    }
+
+    val preflightError = tmuxState.preflightError
+    LaunchedEffect(preflightError) {
+        if (preflightError != null) {
+            Toast.makeText(context, preflightError, Toast.LENGTH_LONG).show()
+        }
+    }
+    if (tmuxState.missingDialogVisible && tmuxState.installCandidate != null) {
+        TmuxMissingDialog(
+            candidate = tmuxState.installCandidate!!,
+            installRunning = tmuxState.installRunning,
+            installOutput = tmuxState.installOutput,
+            installError = tmuxState.installError,
+            onDismiss = { vm.dismissMissingTmuxDialog(onBack) },
+            onCopyCommand = {
+                val cmd = tmuxState.installCandidate!!.command
+                if (cmd != null) {
+                    val clip = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clip.setPrimaryClip(ClipData.newPlainText("tmux install command", cmd))
+                    Toast.makeText(context, "Command copied", Toast.LENGTH_SHORT).show()
+                }
+            },
+            onRunInstall = vm::confirmRunInstall,
+            onConnectWithoutTmux = {
+                if (vm.connectPendingWithoutTmux()) {
+                    vm.selectConnectionTab(ConnectionTab.Terminal)
+                }
+            },
+        )
+    }
+
     when (sessionState.status) {
         SessionStatus.Disconnected,
         SessionStatus.Error -> {
@@ -521,7 +598,22 @@ fun TerminalScreen(
                         modifier = Modifier.weight(1f).fillMaxWidth(),
                         contentAlignment = Alignment.Center,
                     ) {
-                        if (tabs.isEmpty()) {
+                        val errorMessage = preflightError ?: sessionState.error
+                        if (errorMessage != null) {
+                            TerminalRecoveryActions(
+                                message = errorMessage,
+                                isTmuxPreflight = preflightError != null,
+                                dismissTmuxLabel = if (tmuxState.reconnectRecovery) "dismiss" else "back",
+                                onRetryTmux = vm::retryPendingTmuxOpen,
+                                onConnectWithoutTmux = {
+                                    if (vm.connectPendingWithoutTmux()) {
+                                        vm.selectConnectionTab(ConnectionTab.Terminal)
+                                    }
+                                },
+                                onBack = { vm.dismissMissingTmuxDialog(onBack) },
+                                onReconnect = vm::reconnect,
+                            )
+                        } else if (tabs.isEmpty()) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 ChuText(
                                     "no terminal sessions",
@@ -542,18 +634,6 @@ fun TerminalScreen(
                                     )
                                 }
                             }
-                        } else if (sessionState.error != null) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                ChuText(sessionState.error!!, color = colors.error, style = typography.body)
-                                Spacer(modifier = Modifier.height(16.dp))
-                                ChuButton(
-                                    onClick = vm::reconnect,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    variant = ChuButtonVariant.Filled,
-                                ) {
-                                    ChuText("Retry", style = typography.label, color = colors.onAccent)
-                                }
-                            }
                         }
                     }
                 }
@@ -563,16 +643,21 @@ fun TerminalScreen(
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    if (sessionState.error != null) {
-                        ChuText(sessionState.error!!, color = colors.error, style = typography.body)
-                        Spacer(modifier = Modifier.height(16.dp))
-                        ChuButton(
-                            onClick = vm::reconnect,
-                            modifier = Modifier.fillMaxWidth(),
-                            variant = ChuButtonVariant.Filled,
-                        ) {
-                            ChuText("Retry", style = typography.label, color = colors.onAccent)
-                        }
+                    val errorMessage = preflightError ?: sessionState.error
+                    if (errorMessage != null) {
+                        TerminalRecoveryActions(
+                            message = errorMessage,
+                            isTmuxPreflight = preflightError != null,
+                            dismissTmuxLabel = if (tmuxState.reconnectRecovery) "dismiss" else "back",
+                            onRetryTmux = vm::retryPendingTmuxOpen,
+                            onConnectWithoutTmux = {
+                                if (vm.connectPendingWithoutTmux()) {
+                                    vm.selectConnectionTab(ConnectionTab.Terminal)
+                                }
+                            },
+                            onBack = { vm.dismissMissingTmuxDialog(onBack) },
+                            onReconnect = vm::reconnect,
+                        )
                     }
                 }
             }
@@ -1493,6 +1578,13 @@ fun TerminalScreen(
                             showTabSheet = false
                         },
                         onDismiss = { showTabSheet = false },
+                        tmuxEnabled = activeTabForHost?.spec?.startInTmux == true,
+                        tmuxSessions = tmuxState.sessions,
+                        tmuxSessionsLoading = tmuxState.sessionsLoading,
+                        tmuxSessionsError = tmuxState.sessionsError,
+                        onTmuxRefresh = vm::listTmuxSessionsForCurrentHost,
+                        onTmuxNew = vm::createNextTmuxSession,
+                        onTmuxAttach = vm::switchToTmuxSession,
                     )
                 }
 
@@ -1579,7 +1671,172 @@ fun TerminalScreen(
             },
             onAddTab = openAnotherSessionForCurrentHost,
             onDismiss = { showGlobalTabManager = false },
+            tmuxEnabled = activeTabForHost?.spec?.startInTmux == true,
+            tmuxSessions = tmuxState.sessions,
+            tmuxSessionsLoading = tmuxState.sessionsLoading,
+            tmuxSessionsError = tmuxState.sessionsError,
+            onTmuxRefresh = vm::listTmuxSessionsForCurrentHost,
+            onTmuxNew = vm::createNextTmuxSession,
+            onTmuxAttach = vm::switchToTmuxSession,
         )
+    }
+}
+
+@Composable
+private fun TerminalRecoveryActions(
+    message: String,
+    isTmuxPreflight: Boolean,
+    dismissTmuxLabel: String = "back",
+    onRetryTmux: () -> Unit,
+    onConnectWithoutTmux: () -> Unit,
+    onBack: () -> Unit,
+    onReconnect: () -> Unit,
+) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        ChuText(message, color = colors.error, style = typography.body)
+        Spacer(modifier = Modifier.height(16.dp))
+        if (isTmuxPreflight) {
+            ChuButton(
+                onClick = onRetryTmux,
+                modifier = Modifier.fillMaxWidth(),
+                variant = ChuButtonVariant.Filled,
+            ) {
+                ChuText("retry tmux", style = typography.label, color = colors.onAccent)
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            ChuButton(
+                onClick = onConnectWithoutTmux,
+                modifier = Modifier.fillMaxWidth(),
+                variant = ChuButtonVariant.Outlined,
+                bracketed = true,
+            ) {
+                ChuText("connect without tmux", style = typography.label)
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            ChuButton(
+                onClick = onBack,
+                modifier = Modifier.fillMaxWidth(),
+                variant = ChuButtonVariant.Ghost,
+                bracketed = true,
+                borderColor = colors.textMuted,
+            ) {
+                ChuText(dismissTmuxLabel, style = typography.label, color = colors.textMuted)
+            }
+        } else {
+            ChuButton(
+                onClick = onReconnect,
+                modifier = Modifier.fillMaxWidth(),
+                variant = ChuButtonVariant.Filled,
+            ) {
+                ChuText("Retry", style = typography.label, color = colors.onAccent)
+            }
+        }
+    }
+}
+
+@Composable
+private fun TmuxMissingDialog(
+    candidate: TmuxInstallCandidate,
+    installRunning: Boolean,
+    installOutput: String,
+    installError: String?,
+    onDismiss: () -> Unit,
+    onCopyCommand: () -> Unit,
+    onRunInstall: () -> Unit,
+    onConnectWithoutTmux: () -> Unit,
+) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+
+    ChuDialog(
+        title = "tmux not installed",
+        confirmLabel = if (candidate.command == null) "ok" else if (installRunning) "installing…" else "run command",
+        dismissLabel = "cancel",
+        onConfirm = {
+            if (candidate.command == null) onDismiss() else if (!installRunning) onRunInstall()
+        },
+        onDismiss = onDismiss,
+    ) {
+        ChuText(
+            "Detected: ${candidate.platformLabel}",
+            style = typography.body,
+            color = colors.textSecondary,
+        )
+        if (candidate.command != null) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(colors.surface)
+                    .border(1.dp, colors.border)
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ChuText(
+                    text = "\$ ${candidate.command}",
+                    style = typography.bodySmall,
+                    color = colors.textPrimary,
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(8.dp))
+                ChuButton(
+                    onClick = onCopyCommand,
+                    variant = ChuButtonVariant.Ghost,
+                    bracketed = true,
+                    borderColor = colors.textMuted,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                ) {
+                    ChuText("copy", style = typography.labelSmall, color = colors.textMuted)
+                }
+            }
+        } else {
+            ChuText(
+                candidate.guidance,
+                style = typography.body,
+                color = colors.textSecondary,
+            )
+        }
+
+        ChuButton(
+            onClick = onConnectWithoutTmux,
+            variant = ChuButtonVariant.Ghost,
+            bracketed = true,
+            borderColor = colors.textMuted,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            ChuText("connect without tmux", style = typography.label, color = colors.textMuted)
+        }
+
+        if (installRunning) {
+            ChuText("installing…", style = typography.bodySmall, color = colors.textMuted)
+        }
+
+        if (installOutput.isNotEmpty()) {
+            val scrollState = rememberScrollState()
+            LaunchedEffect(installOutput) {
+                scrollState.animateScrollTo(scrollState.maxValue)
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 150.dp)
+                    .background(colors.surface)
+                    .border(1.dp, colors.border)
+                    .verticalScroll(scrollState)
+                    .padding(8.dp),
+            ) {
+                ChuText(
+                    installOutput,
+                    style = typography.bodySmall,
+                    color = colors.textPrimary,
+                )
+            }
+        }
+
+        if (installError != null) {
+            ChuText(installError, style = typography.bodySmall, color = colors.error)
+        }
     }
 }
 

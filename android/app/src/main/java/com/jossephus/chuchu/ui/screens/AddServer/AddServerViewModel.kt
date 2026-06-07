@@ -77,6 +77,7 @@ class AddServerViewModel(
                     authMethod = profile.authMethod,
                     requireAuthOnConnect = profile.requireAuthOnConnect,
                     postConnectCommand = profile.postConnectCommand.orEmpty(),
+                    startInTmux = profile.startInTmux,
                 )
             }
         }
@@ -169,7 +170,11 @@ class AddServerViewModel(
             transport == Transport.SSH && current.authMethod == AuthMethod.None -> AuthMethod.Password
             else -> current.authMethod
         }
-        _form.value = current.copy(transport = transport, authMethod = nextAuthMethod)
+        _form.value = current.copy(
+            transport = transport,
+            authMethod = nextAuthMethod,
+            startInTmux = if (transport == Transport.Mosh) false else current.startInTmux,
+        )
     }
 
     fun updateAuthMethod(authMethod: AuthMethod) {
@@ -190,6 +195,11 @@ class AddServerViewModel(
 
     fun updatePostConnectCommand(command: String) {
         _form.value = _form.value.copy(postConnectCommand = command)
+    }
+
+    fun updateStartInTmux(enabled: Boolean) {
+        val current = _form.value
+        _form.value = current.copy(startInTmux = enabled && current.transport != Transport.Mosh)
     }
 
     fun testConnection() {
@@ -250,6 +260,7 @@ class AddServerViewModel(
                 authMethod = current.authMethod,
                 requireAuthOnConnect = current.requireAuthOnConnect,
                 postConnectCommand = current.postConnectCommand.trim().ifBlank { null },
+                startInTmux = current.startInTmux && current.transport != Transport.Mosh,
             )
             hostRepository.upsert(profile)
             onComplete()
@@ -272,6 +283,7 @@ data class AddServerForm(
     val authMethod: AuthMethod = AuthMethod.Password,
     val requireAuthOnConnect: Boolean = false,
     val postConnectCommand: String = "",
+    val startInTmux: Boolean = false,
 )
 
 fun AddServerForm.canSave(): Boolean {

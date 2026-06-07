@@ -10,7 +10,6 @@ import com.jossephus.chuchu.service.mosh.NativeMoshService
 import com.jossephus.chuchu.service.ssh.HostKeyStore
 import com.jossephus.chuchu.service.ssh.NativeSshService
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
-import java.nio.file.Path
 import java.util.concurrent.Executors
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -59,7 +58,6 @@ data class HostKeyPrompt(
 
 class TerminalSessionEngine(
     private val scope: CoroutineScope,
-    _userHomeDir: Path,
     private val hostKeyStore: HostKeyStore,
     private val tailscaleStatusChecker: TailscaleStatusChecker,
 ) {
@@ -74,6 +72,7 @@ class TerminalSessionEngine(
         val keyPassphrase: String,
         val transport: Transport,
         val postConnectCommand: String? = null,
+        val tmuxStartupCommand: String? = null,
     )
 
     private val dispatcher: ExecutorCoroutineDispatcher =
@@ -141,6 +140,7 @@ class TerminalSessionEngine(
         transport: Transport,
         sessionKey: String,
         postConnectCommand: String? = null,
+        tmuxStartupCommand: String? = null,
     ) {
         disconnectRequested = false
         val params =
@@ -155,6 +155,7 @@ class TerminalSessionEngine(
                 keyPassphrase = keyPassphrase,
                 transport = transport,
                 postConnectCommand = postConnectCommand,
+                tmuxStartupCommand = tmuxStartupCommand,
             )
         lastConnectionParams = params
         scope.launch(dispatcher) {
@@ -215,7 +216,7 @@ class TerminalSessionEngine(
                     )
                 requestSnapshot(force = true)
                 startReadLoop()
-                sendPostConnectCommand(params.postConnectCommand)
+                sendStartupCommand(params)
             } catch (e: Exception) {
                 Log.e("TerminalSession", "Connect failed", e)
                 _state.value =
@@ -247,6 +248,13 @@ class TerminalSessionEngine(
             try {
                 writeRemote(text.toByteArray(Charsets.UTF_8))
             } catch (_: Exception) {}
+        }
+    }
+
+    fun switchTmuxSession(command: String) {
+        scope.launch(dispatcher) {
+            if (handle == 0L) return@launch
+            sendInteractiveCommand(command, "tmux switch")
         }
     }
 
@@ -759,7 +767,7 @@ class TerminalSessionEngine(
                             )
                         requestSnapshot(force = true)
                         startReadLoop()
-                        sendPostConnectCommand(params.postConnectCommand)
+                        sendStartupCommand(params)
                         return@launch
                     } catch (e: Exception) {
                         Log.e("TerminalSession", "Reconnect attempt $attempt failed", e)
@@ -812,13 +820,26 @@ class TerminalSessionEngine(
         }
     }
 
+    private fun sendStartupCommand(params: ConnectionParams) {
+        val tmuxCommand = params.tmuxStartupCommand?.trim().orEmpty()
+        if (tmuxCommand.isNotEmpty() && params.transport != Transport.Mosh) {
+            sendInteractiveCommand(tmuxCommand, "tmux startup")
+            return
+        }
+        sendPostConnectCommand(params.postConnectCommand)
+    }
+
     private fun sendPostConnectCommand(command: String?) {
         val trimmed = command?.trim().orEmpty()
         if (trimmed.isEmpty()) return
+        sendInteractiveCommand(trimmed, "post-connect command")
+    }
+
+    private fun sendInteractiveCommand(command: String, logLabel: String) {
         try {
-            writeRemote("$trimmed\n".toByteArray(Charsets.UTF_8))
+            writeRemote("$command\n".toByteArray(Charsets.UTF_8))
         } catch (e: Exception) {
-            Log.e("TerminalSession", "post-connect command failed", e)
+            Log.e("TerminalSession", "$logLabel failed", e)
         }
     }
 

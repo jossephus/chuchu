@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -40,6 +41,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jossephus.chuchu.service.terminal.TabSession
+import com.jossephus.chuchu.service.tmux.RemoteTmuxSession
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuText
@@ -69,6 +71,14 @@ fun CommandPalette(
     onCloseTab: (String) -> Unit,
     onAddTab: () -> Unit,
     onDismiss: () -> Unit,
+    // Tmux section parameters (optional, scoped to current host)
+    tmuxSessions: List<RemoteTmuxSession> = emptyList(),
+    tmuxSessionsLoading: Boolean = false,
+    tmuxSessionsError: String? = null,
+    tmuxEnabled: Boolean = false,
+    onTmuxRefresh: () -> Unit = {},
+    onTmuxNew: () -> Unit = {},
+    onTmuxAttach: (String) -> Unit = {},
 ) {
   val colors = ChuColors.current
   val typography = ChuTypography.current
@@ -226,6 +236,101 @@ fun CommandPalette(
               contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
           ) {
             ChuText("+ new", style = typography.labelSmall, color = colors.accent)
+          }
+        }
+        if (tmuxEnabled) {
+          Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(colors.border))
+          Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              ChuText("tmux sessions", style = typography.body, color = colors.textSecondary)
+              Spacer(modifier = Modifier.weight(1f))
+              if (tmuxSessionsLoading) {
+                ChuText("…", style = typography.labelSmall, color = colors.textMuted)
+              } else {
+                ChuText("${tmuxSessions.size}", style = typography.labelSmall, color = colors.textMuted)
+              }
+            }
+          }
+          if (tmuxSessionsError != null) {
+            ChuText(
+              tmuxSessionsError,
+              style = typography.labelSmall,
+              color = colors.error,
+              modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+            )
+          }
+          if (tmuxSessions.isNotEmpty()) {
+            LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 150.dp)) {
+              items(tmuxSessions) { session ->
+                Row(
+                  modifier = Modifier.fillMaxWidth()
+                    .border(
+                      1.dp,
+                      colors.border.copy(alpha = if (session.attached) 0.65f else 0.35f),
+                    )
+                    .clickable {
+                      onTmuxAttach(session.name)
+                      onDismiss()
+                    }
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                  verticalAlignment = Alignment.CenterVertically,
+                  horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                  Box(
+                    modifier = Modifier.size(8.dp)
+                      .background(if (session.attached) colors.success else Color.Transparent)
+                  )
+                  ChuText(
+                    session.name,
+                    style = typography.body,
+                    color = colors.textPrimary,
+                    modifier = Modifier.weight(1f),
+                  )
+                  if (session.attached) {
+                    ChuText("attached", style = typography.labelSmall, color = colors.textMuted)
+                  }
+                  ChuButton(
+                    onClick = {
+                      onTmuxAttach(session.name)
+                      onDismiss()
+                    },
+                    modifier = Modifier.defaultMinSize(minHeight = 48.dp, minWidth = 48.dp),
+                    variant = ChuButtonVariant.Ghost,
+                    bracketed = true,
+                    borderColor = colors.textMuted,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                  ) {
+                    ChuText("attach", style = typography.labelSmall, color = colors.accent)
+                  }
+                }
+              }
+            }
+          }
+          Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+          ) {
+            ChuButton(
+              onClick = onTmuxRefresh,
+              variant = ChuButtonVariant.Ghost,
+              bracketed = true,
+              borderColor = colors.textMuted,
+              contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+            ) {
+              ChuText("refresh", style = typography.labelSmall, color = colors.textMuted)
+            }
+            ChuButton(
+              onClick = {
+                onTmuxNew()
+                onDismiss()
+              },
+              variant = ChuButtonVariant.Ghost,
+              bracketed = true,
+              borderColor = colors.textMuted,
+              contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+            ) {
+              ChuText("new", style = typography.labelSmall, color = colors.textMuted)
+            }
           }
         }
       }

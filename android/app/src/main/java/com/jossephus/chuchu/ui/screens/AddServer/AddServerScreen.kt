@@ -256,6 +256,38 @@ fun AddServerScreen(
                 onCommandChange = vm::updatePostConnectCommand,
             )
             SectionDivider()
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    ChuText("start in tmux", style = typography.label)
+                    if (form.transport == Transport.Mosh) {
+                        ChuText(
+                            "not supported for mosh",
+                            style = typography.bodySmall,
+                            color = colors.textMuted,
+                        )
+                    }
+                }
+                ChuSwitch(
+                    checked = form.startInTmux && form.transport != Transport.Mosh,
+                    onCheckedChange = {
+                        if (form.transport != Transport.Mosh) {
+                            vm.updateStartInTmux(it)
+                        }
+                    },
+                )
+            }
+            if (form.startInTmux && form.transport != Transport.Mosh) {
+                ChuText(
+                    "opens a named tmux session; auto-run runs only when tmux is off",
+                    style = typography.bodySmall,
+                    color = colors.textMuted,
+                )
+            }
+            SectionDivider()
         }
 
         val canTest = form.host.isNotBlank() && form.username.isNotBlank()

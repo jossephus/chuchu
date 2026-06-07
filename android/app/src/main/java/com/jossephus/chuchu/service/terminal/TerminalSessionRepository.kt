@@ -3,6 +3,9 @@ package com.jossephus.chuchu.service.terminal
 import android.app.Application
 import com.jossephus.chuchu.service.ssh.HostKeyStore
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
+import com.jossephus.chuchu.service.tmux.RemoteTmuxSession
+import com.jossephus.chuchu.service.tmux.TmuxCommandBuilder
+import com.jossephus.chuchu.service.tmux.TmuxSessionAllocator
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -128,12 +131,22 @@ class TerminalSessionRepository private constructor(application: Application) {
     fun tabsForHost(hostId: Long?): List<TabSession> =
         _tabs.value.filter { it.spec.hostId == hostId }
 
+    fun openTmuxSessionNamesForHost(hostId: Long?): List<String> =
+        tabsForHost(hostId).mapNotNull { it.spec.tmuxSessionName }
+
+    fun nextTmuxSessionName(
+        hostId: Long?,
+        remoteSessions: Collection<RemoteTmuxSession>,
+    ): String = TmuxSessionAllocator.nextChuchuSessionName(
+        remoteSessions = remoteSessions,
+        localSessionNames = openTmuxSessionNamesForHost(hostId),
+    )
+
     fun openTab(spec: TabSpec): TabSession {
         val id = UUID.randomUUID().toString()
         val engine =
             TerminalSessionEngine(
                 scope,
-                appContext.filesDir.toPath(),
                 hostKeyStore,
                 tailscaleStatusChecker,
             )
@@ -152,6 +165,7 @@ class TerminalSessionRepository private constructor(application: Application) {
             transport = spec.transport,
             sessionKey = spec.sessionKey,
             postConnectCommand = spec.postConnectCommand,
+            tmuxStartupCommand = spec.tmuxStartupCommand,
         )
         return tab
     }
@@ -175,6 +189,25 @@ class TerminalSessionRepository private constructor(application: Application) {
 
     fun reconnectActive() {
         val tab = activeTab.value ?: return
+        reconnectTab(tab)
+    }
+
+    fun switchActiveTmuxSession(sessionName: String): Boolean {
+        val tab = activeTab.value ?: return false
+        tab.spec = tab.spec.copy(
+            startInTmux = true,
+            tmuxSessionName = sessionName,
+            tmuxCreateIfMissing = false,
+        )
+        val command = TmuxCommandBuilder.interactiveAttachExistingCommand(
+            sessionName = sessionName,
+            trustedRemoteName = true,
+        )
+        tab.engine.switchTmuxSession(command)
+        return true
+    }
+
+    fun reconnectTab(tab: TabSession) {
         val spec = tab.spec
         tab.engine.connect(
             host = spec.host,
@@ -188,6 +221,7 @@ class TerminalSessionRepository private constructor(application: Application) {
             transport = spec.transport,
             sessionKey = spec.sessionKey,
             postConnectCommand = spec.postConnectCommand,
+            tmuxStartupCommand = spec.tmuxStartupCommand,
         )
     }
 

@@ -5,15 +5,18 @@ import com.jossephus.chuchu.model.HostProfile
 import com.jossephus.chuchu.model.SshKey
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.backup.ChuchuBackupCodec
+import com.jossephus.chuchu.service.backup.NativeBackupBridge
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 class ChuchuBackupCoreTest {
     @Test
     fun encryptedBackupRoundTripPreservesAllCurrentFields() {
+        assumeNativeBackupAvailable()
         val payload = samplePayload()
 
         val encrypted = ChuchuBackupCodec.encrypt(payload, "correct horse".toCharArray())
@@ -21,11 +24,13 @@ class ChuchuBackupCoreTest {
 
         assertEquals(payload, decrypted)
         assertEquals("echo hello", decrypted.hosts.single().postConnectCommand)
+        assertTrue(decrypted.hosts.single().startInTmux)
         assertFalse(String(encrypted, Charsets.ISO_8859_1).contains("PRIVATE KEY"))
     }
 
     @Test(expected = InvalidBackupPassphraseException::class)
     fun wrongPassphraseFailsWithoutPayload() {
+        assumeNativeBackupAvailable()
         val encrypted = ChuchuBackupCodec.encrypt(samplePayload(), "right".toCharArray())
 
         ChuchuBackupCodec.decrypt(encrypted, "wrong".toCharArray())
@@ -33,6 +38,7 @@ class ChuchuBackupCoreTest {
 
     @Test
     fun encryptedBackupsUseFreshSaltAndIv() {
+        assumeNativeBackupAvailable()
         val payload = samplePayload()
 
         val first = ChuchuBackupCodec.encrypt(payload, "same passphrase".toCharArray())
@@ -43,6 +49,7 @@ class ChuchuBackupCoreTest {
 
     @Test(expected = InvalidBackupPassphraseException::class)
     fun encryptedBackupRejectsCiphertextTampering() {
+        assumeNativeBackupAvailable()
         val encrypted = ChuchuBackupCodec.encrypt(samplePayload(), "right".toCharArray())
         encrypted[encrypted.lastIndex] = (encrypted[encrypted.lastIndex].toInt() xor 0x01).toByte()
 
@@ -51,6 +58,7 @@ class ChuchuBackupCoreTest {
 
     @Test(expected = BackupFormatException::class)
     fun encryptedBackupRejectsOversizedCiphertextBeforeAllocation() {
+        assumeNativeBackupAvailable()
         val encrypted = ChuchuBackupCodec.encrypt(samplePayload(), "right".toCharArray())
         writeIntAt(
             encrypted,
@@ -177,9 +185,32 @@ class ChuchuBackupCoreTest {
         ChuchuBackupCodec.decodePayload(encoded)
     }
 
+    @Test
+    fun payloadV2PreservesStartInTmux() {
+        val decoded = ChuchuBackupCodec.decodePayload(ChuchuBackupCodec.encodePayload(samplePayload()))
+
+        assertTrue(decoded.hosts.single().startInTmux)
+    }
+
+    @Test
+    fun payloadV1DefaultsStartInTmuxToFalse() {
+        val v2 = ChuchuBackupCodec.encodePayload(samplePayload())
+        writeIntAt(v2, offset = Int.SIZE_BYTES, value = 1)
+        val v1 = v2.copyOf(v2.size - 1)
+
+        val decoded = ChuchuBackupCodec.decodePayload(v1)
+
+        assertFalse(decoded.hosts.single().startInTmux)
+        assertEquals("echo hello", decoded.hosts.single().postConnectCommand)
+    }
+
     @Test(expected = BackupFormatException::class)
     fun payloadDecodeRejectsMalformedBytes() {
         ChuchuBackupCodec.decodePayload(byteArrayOf(1, 2, 3))
+    }
+
+    private fun assumeNativeBackupAvailable() {
+        assumeTrue("native backup bridge unavailable in this JVM", NativeBackupBridge().isLoaded())
     }
 
     private fun samplePayload(): BackupPayload = BackupPayload(
@@ -218,6 +249,7 @@ class ChuchuBackupCoreTest {
         authMethod = authMethod,
         requireAuthOnConnect = true,
         postConnectCommand = "echo hello",
+        startInTmux = true,
     )
 
     private fun ciphertextSizeOffset(bytes: ByteArray): Int {

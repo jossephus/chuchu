@@ -23,4 +23,6 @@ data class HostProfile(
     @ColumnInfo(defaultValue = "0")
     val requireAuthOnConnect: Boolean = false,
     val postConnectCommand: String? = null,
+    @ColumnInfo(defaultValue = "0")
+    val startInTmux: Boolean = false,
 )

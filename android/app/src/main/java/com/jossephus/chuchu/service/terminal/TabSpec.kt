@@ -3,6 +3,7 @@ package com.jossephus.chuchu.service.terminal
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.HostProfile
 import com.jossephus.chuchu.model.Transport
+import com.jossephus.chuchu.service.tmux.TmuxCommandBuilder
 
 data class TabSpec(
     val hostId: Long? = null,
@@ -17,6 +18,9 @@ data class TabSpec(
     val keyPassphrase: String = "",
     val transport: Transport = Transport.SSH,
     val postConnectCommand: String? = null,
+    val startInTmux: Boolean = false,
+    val tmuxSessionName: String? = null,
+    val tmuxCreateIfMissing: Boolean = true,
 ) {
     val sessionKey: String
         get() = hostId?.let { "host:$it" } ?: "${transport.name}:$username@$host:$port"
@@ -29,6 +33,17 @@ data class TabSpec(
 
     val tabLabel: String
         get() = displayName.takeIf { it.isNotBlank() } ?: "$username@$host"
+
+    val tmuxStartupCommand: String?
+        get() {
+            if (!startInTmux || transport == Transport.Mosh) return null
+            val name = tmuxSessionName?.takeIf { it.isNotBlank() } ?: return null
+            return if (tmuxCreateIfMissing) {
+                TmuxCommandBuilder.interactiveAttachOrSwitchCommand(name, trustedRemoteName = true)
+            } else {
+                TmuxCommandBuilder.interactiveAttachExistingCommand(name, trustedRemoteName = true)
+            }
+        }
 
     companion object {
         fun fromHostProfile(
@@ -49,6 +64,7 @@ data class TabSpec(
             keyPassphrase = keyPassphrase,
             transport = host.transport,
             postConnectCommand = host.postConnectCommand,
+            startInTmux = host.startInTmux && host.transport != Transport.Mosh,
         )
     }
 }

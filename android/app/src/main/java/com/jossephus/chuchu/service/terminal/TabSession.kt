@@ -4,7 +4,7 @@ import kotlinx.coroutines.flow.StateFlow
 
 class TabSession(
     val id: String,
-    val spec: TabSpec,
+    var spec: TabSpec,
     val engine: TerminalSessionEngine,
 ) {
     val sessionState: StateFlow<SessionState> get() = engine.state
