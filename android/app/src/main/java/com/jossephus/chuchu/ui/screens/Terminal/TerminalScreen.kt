@@ -445,14 +445,14 @@ fun TerminalScreen(
             if (activeIndex >= 0) activeIndex else focusedTabIndex.coerceIn(0, tabsForHost.lastIndex)
     }
 
-    LaunchedEffect(showTabSheet, activeTabForHost?.id) {
-        if (showTabSheet && activeTabForHost?.spec?.startInTmux == true) {
+    LaunchedEffect(showTabSheet, activeTab?.id) {
+        if (showTabSheet && activeTab?.spec?.startInTmux == true) {
             vm.listTmuxSessionsForCurrentHost()
         }
     }
 
-    LaunchedEffect(showGlobalTabManager, activeTabForHost?.id) {
-        if (showGlobalTabManager && activeTabForHost?.spec?.startInTmux == true) {
+    LaunchedEffect(showGlobalTabManager, activeTab?.id) {
+        if (showGlobalTabManager && activeTab?.spec?.startInTmux == true) {
             vm.listTmuxSessionsForCurrentHost()
         }
     }
@@ -1578,7 +1578,7 @@ fun TerminalScreen(
                             showTabSheet = false
                         },
                         onDismiss = { showTabSheet = false },
-                        tmuxEnabled = activeTabForHost?.spec?.startInTmux == true,
+                        tmuxEnabled = activeTab?.spec?.startInTmux == true,
                         tmuxSessions = tmuxState.sessions,
                         tmuxSessionsLoading = tmuxState.sessionsLoading,
                         tmuxSessionsError = tmuxState.sessionsError,
@@ -1671,7 +1671,7 @@ fun TerminalScreen(
             },
             onAddTab = openAnotherSessionForCurrentHost,
             onDismiss = { showGlobalTabManager = false },
-            tmuxEnabled = activeTabForHost?.spec?.startInTmux == true,
+            tmuxEnabled = activeTab?.spec?.startInTmux == true,
             tmuxSessions = tmuxState.sessions,
             tmuxSessionsLoading = tmuxState.sessionsLoading,
             tmuxSessionsError = tmuxState.sessionsError,

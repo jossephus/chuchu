@@ -258,6 +258,12 @@ class TerminalSessionEngine(
         }
     }
 
+    fun updateTmuxStartupCommand(command: String?) {
+        scope.launch(dispatcher) {
+            lastConnectionParams = lastConnectionParams?.copy(tmuxStartupCommand = command)
+        }
+    }
+
     fun setColorScheme(isDark: Boolean) {
         val scheme = if (isDark) 1 else 0
         pendingColorScheme = scheme

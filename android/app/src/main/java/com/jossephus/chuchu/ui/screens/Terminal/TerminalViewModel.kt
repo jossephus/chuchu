@@ -22,6 +22,7 @@ import com.jossephus.chuchu.service.tmux.RemoteTmuxService
 import com.jossephus.chuchu.service.tmux.RemoteTmuxSession
 import com.jossephus.chuchu.service.tmux.TmuxAvailability
 import com.jossephus.chuchu.service.tmux.TmuxCommandBuilder
+import com.jossephus.chuchu.service.tmux.TmuxCommandResult
 import com.jossephus.chuchu.service.tmux.TmuxConnectionSpec
 import com.jossephus.chuchu.service.tmux.TmuxInstallCandidate
 import com.jossephus.chuchu.ui.screens.Files.ConnectionTab
@@ -74,6 +75,8 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     private val _tmuxState = MutableStateFlow(TmuxUiState())
     val tmuxState: StateFlow<TmuxUiState> = _tmuxState.asStateFlow()
     private var pendingTmuxAction: PendingTmuxAction? = null
+    private var tmuxActionGeneration = 0L
+    private val tmuxHostKeyDecisionLock = Any()
     private var tmuxHostKeyDecision: CompletableDeferred<Boolean>? = null
 
     private val _tailscaleActive = MutableStateFlow(tailscaleStatusChecker.isActive())
@@ -159,6 +162,16 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             transport = spec.transport,
         )
 
+    private fun parseSuccessfulTmuxSessionList(
+        commandResult: TmuxCommandResult,
+        fallbackMessage: String = "Failed to list tmux sessions",
+    ): List<RemoteTmuxSession> {
+        if (!commandResult.isSuccess) {
+            throw IllegalStateException(commandResult.stderr.ifBlank { fallbackMessage })
+        }
+        return TmuxCommandBuilder.parseSessionList(commandResult.stdout)
+    }
+
     private fun verifyTmuxHostKey(
         host: String,
         port: Int,
@@ -168,8 +181,14 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         val existing = hostKeyStore.loadKey(host, port, algorithm)
         if (existing != null && existing.contentEquals(keyBytes)) return true
 
-        val deferred = CompletableDeferred<Boolean>()
-        tmuxHostKeyDecision = deferred
+        val deferred = synchronized(tmuxHostKeyDecisionLock) {
+            val current = tmuxHostKeyDecision
+            if (current != null) {
+                null
+            } else {
+                CompletableDeferred<Boolean>().also { tmuxHostKeyDecision = it }
+            }
+        } ?: return false
         _tmuxState.value = _tmuxState.value.copy(
             hostKeyPrompt = HostKeyPrompt(
                 host = host,
@@ -183,13 +202,16 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         if (accepted) {
             hostKeyStore.saveKey(host, port, algorithm, keyBytes)
         }
+        synchronized(tmuxHostKeyDecisionLock) {
+            if (tmuxHostKeyDecision === deferred) tmuxHostKeyDecision = null
+        }
         _tmuxState.value = _tmuxState.value.copy(hostKeyPrompt = null)
         return accepted
     }
 
     fun onTmuxHostKeyDecision(accepted: Boolean) {
-        tmuxHostKeyDecision?.complete(accepted)
-        tmuxHostKeyDecision = null
+        val deferred = synchronized(tmuxHostKeyDecisionLock) { tmuxHostKeyDecision }
+        deferred?.complete(accepted)
         _tmuxState.value = _tmuxState.value.copy(hostKeyPrompt = null)
     }
 
@@ -215,7 +237,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch(Dispatchers.IO) {
             val result = runCatching {
                 val listResult = remoteTmuxService.listSessions(tmuxConnectionSpec(spec))
-                val remoteSessions = TmuxCommandBuilder.parseSessionList(listResult.stdout)
+                val remoteSessions = parseSuccessfulTmuxSessionList(listResult)
                 sessionRepository.nextTmuxSessionName(spec.hostId, remoteSessions)
             }
             withContext(Dispatchers.Main) {
@@ -248,6 +270,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun beginTmuxAction(action: PendingTmuxAction) {
+        val actionGeneration = ++tmuxActionGeneration
         pendingTmuxAction = action
         val spec = action.spec
         val reconnectRecovery = action is PendingTmuxAction.Reconnect
@@ -265,9 +288,10 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 is TmuxAvailability.Available -> {
                     val result = runCatching { resolveTmuxSessionName(action, tmuxSpec) }
                     withContext(Dispatchers.Main) {
+                        if (!isCurrentTmuxAction(actionGeneration, action)) return@withContext
                         result.fold(
                             onSuccess = { sessionName ->
-                                completeTmuxAction(action, sessionName)
+                                completeTmuxAction(actionGeneration, action, sessionName)
                             },
                             onFailure = { error ->
                                 _tmuxState.value = _tmuxState.value.copy(
@@ -279,6 +303,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 }
                 is TmuxAvailability.Missing -> {
                     withContext(Dispatchers.Main) {
+                        if (!isCurrentTmuxAction(actionGeneration, action)) return@withContext
                         _tmuxState.value = _tmuxState.value.copy(
                             missingDialogVisible = true,
                             installCandidate = availability.installCandidate,
@@ -290,6 +315,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 }
                 is TmuxAvailability.UnsupportedTransport -> {
                     withContext(Dispatchers.Main) {
+                        if (!isCurrentTmuxAction(actionGeneration, action)) return@withContext
                         _tmuxState.value = _tmuxState.value.copy(
                             preflightError = "tmux is not supported for ${spec.transport}",
                         )
@@ -297,6 +323,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 }
                 is TmuxAvailability.Error -> {
                     withContext(Dispatchers.Main) {
+                        if (!isCurrentTmuxAction(actionGeneration, action)) return@withContext
                         _tmuxState.value = _tmuxState.value.copy(
                             preflightError = availability.message,
                         )
@@ -313,7 +340,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         val existingName = action.spec.tmuxSessionName?.takeIf { it.isNotBlank() }
         if (existingName != null && action.spec.tmuxCreateIfMissing) return existingName
         val listResult = remoteTmuxService.listSessions(tmuxSpec)
-        val remoteSessions = TmuxCommandBuilder.parseSessionList(listResult.stdout)
+        val remoteSessions = parseSuccessfulTmuxSessionList(listResult)
         if (existingName != null) {
             if (remoteSessions.any { it.name == existingName }) return existingName
             throw IllegalStateException("tmux session \"$existingName\" is no longer available")
@@ -321,7 +348,15 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         return sessionRepository.nextTmuxSessionName(action.spec.hostId, remoteSessions)
     }
 
-    private fun completeTmuxAction(action: PendingTmuxAction, sessionName: String) {
+    private fun isCurrentTmuxAction(actionGeneration: Long, action: PendingTmuxAction): Boolean =
+        tmuxActionGeneration == actionGeneration && pendingTmuxAction == action
+
+    private fun completeTmuxAction(
+        actionGeneration: Long,
+        action: PendingTmuxAction,
+        sessionName: String,
+    ) {
+        if (!isCurrentTmuxAction(actionGeneration, action)) return
         val nextSpec = action.spec.copy(
             startInTmux = true,
             tmuxSessionName = sessionName,
@@ -358,16 +393,18 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             withContext(Dispatchers.Main) {
                 result.fold(
                     onSuccess = { commandResult ->
-                        _tmuxState.value = _tmuxState.value.copy(
-                            sessions = TmuxCommandBuilder.parseSessionList(commandResult.stdout),
-                            sessionsLoading = false,
-                            sessionsError =
-                                if (!commandResult.isSuccess) {
-                                    commandResult.stderr.ifBlank { "Failed to list sessions" }
-                                } else {
-                                    null
-                                },
-                        )
+                        if (commandResult.isSuccess) {
+                            _tmuxState.value = _tmuxState.value.copy(
+                                sessions = TmuxCommandBuilder.parseSessionList(commandResult.stdout),
+                                sessionsLoading = false,
+                                sessionsError = null,
+                            )
+                        } else {
+                            _tmuxState.value = _tmuxState.value.copy(
+                                sessionsLoading = false,
+                                sessionsError = commandResult.stderr.ifBlank { "Failed to list sessions" },
+                            )
+                        }
                     },
                     onFailure = { error ->
                         _tmuxState.value = _tmuxState.value.copy(
@@ -385,7 +422,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch(Dispatchers.IO) {
             val result = runCatching {
                 val listResult = remoteTmuxService.listSessions(tmuxConnectionSpec(tab.spec))
-                val remoteSessions = TmuxCommandBuilder.parseSessionList(listResult.stdout)
+                val remoteSessions = parseSuccessfulTmuxSessionList(listResult)
                 sessionRepository.nextTmuxSessionName(tab.spec.hostId, remoteSessions)
             }
             withContext(Dispatchers.Main) {
@@ -417,6 +454,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     fun confirmRunInstall() {
         val candidate = _tmuxState.value.installCandidate ?: return
         val action = pendingTmuxAction ?: return
+        val actionGeneration = tmuxActionGeneration
         val spec = action.spec
         _tmuxState.value = _tmuxState.value.copy(
             installRunning = true,
@@ -428,6 +466,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 remoteTmuxService.installTmux(tmuxConnectionSpec(spec), candidate)
             }
             withContext(Dispatchers.Main) {
+                if (!isCurrentTmuxAction(actionGeneration, action)) return@withContext
                 result.fold(
                     onSuccess = { commandResult ->
                         if (commandResult.isSuccess) {
@@ -470,6 +509,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         )
         _tmuxState.value = TmuxUiState()
         pendingTmuxAction = null
+        tmuxActionGeneration += 1
         return when (action) {
             is PendingTmuxAction.Open -> {
                 openTab(plainSpec)
@@ -483,6 +523,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         val shouldNavigateBack = pendingTmuxAction is PendingTmuxAction.Open
         _tmuxState.value = TmuxUiState()
         pendingTmuxAction = null
+        tmuxActionGeneration += 1
         if (shouldNavigateBack) onBack()
     }
 

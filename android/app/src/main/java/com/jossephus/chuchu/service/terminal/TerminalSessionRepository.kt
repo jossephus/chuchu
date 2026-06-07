@@ -194,11 +194,13 @@ class TerminalSessionRepository private constructor(application: Application) {
 
     fun switchActiveTmuxSession(sessionName: String): Boolean {
         val tab = activeTab.value ?: return false
-        tab.spec = tab.spec.copy(
+        val updatedSpec = tab.spec.copy(
             startInTmux = true,
             tmuxSessionName = sessionName,
             tmuxCreateIfMissing = false,
         )
+        tab.spec = updatedSpec
+        tab.engine.updateTmuxStartupCommand(updatedSpec.tmuxStartupCommand)
         val command = TmuxCommandBuilder.interactiveAttachExistingCommand(
             sessionName = sessionName,
             trustedRemoteName = true,
