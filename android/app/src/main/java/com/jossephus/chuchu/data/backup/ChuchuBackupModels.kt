@@ -2,7 +2,7 @@ package com.jossephus.chuchu.data.backup
 
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.HostProfile
-import com.jossephus.chuchu.model.Multiplexer
+import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.SshKey
 import com.jossephus.chuchu.model.Transport
 
@@ -63,7 +63,7 @@ data class BackupHostProfile(
     val authMethod: AuthMethod,
     val requireAuthOnConnect: Boolean,
     val postConnectCommand: String?,
-    val multiplexer: Multiplexer?,
+    val multiplexer: MultiplexerType?,
 ) {
     fun toEntity(
         idOverride: Long = id,

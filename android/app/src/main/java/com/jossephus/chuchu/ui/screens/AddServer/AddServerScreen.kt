@@ -33,7 +33,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jossephus.chuchu.model.AuthMethod
-import com.jossephus.chuchu.model.Multiplexer
+import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
@@ -273,16 +273,14 @@ fun AddServerScreen(
                     }
                 }
                 ChuSwitch(
-                    checked = form.multiplexer == Multiplexer.Tmux && form.transport != Transport.Mosh,
+                    checked = form.multiplexer == MultiplexerType.Tmux && form.transport != Transport.Mosh,
                     onCheckedChange = {
-                        if (form.transport != Transport.Mosh) {
-                            vm.updateMultiplexer(if (it) Multiplexer.Tmux else null)
-                        }
+                        vm.updateMultiplexer(if (it) MultiplexerType.Tmux else null)
                     },
                     enabled = form.transport != Transport.Mosh,
                 )
             }
-            if (form.multiplexer == Multiplexer.Tmux && form.transport != Transport.Mosh) {
+            if (form.multiplexer == MultiplexerType.Tmux && form.transport != Transport.Mosh) {
                 ChuText(
                     "opens a named tmux session; the post-connect command only runs when tmux startup is off",
                     style = typography.bodySmall,

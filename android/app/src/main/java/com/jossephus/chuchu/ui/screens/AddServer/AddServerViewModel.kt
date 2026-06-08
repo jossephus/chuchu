@@ -10,7 +10,7 @@ import com.jossephus.chuchu.data.repository.HostRepository
 import com.jossephus.chuchu.data.repository.SshKeyRepository
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.HostProfile
-import com.jossephus.chuchu.model.Multiplexer
+import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.SshKey
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.ssh.Ed25519KeyGenerator
@@ -198,7 +198,7 @@ class AddServerViewModel(
         _form.value = _form.value.copy(postConnectCommand = command)
     }
 
-    fun updateMultiplexer(multiplexer: Multiplexer?) {
+    fun updateMultiplexer(multiplexer: MultiplexerType?) {
         val current = _form.value
         _form.value = current.copy(
             multiplexer = multiplexer?.takeIf { current.transport != Transport.Mosh && it.runtimeSupported },
@@ -286,7 +286,7 @@ data class AddServerForm(
     val authMethod: AuthMethod = AuthMethod.Password,
     val requireAuthOnConnect: Boolean = false,
     val postConnectCommand: String = "",
-    val multiplexer: Multiplexer? = null,
+    val multiplexer: MultiplexerType? = null,
 )
 
 fun AddServerForm.canSave(): Boolean {

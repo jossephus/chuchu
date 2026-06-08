@@ -1,6 +1,6 @@
 package com.jossephus.chuchu.model
 
-enum class Multiplexer(
+enum class MultiplexerType(
     val id: String,
     val label: String,
     val runtimeSupported: Boolean,
@@ -11,9 +11,9 @@ enum class Multiplexer(
     ;
 
     companion object {
-        val runtimeOptions: List<Multiplexer> = entries.filter { it.runtimeSupported }
+        val runtimeOptions: List<MultiplexerType> = entries.filter { it.runtimeSupported }
 
-        fun fromPersistedValue(value: String): Multiplexer? =
+        fun fromPersistedValue(value: String): MultiplexerType? =
             entries.firstOrNull { it.id == value } ?: entries.firstOrNull { it.name == value }
     }
 }

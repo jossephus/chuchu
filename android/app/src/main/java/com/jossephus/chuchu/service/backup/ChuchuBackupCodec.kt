@@ -6,7 +6,7 @@ import com.jossephus.chuchu.data.backup.BackupPayload
 import com.jossephus.chuchu.data.backup.BackupSshKey
 import com.jossephus.chuchu.data.backup.InvalidBackupPassphraseException
 import com.jossephus.chuchu.model.AuthMethod
-import com.jossephus.chuchu.model.Multiplexer
+import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.Transport
 
 object ChuchuBackupCodec {
@@ -125,9 +125,9 @@ object ChuchuBackupCodec {
             return values.firstOrNull { it.name == value } ?: throw BackupFormatException("Unknown $label")
         }
 
-        fun readNullableMultiplexerField(label: String): Multiplexer? {
+        fun readNullableMultiplexerField(label: String): MultiplexerType? {
             val value = readNullableStringField(label) ?: return null
-            return Multiplexer.fromPersistedValue(value) ?: throw BackupFormatException("Unknown $label")
+            return MultiplexerType.fromPersistedValue(value) ?: throw BackupFormatException("Unknown $label")
         }
 
         if (reader.readInt() != PAYLOAD_MAGIC) throw BackupFormatException("Invalid backup payload")

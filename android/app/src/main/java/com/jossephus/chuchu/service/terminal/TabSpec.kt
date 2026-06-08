@@ -2,9 +2,8 @@ package com.jossephus.chuchu.service.terminal
 
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.HostProfile
-import com.jossephus.chuchu.model.Multiplexer
+import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.Transport
-import com.jossephus.chuchu.service.multiplexer.TmuxMultiplexerCommands
 
 data class TabSpec(
     val hostId: Long? = null,
@@ -19,7 +18,7 @@ data class TabSpec(
     val keyPassphrase: String = "",
     val transport: Transport = Transport.SSH,
     val postConnectCommand: String? = null,
-    val multiplexer: Multiplexer? = null,
+    val multiplexer: MultiplexerType? = null,
     val multiplexerSessionName: String? = null,
     val multiplexerCreateIfMissing: Boolean = true,
 ) {
@@ -37,22 +36,6 @@ data class TabSpec(
 
     val usesRuntimeMultiplexer: Boolean
         get() = multiplexer?.runtimeSupported == true && transport != Transport.Mosh
-
-    val multiplexerStartupCommand: String?
-        get() {
-            if (!usesRuntimeMultiplexer) return null
-            val name = multiplexerSessionName?.takeIf { it.isNotBlank() } ?: return null
-            return when (multiplexer) {
-                Multiplexer.Tmux -> if (multiplexerCreateIfMissing) {
-                    TmuxMultiplexerCommands.interactiveAttachOrSwitchCommand(name, trustedRemoteName = true)
-                } else {
-                    TmuxMultiplexerCommands.interactiveAttachExistingCommand(name, trustedRemoteName = true)
-                }
-                Multiplexer.Zellij,
-                Multiplexer.Zmx,
-                null -> null
-            }
-        }
 
     companion object {
         fun fromHostProfile(

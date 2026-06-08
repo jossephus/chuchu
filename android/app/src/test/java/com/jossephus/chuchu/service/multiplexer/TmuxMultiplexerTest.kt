@@ -3,11 +3,12 @@ package com.jossephus.chuchu.service.multiplexer
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-class TmuxMultiplexerCommandsTest {
+class TmuxMultiplexerTest {
     @Test
-    fun attachOrSwitchUsesExecAttachOrSwitchOutsideTmuxAndSwitchClientInsideTmux() {
-        val command = TmuxMultiplexerCommands.interactiveAttachOrSwitchCommand(
+    fun launchCreatesOrSwitchesOutsideTmuxAndSwitchesClientInsideTmux() {
+        val command = TmuxMultiplexer.launchCommand(
             sessionName = "chuchu-1",
+            createIfMissing = true,
             trustedRemoteName = false,
         )
 
@@ -18,17 +19,19 @@ class TmuxMultiplexerCommandsTest {
     }
 
     @Test(expected = IllegalArgumentException::class)
-    fun attachOrSwitchRejectsUngeneratedUntrustedNames() {
-        TmuxMultiplexerCommands.interactiveAttachOrSwitchCommand(
+    fun launchRejectsUngeneratedUntrustedNames() {
+        TmuxMultiplexer.launchCommand(
             sessionName = "work'space",
+            createIfMissing = true,
             trustedRemoteName = false,
         )
     }
 
     @Test
-    fun attachOrSwitchQuotesTrustedRemoteNames() {
-        val command = TmuxMultiplexerCommands.interactiveAttachOrSwitchCommand(
+    fun launchQuotesTrustedRemoteNames() {
+        val command = TmuxMultiplexer.launchCommand(
             sessionName = "work'space; rm -rf /",
+            createIfMissing = true,
             trustedRemoteName = true,
         )
 
@@ -39,9 +42,10 @@ class TmuxMultiplexerCommandsTest {
     }
 
     @Test
-    fun attachExistingUsesSwitchClientAndExactAttachFallback() {
-        val command = TmuxMultiplexerCommands.interactiveAttachExistingCommand(
+    fun launchExistingUsesSwitchClientAndExactAttachFallback() {
+        val command = TmuxMultiplexer.launchCommand(
             sessionName = "chuchu-1",
+            createIfMissing = false,
             trustedRemoteName = true,
         )
 
@@ -54,9 +58,10 @@ class TmuxMultiplexerCommandsTest {
     }
 
     @Test
-    fun attachExistingQuotesTrustedRemoteNamesWithMetacharacters() {
-        val command = TmuxMultiplexerCommands.interactiveAttachExistingCommand(
+    fun launchExistingQuotesTrustedRemoteNamesWithMetacharacters() {
+        val command = TmuxMultiplexer.launchCommand(
             sessionName = "main tab; printf 'x'",
+            createIfMissing = false,
             trustedRemoteName = true,
         )
 
@@ -65,6 +70,31 @@ class TmuxMultiplexerCommandsTest {
                 "elif tmux has-session -t '=main tab; printf '\\''x'\\''' 2>/dev/null; then exec tmux attach-session -t '=main tab; printf '\\''x'\\'''; " +
                 "else printf 'tmux session %s is no longer available\\n' 'main tab; printf '\\''x'\\'''; exec \"\${SHELL:-/bin/sh}\" -l; fi",
             command,
+        )
+    }
+
+    @Test
+    fun listSessionsCommandChecksExecutableBeforeTreatingNoServerAsEmptySuccess() {
+        val command = TmuxMultiplexer.listSessionsCommand()
+
+        assertEquals(
+            "if ! command -v tmux >/dev/null 2>&1; then printf 'tmux executable not found\\n' >&2; false; " +
+                "else tmux list-sessions -F '#{session_name}\t#{session_attached}' 2>/dev/null; " +
+                "status=\$?; if [ \"\$status\" -eq 1 ]; then true; else [ \"\$status\" -eq 0 ]; fi; fi",
+            command,
+        )
+    }
+
+    @Test
+    fun parsesSessionList() {
+        val sessions = TmuxMultiplexer.parseSessions("main\t1\nwork\t0\n")
+
+        assertEquals(
+            listOf(
+                RemoteMultiplexerSession(name = "main", attached = true),
+                RemoteMultiplexerSession(name = "work", attached = false),
+            ),
+            sessions,
         )
     }
 }

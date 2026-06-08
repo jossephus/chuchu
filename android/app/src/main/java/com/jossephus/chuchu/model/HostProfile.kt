@@ -24,5 +24,5 @@ data class HostProfile(
     val requireAuthOnConnect: Boolean = false,
     val postConnectCommand: String? = null,
     @ColumnInfo(defaultValue = "NULL")
-    val multiplexer: Multiplexer? = null,
+    val multiplexer: MultiplexerType? = null,
 )

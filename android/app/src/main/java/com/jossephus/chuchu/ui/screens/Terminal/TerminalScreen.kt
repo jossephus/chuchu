@@ -29,7 +29,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.offset
@@ -38,8 +37,6 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -68,7 +65,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.service.terminal.SessionStatus
-import com.jossephus.chuchu.service.multiplexer.MultiplexerInstallCandidate
 import com.jossephus.chuchu.service.terminal.TabSpec
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
@@ -529,59 +525,12 @@ fun TerminalScreen(
         }
     }
 
-    val multiplexerHostKeyPrompt = multiplexerState.hostKeyPrompt
-    if (multiplexerHostKeyPrompt != null) {
-        ChuDialog(
-            onDismiss = { vm.onMultiplexerHostKeyDecision(false) },
-            title = "Verify host key",
-            confirmLabel = "Accept",
-            dismissLabel = "Reject",
-            onConfirm = { vm.onMultiplexerHostKeyDecision(true) },
-        ) {
-            val previous = multiplexerHostKeyPrompt.previousFingerprint
-            val message = buildString {
-                append("Host: ${multiplexerHostKeyPrompt.host}:${multiplexerHostKeyPrompt.port}\n")
-                append("Algorithm: ${multiplexerHostKeyPrompt.algorithm}\n")
-                if (previous != null) {
-                    append("WARNING: host key changed!\n")
-                    append("Old: $previous\n")
-                }
-                append("New: ${multiplexerHostKeyPrompt.fingerprint}")
-            }
-            ChuText(message, style = typography.body)
-        }
-    }
-
     val preflightError = multiplexerState.preflightError
     LaunchedEffect(preflightError) {
         if (preflightError != null) {
             Toast.makeText(context, preflightError, Toast.LENGTH_LONG).show()
         }
     }
-    if (multiplexerState.missingDialogVisible && multiplexerState.installCandidate != null) {
-        MultiplexerMissingDialog(
-            candidate = multiplexerState.installCandidate!!,
-            installRunning = multiplexerState.installRunning,
-            installOutput = multiplexerState.installOutput,
-            installError = multiplexerState.installError,
-            onDismiss = { vm.dismissMissingMultiplexerDialog(onBack) },
-            onCopyCommand = {
-                val cmd = multiplexerState.installCandidate!!.command
-                if (cmd != null) {
-                    val clip = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clip.setPrimaryClip(ClipData.newPlainText("tmux install command", cmd))
-                    Toast.makeText(context, "Command copied", Toast.LENGTH_SHORT).show()
-                }
-            },
-            onRunInstall = vm::confirmRunInstall,
-            onConnectWithoutMultiplexer = {
-                if (vm.connectPendingWithoutMultiplexer()) {
-                    vm.selectConnectionTab(ConnectionTab.Terminal)
-                }
-            },
-        )
-    }
-
     when (sessionState.status) {
         SessionStatus.Disconnected,
         SessionStatus.Error -> {
@@ -610,7 +559,7 @@ fun TerminalScreen(
                                         vm.selectConnectionTab(ConnectionTab.Terminal)
                                     }
                                 },
-                                onBack = { vm.dismissMissingMultiplexerDialog(onBack) },
+                                onBack = { vm.dismissMultiplexerRecovery(onBack) },
                                 onReconnect = vm::reconnect,
                             )
                         } else if (tabs.isEmpty()) {
@@ -655,7 +604,7 @@ fun TerminalScreen(
                                     vm.selectConnectionTab(ConnectionTab.Terminal)
                                 }
                             },
-                            onBack = { vm.dismissMissingMultiplexerDialog(onBack) },
+                            onBack = { vm.dismissMultiplexerRecovery(onBack) },
                             onReconnect = vm::reconnect,
                         )
                     }
@@ -1736,110 +1685,6 @@ private fun TerminalRecoveryActions(
             ) {
                 ChuText("Retry", style = typography.label, color = colors.onAccent)
             }
-        }
-    }
-}
-
-@Composable
-private fun MultiplexerMissingDialog(
-    candidate: MultiplexerInstallCandidate,
-    installRunning: Boolean,
-    installOutput: String,
-    installError: String?,
-    onDismiss: () -> Unit,
-    onCopyCommand: () -> Unit,
-    onRunInstall: () -> Unit,
-    onConnectWithoutMultiplexer: () -> Unit,
-) {
-    val colors = ChuColors.current
-    val typography = ChuTypography.current
-
-    ChuDialog(
-        title = "tmux not installed",
-        confirmLabel = if (candidate.command == null) "ok" else if (installRunning) "installing…" else "run command",
-        dismissLabel = "cancel",
-        onConfirm = {
-            if (candidate.command == null) onDismiss() else if (!installRunning) onRunInstall()
-        },
-        onDismiss = onDismiss,
-    ) {
-        ChuText(
-            "Detected: ${candidate.platformLabel}",
-            style = typography.body,
-            color = colors.textSecondary,
-        )
-        if (candidate.command != null) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(colors.surface)
-                    .border(1.dp, colors.border)
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                ChuText(
-                    text = "\$ ${candidate.command}",
-                    style = typography.bodySmall,
-                    color = colors.textPrimary,
-                    modifier = Modifier.weight(1f),
-                )
-                Spacer(Modifier.width(8.dp))
-                ChuButton(
-                    onClick = onCopyCommand,
-                    variant = ChuButtonVariant.Ghost,
-                    bracketed = true,
-                    borderColor = colors.textMuted,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                ) {
-                    ChuText("copy", style = typography.labelSmall, color = colors.textMuted)
-                }
-            }
-        } else {
-            ChuText(
-                candidate.guidance,
-                style = typography.body,
-                color = colors.textSecondary,
-            )
-        }
-
-        ChuButton(
-            onClick = onConnectWithoutMultiplexer,
-            variant = ChuButtonVariant.Ghost,
-            bracketed = true,
-            borderColor = colors.textMuted,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            ChuText("connect without multiplexer", style = typography.label, color = colors.textMuted)
-        }
-
-        if (installRunning) {
-            ChuText("installing…", style = typography.bodySmall, color = colors.textMuted)
-        }
-
-        if (installOutput.isNotEmpty()) {
-            val scrollState = rememberScrollState()
-            LaunchedEffect(installOutput) {
-                scrollState.animateScrollTo(scrollState.maxValue)
-            }
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 150.dp)
-                    .background(colors.surface)
-                    .border(1.dp, colors.border)
-                    .verticalScroll(scrollState)
-                    .padding(8.dp),
-            ) {
-                ChuText(
-                    installOutput,
-                    style = typography.bodySmall,
-                    color = colors.textPrimary,
-                )
-            }
-        }
-
-        if (installError != null) {
-            ChuText(installError, style = typography.bodySmall, color = colors.error)
         }
     }
 }

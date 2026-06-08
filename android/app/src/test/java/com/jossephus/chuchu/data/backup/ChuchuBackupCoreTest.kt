@@ -2,7 +2,7 @@ package com.jossephus.chuchu.data.backup
 
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.HostProfile
-import com.jossephus.chuchu.model.Multiplexer
+import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.SshKey
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.backup.ChuchuBackupCodec
@@ -25,7 +25,7 @@ class ChuchuBackupCoreTest {
 
         assertEquals(payload, decrypted)
         assertEquals("echo hello", decrypted.hosts.single().postConnectCommand)
-        assertEquals(Multiplexer.Tmux, decrypted.hosts.single().multiplexer)
+        assertEquals(MultiplexerType.Tmux, decrypted.hosts.single().multiplexer)
         assertFalse(String(encrypted, Charsets.ISO_8859_1).contains("PRIVATE KEY"))
     }
 
@@ -194,7 +194,7 @@ class ChuchuBackupCoreTest {
 
         assertTrue(encodedText.contains("tmux"))
         assertFalse(encodedText.contains("Tmux"))
-        assertEquals(Multiplexer.Tmux, decoded.hosts.single().multiplexer)
+        assertEquals(MultiplexerType.Tmux, decoded.hosts.single().multiplexer)
     }
 
     @Test
@@ -204,14 +204,14 @@ class ChuchuBackupCoreTest {
 
         val decoded = ChuchuBackupCodec.decodePayload(encoded)
 
-        assertEquals(Multiplexer.Tmux, decoded.hosts.single().multiplexer)
+        assertEquals(MultiplexerType.Tmux, decoded.hosts.single().multiplexer)
     }
 
     @Test
     fun payloadV1DefaultsMultiplexerToNull() {
         val v2 = ChuchuBackupCodec.encodePayload(samplePayload())
         writeIntAt(v2, offset = Int.SIZE_BYTES, value = 1)
-        val v1 = v2.copyOf(v2.size - encodedNullableStringSize(Multiplexer.Tmux.id))
+        val v1 = v2.copyOf(v2.size - encodedNullableStringSize(MultiplexerType.Tmux.id))
 
         val decoded = ChuchuBackupCodec.decodePayload(v1)
 
@@ -264,7 +264,7 @@ class ChuchuBackupCoreTest {
         authMethod = authMethod,
         requireAuthOnConnect = true,
         postConnectCommand = "echo hello",
-        multiplexer = Multiplexer.Tmux,
+        multiplexer = MultiplexerType.Tmux,
     )
 
     private fun encodedNullableStringSize(value: String): Int =
