@@ -45,7 +45,7 @@ class SettingsRepository(context: Context) {
     )
     val terminalTabMode: StateFlow<TerminalTabMode> = _terminalTabMode.asStateFlow()
 
-    private val _themeMode = MutableStateFlow(parseThemeMode(prefs.getString(KEY_THEME_MODE, ThemeMode.Dark.name)))
+    private val _themeMode = MutableStateFlow(parseThemeMode(prefs.getString(KEY_THEME_MODE, DEFAULT_THEME_MODE.name)))
     val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
 
     private val _lightThemeName = MutableStateFlow(
@@ -136,6 +136,7 @@ class SettingsRepository(context: Context) {
         private const val KEY_LIGHT_THEME = "light_theme_name"
         const val DEFAULT_THEME = "Catppuccin Mocha"
         const val DEFAULT_LIGHT_THEME = "Catppuccin Latte"
+        val DEFAULT_THEME_MODE = ThemeMode.System
         const val DEFAULT_FONT = "jetbrains_mono"
 
         @Volatile
@@ -148,7 +149,7 @@ class SettingsRepository(context: Context) {
         }
 
         private fun parseThemeMode(value: String?): ThemeMode =
-            ThemeMode.entries.find { it.name == value } ?: ThemeMode.Dark
+            ThemeMode.entries.find { it.name == value } ?: DEFAULT_THEME_MODE
 
         private fun parseTabMode(value: String?): TerminalTabMode =
             try {
