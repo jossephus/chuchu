@@ -326,6 +326,7 @@ fun TerminalScreen(
                     ),
             )
         }
+    val multiplexerState by vm.multiplexerState.collectAsStateWithLifecycle()
 
     LaunchedEffect(terminalFontSizeSp) {
         terminalPrefs.edit().putFloat("terminal_font_size_sp", terminalFontSizeSp).apply()
@@ -358,6 +359,8 @@ fun TerminalScreen(
                 passphraseFromPicker = fromPicker
                 pendingTabSpec = preparedSpec
                 showPassphrasePrompt = true
+            } else if (preparedSpec.usesRuntimeMultiplexer) {
+                vm.initiateMultiplexerOpen(preparedSpec)
             } else {
                 vm.openTab(preparedSpec)
             }
@@ -438,6 +441,18 @@ fun TerminalScreen(
             if (activeIndex >= 0) activeIndex else focusedTabIndex.coerceIn(0, tabsForHost.lastIndex)
     }
 
+    LaunchedEffect(showTabSheet, activeTab?.id) {
+        if (showTabSheet && activeTab?.spec?.usesRuntimeMultiplexer == true) {
+            vm.listMultiplexerSessionsForCurrentHost()
+        }
+    }
+
+    LaunchedEffect(showGlobalTabManager, activeTab?.id) {
+        if (showGlobalTabManager && activeTab?.spec?.usesRuntimeMultiplexer == true) {
+            vm.listMultiplexerSessionsForCurrentHost()
+        }
+    }
+
     if (showPassphrasePrompt) {
         ChuDialog(
             title = "Key passphrase",
@@ -446,7 +461,12 @@ fun TerminalScreen(
                 val spec = pendingTabSpec
                 showPassphrasePrompt = false
                 if (spec != null) {
-                    vm.openTab(spec.copy(keyPassphrase = passphraseInput))
+                    val preparedSpec = spec.copy(keyPassphrase = passphraseInput)
+                    if (preparedSpec.usesRuntimeMultiplexer) {
+                        vm.initiateMultiplexerOpen(preparedSpec)
+                    } else {
+                        vm.openTab(preparedSpec)
+                    }
                 }
                 passphraseInput = ""
                 pendingTabSpec = null
@@ -505,6 +525,12 @@ fun TerminalScreen(
         }
     }
 
+    val preflightError = multiplexerState.preflightError
+    LaunchedEffect(preflightError) {
+        if (preflightError != null) {
+            Toast.makeText(context, preflightError, Toast.LENGTH_LONG).show()
+        }
+    }
     when (sessionState.status) {
         SessionStatus.Disconnected,
         SessionStatus.Error -> {
@@ -521,7 +547,22 @@ fun TerminalScreen(
                         modifier = Modifier.weight(1f).fillMaxWidth(),
                         contentAlignment = Alignment.Center,
                     ) {
-                        if (tabs.isEmpty()) {
+                        val errorMessage = preflightError ?: sessionState.error
+                        if (errorMessage != null) {
+                            TerminalRecoveryActions(
+                                message = errorMessage,
+                                isMultiplexerPreflight = preflightError != null,
+                                dismissMultiplexerLabel = if (multiplexerState.reconnectRecovery) "dismiss" else "back",
+                                onRetryMultiplexer = vm::retryPendingMultiplexerOpen,
+                                onConnectWithoutMultiplexer = {
+                                    if (vm.connectPendingWithoutMultiplexer()) {
+                                        vm.selectConnectionTab(ConnectionTab.Terminal)
+                                    }
+                                },
+                                onBack = { vm.dismissMultiplexerRecovery(onBack) },
+                                onReconnect = vm::reconnect,
+                            )
+                        } else if (tabs.isEmpty()) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 ChuText(
                                     "no terminal sessions",
@@ -542,18 +583,6 @@ fun TerminalScreen(
                                     )
                                 }
                             }
-                        } else if (sessionState.error != null) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                ChuText(sessionState.error!!, color = colors.error, style = typography.body)
-                                Spacer(modifier = Modifier.height(16.dp))
-                                ChuButton(
-                                    onClick = vm::reconnect,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    variant = ChuButtonVariant.Filled,
-                                ) {
-                                    ChuText("Retry", style = typography.label, color = colors.onAccent)
-                                }
-                            }
                         }
                     }
                 }
@@ -563,16 +592,21 @@ fun TerminalScreen(
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    if (sessionState.error != null) {
-                        ChuText(sessionState.error!!, color = colors.error, style = typography.body)
-                        Spacer(modifier = Modifier.height(16.dp))
-                        ChuButton(
-                            onClick = vm::reconnect,
-                            modifier = Modifier.fillMaxWidth(),
-                            variant = ChuButtonVariant.Filled,
-                        ) {
-                            ChuText("Retry", style = typography.label, color = colors.onAccent)
-                        }
+                    val errorMessage = preflightError ?: sessionState.error
+                    if (errorMessage != null) {
+                        TerminalRecoveryActions(
+                            message = errorMessage,
+                            isMultiplexerPreflight = preflightError != null,
+                            dismissMultiplexerLabel = if (multiplexerState.reconnectRecovery) "dismiss" else "back",
+                            onRetryMultiplexer = vm::retryPendingMultiplexerOpen,
+                            onConnectWithoutMultiplexer = {
+                                if (vm.connectPendingWithoutMultiplexer()) {
+                                    vm.selectConnectionTab(ConnectionTab.Terminal)
+                                }
+                            },
+                            onBack = { vm.dismissMultiplexerRecovery(onBack) },
+                            onReconnect = vm::reconnect,
+                        )
                     }
                 }
             }
@@ -1493,6 +1527,15 @@ fun TerminalScreen(
                             showTabSheet = false
                         },
                         onDismiss = { showTabSheet = false },
+                        multiplexerEnabled = activeTab?.spec?.usesRuntimeMultiplexer == true,
+                        multiplexerSessions = multiplexerState.sessions,
+                        multiplexerSessionsLoading = multiplexerState.sessionsLoading,
+                        multiplexerSessionsError = multiplexerState.sessionsError,
+                        onMultiplexerRefresh = vm::listMultiplexerSessionsForCurrentHost,
+                        onMultiplexerNew = vm::createNextMultiplexerSession,
+                        onMultiplexerAttach = { name ->
+                            vm.switchToMultiplexerSession(name, multiplexerState.sessionsSourceTabId)
+                        },
                     )
                 }
 
@@ -1579,7 +1622,70 @@ fun TerminalScreen(
             },
             onAddTab = openAnotherSessionForCurrentHost,
             onDismiss = { showGlobalTabManager = false },
+            multiplexerEnabled = activeTab?.spec?.usesRuntimeMultiplexer == true,
+            multiplexerSessions = multiplexerState.sessions,
+            multiplexerSessionsLoading = multiplexerState.sessionsLoading,
+            multiplexerSessionsError = multiplexerState.sessionsError,
+            onMultiplexerRefresh = vm::listMultiplexerSessionsForCurrentHost,
+            onMultiplexerNew = vm::createNextMultiplexerSession,
+            onMultiplexerAttach = { name ->
+                vm.switchToMultiplexerSession(name, multiplexerState.sessionsSourceTabId)
+            },
         )
+    }
+}
+
+@Composable
+private fun TerminalRecoveryActions(
+    message: String,
+    isMultiplexerPreflight: Boolean,
+    dismissMultiplexerLabel: String = "back",
+    onRetryMultiplexer: () -> Unit,
+    onConnectWithoutMultiplexer: () -> Unit,
+    onBack: () -> Unit,
+    onReconnect: () -> Unit,
+) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        ChuText(message, color = colors.error, style = typography.body)
+        Spacer(modifier = Modifier.height(16.dp))
+        if (isMultiplexerPreflight) {
+            ChuButton(
+                onClick = onRetryMultiplexer,
+                modifier = Modifier.fillMaxWidth(),
+                variant = ChuButtonVariant.Filled,
+            ) {
+                ChuText("retry multiplexer", style = typography.label, color = colors.onAccent)
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            ChuButton(
+                onClick = onConnectWithoutMultiplexer,
+                modifier = Modifier.fillMaxWidth(),
+                variant = ChuButtonVariant.Outlined,
+                bracketed = true,
+            ) {
+                ChuText("connect without multiplexer", style = typography.label)
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            ChuButton(
+                onClick = onBack,
+                modifier = Modifier.fillMaxWidth(),
+                variant = ChuButtonVariant.Ghost,
+                bracketed = true,
+                borderColor = colors.textMuted,
+            ) {
+                ChuText(dismissMultiplexerLabel, style = typography.label, color = colors.textMuted)
+            }
+        } else {
+            ChuButton(
+                onClick = onReconnect,
+                modifier = Modifier.fillMaxWidth(),
+                variant = ChuButtonVariant.Filled,
+            ) {
+                ChuText("Retry", style = typography.label, color = colors.onAccent)
+            }
+        }
     }
 }
 

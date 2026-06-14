@@ -10,6 +10,9 @@ import com.jossephus.chuchu.data.repository.HostRepository
 import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.data.repository.SshKeyRepository
 import com.jossephus.chuchu.model.HostProfile
+import com.jossephus.chuchu.model.Transport
+import com.jossephus.chuchu.service.multiplexer.MultiplexerRegistry
+import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerSession
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
 import com.jossephus.chuchu.service.terminal.HostKeyPrompt
 import com.jossephus.chuchu.service.terminal.SessionState
@@ -48,6 +51,17 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     private val hostRepository = HostRepository(database.hostProfileDao())
     private val sshKeyRepository = SshKeyRepository(database.sshKeyDao())
     private val settingsRepository = SettingsRepository.getInstance(application)
+
+    private sealed class PendingMultiplexerAction(open val spec: TabSpec) {
+        data class Open(override val spec: TabSpec) : PendingMultiplexerAction(spec)
+        data class Reconnect(val tabId: String, override val spec: TabSpec) : PendingMultiplexerAction(spec)
+    }
+
+    private val _multiplexerState = MutableStateFlow(MultiplexerUiState())
+    val multiplexerState: StateFlow<MultiplexerUiState> = _multiplexerState.asStateFlow()
+    private var pendingMultiplexerAction: PendingMultiplexerAction? = null
+    private var multiplexerActionGeneration = 0L
+    private var multiplexerSessionListGeneration = 0L
 
     private val _tailscaleActive = MutableStateFlow(tailscaleStatusChecker.isActive())
     val tailscaleActive: StateFlow<Boolean> = _tailscaleActive.asStateFlow()
@@ -121,12 +135,255 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
 
     fun duplicateActiveTab(): TabSession? {
         val current = sessionRepository.activeTab.value ?: return null
+        if (current.spec.usesRuntimeMultiplexer) {
+            startMultiplexerDuplicate(current.spec)
+            return null
+        }
         return openTab(current.spec)
     }
 
     fun duplicateTab(tabId: String): TabSession? {
         val tab = sessionRepository.tabs.value.firstOrNull { it.id == tabId } ?: return null
+        if (tab.spec.usesRuntimeMultiplexer) {
+            startMultiplexerDuplicate(tab.spec)
+            return null
+        }
         return openTab(tab.spec)
+    }
+
+    private fun startMultiplexerDuplicate(spec: TabSpec) {
+        val duplicateSpec = spec.copy(
+            multiplexer = spec.multiplexer ?: MultiplexerRegistry.defaultType,
+            multiplexerSessionName = null,
+            multiplexerCreateIfMissing = true,
+        )
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = runCatching { sessionRepository.resolveMultiplexerSessionName(duplicateSpec) }
+            withContext(Dispatchers.Main) {
+                result.fold(
+                    onSuccess = { name ->
+                        openTab(duplicateSpec.copy(multiplexerSessionName = name))
+                    },
+                    onFailure = { error ->
+                        _multiplexerState.value = _multiplexerState.value.copy(
+                            preflightError = error.message ?: "Could not create multiplexer session",
+                        )
+                    },
+                )
+            }
+        }
+    }
+
+    fun initiateMultiplexerOpen(spec: TabSpec) {
+        beginMultiplexerAction(PendingMultiplexerAction.Open(spec))
+    }
+
+    private fun initiateMultiplexerReconnect(tab: TabSession) {
+        beginMultiplexerAction(PendingMultiplexerAction.Reconnect(tab.id, tab.spec))
+    }
+
+    private fun beginMultiplexerAction(action: PendingMultiplexerAction) {
+        val actionGeneration = ++multiplexerActionGeneration
+        val preparedAction = when (action) {
+            is PendingMultiplexerAction.Open -> action.copy(
+                spec = action.spec.copy(multiplexer = action.spec.multiplexer ?: MultiplexerRegistry.defaultType),
+            )
+            is PendingMultiplexerAction.Reconnect -> action.copy(
+                spec = action.spec.copy(multiplexer = action.spec.multiplexer ?: MultiplexerRegistry.defaultType),
+            )
+        }
+        pendingMultiplexerAction = preparedAction
+        val spec = preparedAction.spec
+        val label = spec.multiplexer?.label ?: MultiplexerRegistry.defaultType.label
+        val reconnectRecovery = preparedAction is PendingMultiplexerAction.Reconnect
+        if (spec.transport == Transport.Mosh) {
+            _multiplexerState.value = MultiplexerUiState(
+                preflightError = "$label is not supported for Mosh connections",
+                reconnectRecovery = reconnectRecovery,
+            )
+            return
+        }
+        if (spec.multiplexer != null && spec.multiplexer.runtimeSupported.not()) {
+            _multiplexerState.value = MultiplexerUiState(
+                preflightError = "${spec.multiplexer.label} is not supported yet",
+                reconnectRecovery = reconnectRecovery,
+            )
+            return
+        }
+        _multiplexerState.value = MultiplexerUiState(reconnectRecovery = reconnectRecovery)
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = runCatching { sessionRepository.resolveMultiplexerSessionName(spec) }
+            withContext(Dispatchers.Main) {
+                if (!isCurrentMultiplexerAction(actionGeneration, preparedAction)) return@withContext
+                result.fold(
+                    onSuccess = { sessionName ->
+                        completeMultiplexerAction(actionGeneration, preparedAction, sessionName)
+                    },
+                    onFailure = { error ->
+                        _multiplexerState.value = _multiplexerState.value.copy(
+                            preflightError = error.message ?: "Could not prepare multiplexer session",
+                        )
+                    },
+                )
+            }
+        }
+    }
+
+    private fun isCurrentMultiplexerAction(actionGeneration: Long, action: PendingMultiplexerAction): Boolean =
+        multiplexerActionGeneration == actionGeneration && pendingMultiplexerAction == action
+
+    private fun completeMultiplexerAction(
+        actionGeneration: Long,
+        action: PendingMultiplexerAction,
+        sessionName: String,
+    ) {
+        if (!isCurrentMultiplexerAction(actionGeneration, action)) return
+        val nextSpec = action.spec.copy(
+            multiplexer = action.spec.multiplexer ?: MultiplexerRegistry.defaultType,
+            multiplexerSessionName = sessionName,
+            multiplexerCreateIfMissing = action.spec.multiplexerCreateIfMissing,
+        )
+        pendingMultiplexerAction = null
+        _multiplexerState.value = MultiplexerUiState()
+        when (action) {
+            is PendingMultiplexerAction.Open -> openTab(nextSpec)
+            is PendingMultiplexerAction.Reconnect -> {
+                if (!reconnectTabWithSpec(action.tabId, nextSpec)) {
+                    _multiplexerState.value = MultiplexerUiState(
+                        preflightError = "Terminal session is no longer available",
+                        reconnectRecovery = true,
+                    )
+                }
+            }
+        }
+    }
+
+    private fun reconnectTabWithSpec(tabId: String, spec: TabSpec): Boolean {
+        val tab = sessionRepository.tabs.value.firstOrNull { it.id == tabId } ?: return false
+        refreshTailscaleStatus()
+        tab.spec = spec
+        sessionRepository.reconnectTab(tab)
+        return true
+    }
+
+    fun listMultiplexerSessionsForCurrentHost() {
+        val tab = sessionRepository.activeTab.value ?: return
+        val requestGeneration = ++multiplexerSessionListGeneration
+        val sourceTabId = tab.id
+        val sourceHostId = tab.spec.hostId
+        val spec = tab.spec.copy(multiplexer = tab.spec.multiplexer ?: MultiplexerRegistry.defaultType)
+        _multiplexerState.value = _multiplexerState.value.copy(
+            sessions = emptyList(),
+            sessionsLoading = true,
+            sessionsError = null,
+            sessionsSourceTabId = sourceTabId,
+            sessionsSourceHostId = sourceHostId,
+        )
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = runCatching { sessionRepository.listMultiplexerSessions(spec) }
+            withContext(Dispatchers.Main) {
+                val activeTab = sessionRepository.activeTab.value
+                if (requestGeneration != multiplexerSessionListGeneration || activeTab?.id != sourceTabId) {
+                    return@withContext
+                }
+                result.fold(
+                    onSuccess = { sessions ->
+                        _multiplexerState.value = _multiplexerState.value.copy(
+                            sessions = sessions,
+                            sessionsLoading = false,
+                            sessionsError = null,
+                            sessionsSourceTabId = sourceTabId,
+                            sessionsSourceHostId = sourceHostId,
+                        )
+                    },
+                    onFailure = { error ->
+                        _multiplexerState.value = _multiplexerState.value.copy(
+                            sessions = emptyList(),
+                            sessionsLoading = false,
+                            sessionsError = error.message ?: "Failed to list sessions",
+                            sessionsSourceTabId = sourceTabId,
+                            sessionsSourceHostId = sourceHostId,
+                        )
+                    },
+                )
+            }
+        }
+    }
+
+    fun createNextMultiplexerSession() {
+        val tab = sessionRepository.activeTab.value ?: return
+        val nextSpec = tab.spec.copy(
+            multiplexer = tab.spec.multiplexer ?: MultiplexerRegistry.defaultType,
+            multiplexerSessionName = null,
+            multiplexerCreateIfMissing = true,
+        )
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = runCatching { sessionRepository.resolveMultiplexerSessionName(nextSpec) }
+            withContext(Dispatchers.Main) {
+                result.fold(
+                    onSuccess = { name ->
+                        openTab(nextSpec.copy(multiplexerSessionName = name))
+                        listMultiplexerSessionsForCurrentHost()
+                    },
+                    onFailure = { error ->
+                        _multiplexerState.value = _multiplexerState.value.copy(
+                            sessionsError = error.message ?: "Could not create multiplexer session",
+                        )
+                    },
+                )
+            }
+        }
+    }
+
+    fun switchToMultiplexerSession(name: String, sourceTabId: String?) {
+        val activeTab = sessionRepository.activeTab.value
+        val state = _multiplexerState.value
+        val activeHostId = activeTab?.spec?.hostId
+        val sessionListMatchesTab = sourceTabId != null && state.sessionsSourceTabId == sourceTabId && activeTab?.id == sourceTabId
+        val sessionListMatchesHost = activeHostId != null && state.sessionsSourceHostId == activeHostId
+        if (activeTab == null || (!sessionListMatchesTab && !sessionListMatchesHost)) {
+            _multiplexerState.value = state.copy(
+                sessions = emptyList(),
+                sessionsLoading = false,
+                sessionsError = "Session list is stale. Refresh sessions and try again.",
+                sessionsSourceTabId = activeTab?.id,
+                sessionsSourceHostId = activeHostId,
+            )
+            return
+        }
+        sessionRepository.switchActiveMultiplexerSession(name)
+    }
+
+    fun retryPendingMultiplexerOpen() {
+        val action = pendingMultiplexerAction ?: return
+        beginMultiplexerAction(action)
+    }
+
+    fun connectPendingWithoutMultiplexer(): Boolean {
+        val action = pendingMultiplexerAction ?: return false
+        val plainSpec = action.spec.copy(
+            multiplexer = null,
+            multiplexerSessionName = null,
+            multiplexerCreateIfMissing = true,
+        )
+        _multiplexerState.value = MultiplexerUiState()
+        pendingMultiplexerAction = null
+        multiplexerActionGeneration += 1
+        return when (action) {
+            is PendingMultiplexerAction.Open -> {
+                openTab(plainSpec)
+                true
+            }
+            is PendingMultiplexerAction.Reconnect -> reconnectTabWithSpec(action.tabId, plainSpec)
+        }
+    }
+
+    fun dismissMultiplexerRecovery(onBack: () -> Unit) {
+        val shouldNavigateBack = pendingMultiplexerAction is PendingMultiplexerAction.Open
+        _multiplexerState.value = MultiplexerUiState()
+        pendingMultiplexerAction = null
+        multiplexerActionGeneration += 1
+        if (shouldNavigateBack) onBack()
     }
 
     fun selectTab(id: String) {
@@ -142,7 +399,12 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
 
     fun reconnect() {
         refreshTailscaleStatus()
-        sessionRepository.reconnectActive()
+        val tab = sessionRepository.activeTab.value ?: return
+        if (tab.spec.usesRuntimeMultiplexer) {
+            initiateMultiplexerReconnect(tab)
+        } else {
+            sessionRepository.reconnectActive()
+        }
     }
 
     fun selectConnectionTab(tab: ConnectionTab) {
@@ -441,3 +703,13 @@ private object GhosttyMouseAction {
 private object GhosttyMouseButton {
     const val Left = 1
 }
+
+data class MultiplexerUiState(
+    val preflightError: String? = null,
+    val sessions: List<RemoteMultiplexerSession> = emptyList(),
+    val sessionsLoading: Boolean = false,
+    val sessionsError: String? = null,
+    val sessionsSourceTabId: String? = null,
+    val sessionsSourceHostId: Long? = null,
+    val reconnectRecovery: Boolean = false,
+)

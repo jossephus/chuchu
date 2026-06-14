@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -39,6 +40,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerSession
 import com.jossephus.chuchu.service.terminal.TabSession
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
@@ -69,6 +71,14 @@ fun CommandPalette(
     onCloseTab: (String) -> Unit,
     onAddTab: () -> Unit,
     onDismiss: () -> Unit,
+    // Multiplexer section parameters (optional, scoped to current host)
+    multiplexerSessions: List<RemoteMultiplexerSession> = emptyList(),
+    multiplexerSessionsLoading: Boolean = false,
+    multiplexerSessionsError: String? = null,
+    multiplexerEnabled: Boolean = false,
+    onMultiplexerRefresh: () -> Unit = {},
+    onMultiplexerNew: () -> Unit = {},
+    onMultiplexerAttach: (String) -> Unit = {},
 ) {
   val colors = ChuColors.current
   val typography = ChuTypography.current
@@ -227,6 +237,17 @@ fun CommandPalette(
           ) {
             ChuText("+ new", style = typography.labelSmall, color = colors.accent)
           }
+        }
+        if (multiplexerEnabled) {
+          MultiplexerSessionPanel(
+              sessions = multiplexerSessions,
+              loading = multiplexerSessionsLoading,
+              error = multiplexerSessionsError,
+              onRefresh = onMultiplexerRefresh,
+              onNew = onMultiplexerNew,
+              onAttach = onMultiplexerAttach,
+              onDismiss = onDismiss,
+          )
         }
       }
       KeyboardAccessoryBar(

@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -53,6 +54,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerSession
 import com.jossephus.chuchu.service.terminal.SessionStatus
 import com.jossephus.chuchu.service.terminal.SessionState
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -90,6 +92,14 @@ fun TerminalTabManager(
     onDuplicateTab: (String) -> Unit,
     onAddTab: () -> Unit,
     onDismiss: () -> Unit,
+    // Multiplexer session controls (optional, current-host only)
+    multiplexerEnabled: Boolean = false,
+    multiplexerSessions: List<RemoteMultiplexerSession> = emptyList(),
+    multiplexerSessionsLoading: Boolean = false,
+    multiplexerSessionsError: String? = null,
+    onMultiplexerRefresh: () -> Unit = {},
+    onMultiplexerNew: () -> Unit = {},
+    onMultiplexerAttach: (String) -> Unit = {},
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
@@ -410,6 +420,19 @@ fun TerminalTabManager(
                             }
                         }
                     }
+                }
+
+                // Multiplexer sessions section (current-host only)
+                if (multiplexerEnabled) {
+                    MultiplexerSessionPanel(
+                        sessions = multiplexerSessions,
+                        loading = multiplexerSessionsLoading,
+                        error = multiplexerSessionsError,
+                        onRefresh = onMultiplexerRefresh,
+                        onNew = onMultiplexerNew,
+                        onAttach = onMultiplexerAttach,
+                        onDismiss = onDismiss,
+                    )
                 }
             }
         }

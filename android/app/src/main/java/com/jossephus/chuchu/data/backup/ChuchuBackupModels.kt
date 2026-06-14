@@ -2,6 +2,7 @@ package com.jossephus.chuchu.data.backup
 
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.HostProfile
+import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.SshKey
 import com.jossephus.chuchu.model.Transport
 
@@ -62,6 +63,7 @@ data class BackupHostProfile(
     val authMethod: AuthMethod,
     val requireAuthOnConnect: Boolean,
     val postConnectCommand: String?,
+    val multiplexer: MultiplexerType?,
 ) {
     fun toEntity(
         idOverride: Long = id,
@@ -79,6 +81,7 @@ data class BackupHostProfile(
         authMethod = authMethod,
         requireAuthOnConnect = requireAuthOnConnect,
         postConnectCommand = postConnectCommand,
+        multiplexer = multiplexer,
     )
 
     companion object {
@@ -95,6 +98,7 @@ data class BackupHostProfile(
             authMethod = host.authMethod,
             requireAuthOnConnect = host.requireAuthOnConnect,
             postConnectCommand = host.postConnectCommand,
+            multiplexer = host.multiplexer,
         )
     }
 }

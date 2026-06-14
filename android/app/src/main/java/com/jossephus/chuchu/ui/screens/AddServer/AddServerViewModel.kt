@@ -10,6 +10,7 @@ import com.jossephus.chuchu.data.repository.HostRepository
 import com.jossephus.chuchu.data.repository.SshKeyRepository
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.HostProfile
+import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.SshKey
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.ssh.Ed25519KeyGenerator
@@ -77,6 +78,7 @@ class AddServerViewModel(
                     authMethod = profile.authMethod,
                     requireAuthOnConnect = profile.requireAuthOnConnect,
                     postConnectCommand = profile.postConnectCommand.orEmpty(),
+                    multiplexer = profile.multiplexer,
                 )
             }
         }
@@ -169,7 +171,11 @@ class AddServerViewModel(
             transport == Transport.SSH && current.authMethod == AuthMethod.None -> AuthMethod.Password
             else -> current.authMethod
         }
-        _form.value = current.copy(transport = transport, authMethod = nextAuthMethod)
+        _form.value = current.copy(
+            transport = transport,
+            authMethod = nextAuthMethod,
+            multiplexer = current.multiplexer.takeIf { transport != Transport.Mosh && it?.runtimeSupported == true },
+        )
     }
 
     fun updateAuthMethod(authMethod: AuthMethod) {
@@ -190,6 +196,13 @@ class AddServerViewModel(
 
     fun updatePostConnectCommand(command: String) {
         _form.value = _form.value.copy(postConnectCommand = command)
+    }
+
+    fun updateMultiplexer(multiplexer: MultiplexerType?) {
+        val current = _form.value
+        _form.value = current.copy(
+            multiplexer = multiplexer?.takeIf { current.transport != Transport.Mosh && it.runtimeSupported },
+        )
     }
 
     fun testConnection() {
@@ -250,6 +263,7 @@ class AddServerViewModel(
                 authMethod = current.authMethod,
                 requireAuthOnConnect = current.requireAuthOnConnect,
                 postConnectCommand = current.postConnectCommand.trim().ifBlank { null },
+                multiplexer = current.multiplexer.takeIf { current.transport != Transport.Mosh && it?.runtimeSupported == true },
             )
             hostRepository.upsert(profile)
             onComplete()
@@ -272,6 +286,7 @@ data class AddServerForm(
     val authMethod: AuthMethod = AuthMethod.Password,
     val requireAuthOnConnect: Boolean = false,
     val postConnectCommand: String = "",
+    val multiplexer: MultiplexerType? = null,
 )
 
 fun AddServerForm.canSave(): Boolean {
