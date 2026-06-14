@@ -16,6 +16,7 @@ fun <T> ChuSegmentedControl(
     selected: T,
     onSelect: (T) -> Unit,
     modifier: Modifier = Modifier,
+    disabledOptions: Set<T> = emptySet(),
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
@@ -25,9 +26,11 @@ fun <T> ChuSegmentedControl(
     ) {
         options.forEach { option ->
             val isSelected = option == selected
+            val isDisabled = option in disabledOptions
             val label = labels[option] ?: option.toString()
             ChuButton(
                 onClick = { onSelect(option) },
+                enabled = !isDisabled,
                 variant = ChuButtonVariant.Outlined,
                 borderColor = if (isSelected) colors.accent else colors.border,
                 backgroundColor = if (isSelected) colors.accent.copy(alpha = 0.12f) else null,
@@ -36,7 +39,11 @@ fun <T> ChuSegmentedControl(
                 ChuText(
                     text = label,
                     style = typography.label,
-                    color = if (isSelected) colors.accent else colors.textSecondary,
+                    color = when {
+                        isDisabled -> colors.textMuted
+                        isSelected -> colors.accent
+                        else -> colors.textSecondary
+                    },
                 )
             }
         }

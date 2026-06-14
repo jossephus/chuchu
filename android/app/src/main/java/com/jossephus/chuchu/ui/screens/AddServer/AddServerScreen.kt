@@ -252,47 +252,15 @@ fun AddServerScreen(
                 )
             }
             SectionDivider()
+            MultiplexerSection(
+                selected = form.multiplexer,
+                onSelect = vm::updateMultiplexer,
+            )
+            SectionDivider()
             PostConnectActionSection(
                 command = form.postConnectCommand,
                 onCommandChange = vm::updatePostConnectCommand,
             )
-            SectionDivider()
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    ChuText("start in multiplexer", style = typography.label)
-                    if (form.transport == Transport.Mosh) {
-                        ChuText(
-                            "not supported for mosh",
-                            style = typography.bodySmall,
-                            color = colors.textMuted,
-                        )
-                    }
-                }
-                ChuSwitch(
-                    checked = form.multiplexer == MultiplexerType.Tmux && form.transport != Transport.Mosh,
-                    onCheckedChange = {
-                        vm.updateMultiplexer(if (it) MultiplexerType.Tmux else null)
-                    },
-                    enabled = form.transport != Transport.Mosh,
-                )
-            }
-            if (form.multiplexer == MultiplexerType.Tmux && form.transport != Transport.Mosh) {
-                ChuText(
-                    "opens a named tmux session; the post-connect command only runs when tmux startup is off",
-                    style = typography.bodySmall,
-                    color = colors.textMuted,
-                )
-            } else if (form.transport != Transport.Mosh) {
-                ChuText(
-                    "tmux is the only supported multiplexer for now",
-                    style = typography.bodySmall,
-                    color = colors.textMuted,
-                )
-            }
             SectionDivider()
         }
 
@@ -412,6 +380,39 @@ private fun KeyAuthSection(
             ChuText("generate key", style = typography.label)
         }
     }
+}
+
+// The segmented control requires a non-null selection, but "no persistence" is
+// modeled as a null MultiplexerType, so wrap the choices in a UI-only enum.
+private enum class MultiplexerOption(val type: MultiplexerType?) {
+    Off(null),
+    Tmux(MultiplexerType.Tmux),
+    Zellij(MultiplexerType.Zellij),
+    Zmx(MultiplexerType.Zmx),
+}
+
+@Composable
+private fun MultiplexerSection(
+    selected: MultiplexerType?,
+    onSelect: (MultiplexerType?) -> Unit,
+) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+    SectionHeader("SESSION PERSISTENCE")
+    val options = MultiplexerOption.entries.toList()
+    val selectedOption = options.firstOrNull { it.type == selected } ?: MultiplexerOption.Off
+    ChuSegmentedControl(
+        options = options,
+        labels = mapOf(
+            MultiplexerOption.Off to "off",
+            MultiplexerOption.Tmux to "tmux",
+            MultiplexerOption.Zellij to "zellij",
+            MultiplexerOption.Zmx to "zmx",
+        ),
+        selected = selectedOption,
+        onSelect = { onSelect(it.type) },
+        disabledOptions = setOf(MultiplexerOption.Zellij, MultiplexerOption.Zmx),
+    )
 }
 
 @Composable
