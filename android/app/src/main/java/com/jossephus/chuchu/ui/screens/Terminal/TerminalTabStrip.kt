@@ -19,6 +19,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -30,6 +31,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jossephus.chuchu.service.terminal.SessionStatus
+import kotlinx.coroutines.flow.map
 import kotlin.math.roundToInt
 import com.jossephus.chuchu.service.terminal.TabSession
 import com.jossephus.chuchu.ui.components.ChuButton
@@ -95,7 +97,11 @@ fun TerminalTabStrip(
         ) {
             tabs.forEach { tab ->
                 val isActive = tab.id == activeTabId
-                val label = terminalTabAlias(tab)
+                val alias = terminalTabAlias(tab)
+                val title by remember(tab) {
+                    tab.sessionState.map { it.title?.takeIf(String::isNotBlank) }
+                }.collectAsStateWithLifecycle(initialValue = null)
+                val label = title ?: alias
 
                 Box(
                     modifier = Modifier
@@ -104,7 +110,7 @@ fun TerminalTabStrip(
                         }
                         .semantics { contentDescription = label }
                         .defaultMinSize(minHeight = 32.dp)
-                        .widthIn(min = 44.dp)
+                        .widthIn(min = 44.dp, max = 160.dp)
                         .clip(androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
                         .background(
                             if (isActive) colors.accent.copy(alpha = 0.16f)
