@@ -53,6 +53,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerSession
 import com.jossephus.chuchu.service.terminal.SessionStatus
@@ -268,15 +269,18 @@ fun TerminalTabManager(
 
                                 // Tab info column
                                 Column(modifier = Modifier.weight(1f)) {
+                                    val displayLabel = title ?: label
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                                     ) {
                                         ChuText(
-                                            label,
+                                            displayLabel,
                                             style = typography.body,
                                             color = if (isFocused) colors.accent
                                             else colors.textPrimary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
                                         )
                                         if (isActive) {
                                             ChuText(
@@ -286,10 +290,10 @@ fun TerminalTabManager(
                                             )
                                         }
                                     }
-                                    // Secondary details
+                                    // Show alias as secondary when title is primary
                                     if (title != null) {
                                         ChuText(
-                                            title,
+                                            label,
                                             style = typography.bodySmall,
                                             color = colors.textSecondary,
                                         )
