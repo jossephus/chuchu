@@ -34,8 +34,12 @@ const CELL_FLAG_HAS_GRAPHEME: u8 = 1 << 6;
 // These are serialized with codepoint=32 but should not force a shaping
 // run break between neighboring glyph cells.
 const CELL_FLAG_SPACER: u8 = 1 << 7;
-const IMAGE_HEADER_BYTES = 44;
+const IMAGE_HEADER_BYTES = 52;
 const MAX_KITTY_IMAGES = 64;
+// Kitty Unicode graphics placeholder (U+10EEEE). These cells only mark where an
+// image is composited; we blank them so the raw glyph never shows through a gap
+// the image doesn't fully cover.
+const KITTY_PLACEHOLDER_CP: u32 = 0x10EEEE;
 const DeviceAttributes = blk: {
     const device_attributes_opt = @FieldType(ghostty.TerminalStream.Handler.Effects, "device_attributes");
     const device_attributes_fn = @typeInfo(device_attributes_opt).optional.child;
@@ -49,8 +53,14 @@ const ImageFreeMode = enum(c_int) {
 };
 
 const PlacementInfo = struct {
-    dest_x: i32,
-    dest_y: i32,
+    // Cell-grid position; Kotlin derives the pixel origin as cell*cellSize +
+    // cell_*_offset. dest_w/dest_h are libghostty's *scaled* image size that
+    // cell_*_offset centers — use them straight (rendered.dest_width for virtual,
+    // grid*cell for direct); recomputing as grid_cols*cell shifts it ~1px.
+    cell_col: i32,
+    cell_row: i32,
+    cell_x_offset: u32,
+    cell_y_offset: u32,
     dest_w: u32,
     dest_h: u32,
     src_x: u32,
@@ -659,11 +669,15 @@ fn resolvedCodepoint(render_cell: ghostty.RenderState.Cell) u32 {
     // character (e.g. keycaps would lose the digit and ZWJ chains could
     // degrade to U+200D as the visible codepoint).
     const cp = render_cell.raw.codepoint();
+    if (cp == KITTY_PLACEHOLDER_CP) return 32;
     return if (cp == 0) 32 else cp;
 }
 
 fn cellHasExtras(render_cell: ghostty.RenderState.Cell) bool {
     if (render_cell.raw.wide == .spacer_tail or render_cell.raw.wide == .spacer_head) return false;
+    // Placeholder cells carry row/column diacritics as grapheme extras; drop
+    // them so the combining marks aren't painted (see KITTY_PLACEHOLDER_CP).
+    if (render_cell.raw.codepoint() == KITTY_PLACEHOLDER_CP) return false;
     return render_cell.raw.content_tag == .codepoint_grapheme and render_cell.grapheme.len > 0;
 }
 
@@ -1021,8 +1035,11 @@ export fn chuchu_build_image_snapshot(handle: c.jlong, out_size: [*c]usize) call
             };
         }
         placements[count] = .{
-            .dest_x = viewport.col * @as(i32, @intCast(terminal.cell_width)) + @as(i32, @intCast(placement.x_offset)),
-            .dest_y = viewport.row * @as(i32, @intCast(terminal.cell_height)) + @as(i32, @intCast(placement.y_offset)),
+            .cell_col = viewport.col,
+            .cell_row = viewport.row,
+            .cell_x_offset = placement.x_offset,
+            .cell_y_offset = placement.y_offset,
+            // Direct placement: image fills its whole cell grid (no aspect-fit).
             .dest_w = grid_size.cols * terminal.cell_width,
             .dest_h = grid_size.rows * terminal.cell_height,
             .src_x = rect.x,
@@ -1064,8 +1081,13 @@ export fn chuchu_build_image_snapshot(handle: c.jlong, out_size: [*c]usize) call
 
             const prepared = prepareImageData(virtual_placement.image_id, image) orelse continue;
             placements[count] = .{
-                .dest_x = @as(i32, @intCast(viewport.viewport.x)) * @as(i32, @intCast(terminal.cell_width)) + @as(i32, @intCast(rendered.offset_x)),
-                .dest_y = @as(i32, @intCast(viewport.viewport.y)) * @as(i32, @intCast(terminal.cell_height)) + @as(i32, @intCast(rendered.offset_y)),
+                .cell_col = @intCast(viewport.viewport.x),
+                .cell_row = @intCast(viewport.viewport.y),
+                // Virtual placement: libghostty aspect-fits the image into the
+                // grid and centers it via offset_x/offset_y; dest_width/height is
+                // the resulting scaled size the offsets are measured against.
+                .cell_x_offset = rendered.offset_x,
+                .cell_y_offset = rendered.offset_y,
                 .dest_w = rendered.dest_width,
                 .dest_h = rendered.dest_height,
                 .src_x = rendered.source_x,
@@ -1101,17 +1123,19 @@ export fn chuchu_build_image_snapshot(handle: c.jlong, out_size: [*c]usize) call
     writeIntLe(i32, buf[0..total], 0, @intCast(count));
     var offset: usize = 4;
     for (placements[0..count]) |p| {
-        writeIntLe(i32, buf[0..total], offset + 0, p.dest_x);
-        writeIntLe(i32, buf[0..total], offset + 4, p.dest_y);
-        writeIntLe(u32, buf[0..total], offset + 8, p.dest_w);
-        writeIntLe(u32, buf[0..total], offset + 12, p.dest_h);
-        writeIntLe(u32, buf[0..total], offset + 16, p.src_x);
-        writeIntLe(u32, buf[0..total], offset + 20, p.src_y);
-        writeIntLe(u32, buf[0..total], offset + 24, p.src_w);
-        writeIntLe(u32, buf[0..total], offset + 28, p.src_h);
-        writeIntLe(u32, buf[0..total], offset + 32, p.img_w);
-        writeIntLe(u32, buf[0..total], offset + 36, p.img_h);
-        writeIntLe(u32, buf[0..total], offset + 40, @intCast(p.data_len));
+        writeIntLe(i32, buf[0..total], offset + 0, p.cell_col);
+        writeIntLe(i32, buf[0..total], offset + 4, p.cell_row);
+        writeIntLe(u32, buf[0..total], offset + 8, p.cell_x_offset);
+        writeIntLe(u32, buf[0..total], offset + 12, p.cell_y_offset);
+        writeIntLe(u32, buf[0..total], offset + 16, p.dest_w);
+        writeIntLe(u32, buf[0..total], offset + 20, p.dest_h);
+        writeIntLe(u32, buf[0..total], offset + 24, p.src_x);
+        writeIntLe(u32, buf[0..total], offset + 28, p.src_y);
+        writeIntLe(u32, buf[0..total], offset + 32, p.src_w);
+        writeIntLe(u32, buf[0..total], offset + 36, p.src_h);
+        writeIntLe(u32, buf[0..total], offset + 40, p.img_w);
+        writeIntLe(u32, buf[0..total], offset + 44, p.img_h);
+        writeIntLe(u32, buf[0..total], offset + 48, @intCast(p.data_len));
         @memcpy(buf[offset + IMAGE_HEADER_BYTES .. offset + IMAGE_HEADER_BYTES + p.data_len], p.data_ptr[0..p.data_len]);
         offset += IMAGE_HEADER_BYTES + p.data_len;
         switch (p.free_mode) {

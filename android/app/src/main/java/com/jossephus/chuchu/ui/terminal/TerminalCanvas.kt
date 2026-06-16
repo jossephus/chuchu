@@ -154,6 +154,11 @@ fun TerminalCanvas(
     val baselineOffset = -fontMetrics.ascent
     val cellWidthInt = max(1, ceil(cellWidthPx).toInt())
     val cellHeightInt = max(1, ceil(cellHeightPx).toInt())
+    // Snap cell dimensions to integers so the renderer agrees with Ghostty's
+    // internal grid.  This eliminates sub-pixel drift that accumulates across
+    // rows/columns and misaligns Kitty images.
+    val cellWidth = cellWidthInt.toFloat()
+    val cellHeight = cellHeightInt.toFloat()
     val selectionBackgroundArgb = selectionBackgroundColor.toArgb()
     val selectionForegroundArgb = selectionForegroundColor?.toArgb()
     val hasSelectionFg = selectionForegroundArgb != null
@@ -207,10 +212,10 @@ fun TerminalCanvas(
         }
     }
 
-    LaunchedEffect(canvasSize, cellWidthPx, cellHeightPx) {
+    LaunchedEffect(canvasSize, cellWidth, cellHeight) {
         if (canvasSize.width <= 0 || canvasSize.height <= 0) return@LaunchedEffect
-        val cols = max(1, floor(canvasSize.width / cellWidthPx).toInt())
-        val rows = max(1, floor(canvasSize.height / cellHeightPx).toInt())
+        val cols = max(1, floor(canvasSize.width / cellWidth).toInt())
+        val rows = max(1, floor(canvasSize.height / cellHeight).toInt())
         val grid = Pair(cols, rows)
         if (grid != lastResizedGrid) {
             lastResizedGrid = grid
@@ -227,15 +232,15 @@ fun TerminalCanvas(
             if (!enableGestures) {
                 baseModifier
             } else {
-                baseModifier.pointerInput(cellWidthPx, cellHeightPx, selectionResetKey) {
+                baseModifier.pointerInput(cellWidth, cellHeight, selectionResetKey) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         fun toSnapshotSpace(position: Offset, s: TerminalSnapshot): Offset {
                             if (!fitSnapshotToCanvas) return position
                             val cols = max(s.cols, 1)
                             val rows = max(s.rows, 1)
-                            val contentWidth = cols * cellWidthPx
-                            val contentHeight = rows * cellHeightPx
+                            val contentWidth = cols * cellWidth
+                            val contentHeight = rows * cellHeight
                             if (contentWidth <= 0f || contentHeight <= 0f) return position
                             val scale = minOf(canvasSize.width / contentWidth, canvasSize.height / contentHeight)
                             if (scale <= 0f) return position
@@ -266,7 +271,7 @@ fun TerminalCanvas(
                             if (event == null) {
                                 val s = currentSnapshot.value
                                 val downPos = toSnapshotSpace(down.position, s)
-                                val selectedCell = s.cellAt(downPos.x, downPos.y, cellWidthPx, cellHeightPx)
+                                val selectedCell = s.cellAt(downPos.x, downPos.y, cellWidth, cellHeight)
                                 selection = selectedCell?.let { TerminalSelection(it, it) }
                                 if (selectedCell != null) {
                                     selectionAnchorOffset = downPos
@@ -296,7 +301,7 @@ fun TerminalCanvas(
                                     doubleTapState.lastPos = tapPos
 
                                     if (timeSinceLastTap < doubleTapTimeoutMillis && distSinceLastTap < doubleTapSlopPx) {
-                                        val cellIdx = s.cellAt(tapPos.x, tapPos.y, cellWidthPx, cellHeightPx)
+                                        val cellIdx = s.cellAt(tapPos.x, tapPos.y, cellWidth, cellHeight)
                                         if (cellIdx != null) {
                                             val wordRange = s.wordAt(cellIdx)
                                             if (wordRange != null) {
@@ -350,7 +355,7 @@ fun TerminalCanvas(
                             val changePos = toSnapshotSpace(change.position, s)
                             val changePrevPos = toSnapshotSpace(change.previousPosition, s)
                             val downPos = toSnapshotSpace(down.position, s)
-                            val selectedCell = s.cellAt(changePos.x, changePos.y, cellWidthPx, cellHeightPx)
+                            val selectedCell = s.cellAt(changePos.x, changePos.y, cellWidth, cellHeight)
                             if (longPressActive && selectedCell != null) {
                                 val currentSelection = selection
                                 if (currentSelection == null || currentSelection.focusIndex != selectedCell) {
@@ -378,7 +383,7 @@ fun TerminalCanvas(
                             }
                             val verticalIntent = abs(dragY) > abs(dragX) * 1.2f
                             if (verticalIntent) {
-                                dragRemainder += dragY / cellHeightPx
+                                dragRemainder += dragY / cellHeight
                             }
 
                             if (didDragGesture && abs(dragRemainder) >= 1f) {
@@ -402,8 +407,6 @@ fun TerminalCanvas(
     Canvas(modifier = canvasModifier) {
         val cols = max(snapshot.cols, 1)
         val rows = max(snapshot.rows, 1)
-        val cellWidth = cellWidthPx
-        val cellHeight = cellHeightPx
         val contentWidth = cols * cellWidth
         val contentHeight = rows * cellHeight
         val previewScale = if (fitSnapshotToCanvas && contentWidth > 0f && contentHeight > 0f) {
@@ -558,14 +561,20 @@ fun TerminalCanvas(
                 }
             }
 
-            // Images
+            // Images: origin from cell coords (same cell size as text, so it lands
+            // on the grid); size is libghostty's scaled dest_w/dest_h, already
+            // centered by cell_*_offset. Don't recompute size as grid*cell.
             for (img in snapshot.images) {
                 val srcRect = Rect(img.srcX, img.srcY, img.srcX + img.srcW, img.srcY + img.srcH)
+                val imgDestX = (img.cellCol * cellWidth + img.cellXOffset.toFloat()).toInt()
+                val imgDestY = (img.cellRow * cellHeight + img.cellYOffset.toFloat()).toInt()
+                val imgDestW = img.destW
+                val imgDestH = img.destH
                 val dstRect = RectF(
-                    img.destX.toFloat(),
-                    img.destY.toFloat(),
-                    (img.destX + img.destW).toFloat(),
-                    (img.destY + img.destH).toFloat(),
+                    imgDestX.toFloat(),
+                    imgDestY.toFloat(),
+                    (imgDestX + imgDestW).toFloat(),
+                    (imgDestY + imgDestH).toFloat(),
                 )
                 nCanvas.drawBitmap(img.bitmap, srcRect, dstRect, null)
             }
@@ -650,10 +659,10 @@ private data class TerminalSelection(
 private fun safeChars(cp: Int): String =
     if (cp in 0..0x10FFFF) String(Character.toChars(cp)) else "\uFFFD"
 
-private fun TerminalSnapshot.cellAt(x: Float, y: Float, cellWidthPx: Float, cellHeightPx: Float): Int? {
-    if (cols <= 0 || rows <= 0 || cellWidthPx <= 0f || cellHeightPx <= 0f) return null
-    val col = floor(x / cellWidthPx).toInt().coerceIn(0, cols - 1)
-    val row = floor(y / cellHeightPx).toInt().coerceIn(0, rows - 1)
+private fun TerminalSnapshot.cellAt(x: Float, y: Float, cellWidth: Float, cellHeight: Float): Int? {
+    if (cols <= 0 || rows <= 0 || cellWidth <= 0f || cellHeight <= 0f) return null
+    val col = floor(x / cellWidth).toInt().coerceIn(0, cols - 1)
+    val row = floor(y / cellHeight).toInt().coerceIn(0, rows - 1)
     return row * cols + col
 }
 

@@ -377,7 +377,7 @@ class TerminalSessionEngine(
                         0,
                         0,
                     )
-                    resizeRemote(cols, rows, screenWidth, screenHeight)
+                    resizeRemote(cols, rows, ptyWidthPx(), ptyHeightPx())
                     requestSnapshot(force = true)
                 }
             } catch (e: Exception) {
@@ -747,9 +747,9 @@ class TerminalSessionEngine(
         )
         val startupCommand = params.multiplexerStartupCommand()?.trim().orEmpty()
         if (startupCommand.isNotEmpty()) {
-            nativeSsh.openExecPty(startupCommand, cols, rows, screenWidth, screenHeight)
+            nativeSsh.openExecPty(startupCommand, cols, rows, ptyWidthPx(), ptyHeightPx())
         } else {
-            nativeSsh.openShell(cols, rows, screenWidth, screenHeight)
+            nativeSsh.openShell(cols, rows, ptyWidthPx(), ptyHeightPx())
         }
     }
 
@@ -772,7 +772,7 @@ class TerminalSessionEngine(
         val execOpened = runCatching { nativeSsh.openExec(moshCommand) }.getOrDefault(false)
         if (!execOpened) {
             Log.w("TerminalSession", "MOSH: exec channel unavailable, falling back to shell")
-            nativeSsh.openShell(cols, rows, screenWidth, screenHeight)
+            nativeSsh.openShell(cols, rows, ptyWidthPx(), ptyHeightPx())
             val fallback = "$moshCommand\n"
             nativeSsh.write(fallback.toByteArray(Charsets.UTF_8))
         }
@@ -1067,6 +1067,13 @@ class TerminalSessionEngine(
             }
         }
     }
+
+    // Pixel size reported to the remote pty (ws_xpixel/ypixel): the integer grid
+    // extent (cols*cellW x rows*cellH), not the full canvas — apps derive
+    // px-per-cell as ws_xpixel/cols, so the canvas would misplace Kitty graphics.
+    // Falls back to the canvas before the first real cell size.
+    private fun ptyWidthPx(): Int = if (cellWidth > 0) cols * cellWidth else screenWidth
+    private fun ptyHeightPx(): Int = if (cellHeight > 0) rows * cellHeight else screenHeight
 
     private fun resizeRemote(cols: Int, rows: Int, widthPx: Int, heightPx: Int) {
         if (lastConnectionParams?.transport == Transport.Mosh) {

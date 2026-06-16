@@ -6,8 +6,10 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 data class ImagePlacement(
-    val destX: Int,
-    val destY: Int,
+    val cellCol: Int,
+    val cellRow: Int,
+    val cellXOffset: Int,
+    val cellYOffset: Int,
     val destW: Int,
     val destH: Int,
     val srcX: Int,
@@ -79,7 +81,7 @@ data class TerminalSnapshot(
         const val CELL_FLAG_SPACER: Int = 0x80
         private const val HEADER_I32_COUNT = 12
         private const val CELL_SIZE_BYTES = 11
-        private const val IMAGE_HEADER_BYTES = 44
+        private const val IMAGE_HEADER_BYTES = 52
 
         private fun graphemeExtrasEquals(
             a: Map<Int, IntArray>,
@@ -216,8 +218,10 @@ data class TerminalSnapshot(
             val images = ArrayList<ImagePlacement>(count)
             for (i in 0 until count) {
                 if (wrapped.remaining() < IMAGE_HEADER_BYTES) break
-                val destX = wrapped.int
-                val destY = wrapped.int
+                val cellCol = wrapped.int
+                val cellRow = wrapped.int
+                val cellXOffset = wrapped.int
+                val cellYOffset = wrapped.int
                 val destW = wrapped.int
                 val destH = wrapped.int
                 val srcX = wrapped.int
@@ -249,8 +253,10 @@ data class TerminalSnapshot(
                 wrapped.position(wrapped.position() + dataLen)
 
                 images += ImagePlacement(
-                    destX = destX,
-                    destY = destY,
+                    cellCol = cellCol,
+                    cellRow = cellRow,
+                    cellXOffset = cellXOffset,
+                    cellYOffset = cellYOffset,
                     destW = destW,
                     destH = destH,
                     srcX = srcX,
