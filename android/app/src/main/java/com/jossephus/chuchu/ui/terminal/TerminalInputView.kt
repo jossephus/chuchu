@@ -147,7 +147,8 @@ class TerminalInputView(context: Context) : EditText(context) {
                 EditorInfo.IME_ACTION_NONE
         inputType = android.text.InputType.TYPE_CLASS_TEXT or
             android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or
-            android.text.InputType.TYPE_TEXT_FLAG_AUTO_CORRECT
+            android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS or
+            android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
     }
 
     override fun onCheckIsTextEditor(): Boolean = true
@@ -209,7 +210,8 @@ class TerminalInputView(context: Context) : EditText(context) {
             EditorInfo.IME_ACTION_NONE
         outAttrs.inputType = android.text.InputType.TYPE_CLASS_TEXT or
             android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or
-            android.text.InputType.TYPE_TEXT_FLAG_AUTO_CORRECT
+            android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS or
+            android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
         outAttrs.initialSelStart = selectionStart
         outAttrs.initialSelEnd = selectionEnd
 
@@ -322,7 +324,7 @@ class TerminalInputView(context: Context) : EditText(context) {
             }
         }
 
-        private fun mutateEditableAndEmit(source: String, op: () -> Boolean): Boolean {
+        private fun mutateEditableAndEmit(source: String, composing: Boolean, op: () -> Boolean): Boolean {
             val before = getEditable().toString()
             directMutationDepth += 1
             val ok = try {
@@ -333,7 +335,7 @@ class TerminalInputView(context: Context) : EditText(context) {
             val after = getEditable().toString()
 
             logConn(
-                "mutate source=$source ok=$ok before=${view.describeText(before)} after=${view.describeText(after)} suppress=${view.suppressInput}",
+                "mutate source=$source composing=$composing ok=$ok before=${view.describeText(before)} after=${view.describeText(after)} suppress=${view.suppressInput}",
             )
 
             if (before != after) {
@@ -341,14 +343,31 @@ class TerminalInputView(context: Context) : EditText(context) {
             }
 
             reconcileAndEmitMutation(source, before, after)
+
+            // Drop committed text from the mirror immediately; a long-lived
+            // buffer let one backspace diff into many deletes. Keep only an
+            // active composing region, until it's committed or finished.
+            if (!composing && getEditable().isNotEmpty()) {
+                clearMirrorSilently()
+            }
             return ok
+        }
+
+        // Clear the mirror and composing spans without emitting bytes, keeping
+        // it empty between commits so a later delete can't over-emit backspaces.
+        private fun clearMirrorSilently() {
+            val editable = getEditable()
+            BaseInputConnection.removeComposingSpans(editable)
+            if (editable.isNotEmpty()) editable.clear()
+            Selection.setSelection(editable, 0)
+            logConn("clearMirrorSilently")
         }
 
         override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
             logConn(
                 "commitText text=${view.describeText((text ?: "").toString())} cursor=$newCursorPosition",
             )
-            return mutateEditableAndEmit("commitText") {
+            return mutateEditableAndEmit("commitText", composing = false) {
                 super.commitText(text ?: "", newCursorPosition)
             }
         }
@@ -357,14 +376,21 @@ class TerminalInputView(context: Context) : EditText(context) {
             logConn(
                 "setComposingText text=${view.describeText((text ?: "").toString())} cursor=$newCursorPosition",
             )
-            return mutateEditableAndEmit("setComposingText") {
+            // Empty composing text ends composition; treat as a commit so the
+            // mirror is dropped instead of holding stale state.
+            val stillComposing = !text.isNullOrEmpty()
+            return mutateEditableAndEmit("setComposingText", composing = stillComposing) {
                 super.setComposingText(text ?: "", newCursorPosition)
             }
         }
 
         override fun finishComposingText(): Boolean {
             logConn("finishComposingText")
-            return super.finishComposingText()
+            val ok = super.finishComposingText()
+            // Composing region is committed; drop the mirror copy so a later
+            // backspace can't mass-delete it.
+            if (getEditable().isNotEmpty()) clearMirrorSilently()
+            return ok
         }
 
         override fun setComposingRegion(start: Int, end: Int): Boolean {
