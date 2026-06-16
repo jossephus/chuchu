@@ -618,15 +618,19 @@ class TerminalSessionEngine(
 
     private suspend fun startSshReadLoop() {
         val buf = ByteArray(65536)
+        var lastActivityMs = System.currentTimeMillis()
         while (currentCoroutineContext().isActive) {
             val chunk = nativeSsh.read(buf.size)
             if (chunk == null) {
                 break
             }
             if (chunk.isEmpty()) {
-                delay(2)
+                // Adaptive poll: stay snappy while data is flowing, back off when
+                // idle so a quiet session doesn't spin at 500 wakeups/sec.
+                delay(idleReadDelayMs(System.currentTimeMillis() - lastActivityMs))
                 continue
             }
+            lastActivityMs = System.currentTimeMillis()
             if (handle == 0L) continue
             val wasImageLoading = bridge.nativeIsImageLoading(handle)
             flushPtyWrites()
@@ -645,6 +649,7 @@ class TerminalSessionEngine(
     private suspend fun startMoshReadLoop() {
         Log.d("TerminalSession", "MOSH: read loop started")
         var loopCount = 0
+        var lastActivityMs = System.currentTimeMillis()
         while (currentCoroutineContext().isActive) {
             loopCount++
 
@@ -693,6 +698,7 @@ class TerminalSessionEngine(
 
             if (hadEvent && handle != 0L) {
                 requestSnapshot()
+                lastActivityMs = System.currentTimeMillis()
             }
 
             // Check session health
@@ -704,7 +710,9 @@ class TerminalSessionEngine(
                 }
             }
 
-            delay(2)
+            // Adaptive cadence: Mosh's retransmit/heartbeat timers are coarse, so
+            // backing the pump off while idle is safe and avoids a 500 Hz spin.
+            delay(idleReadDelayMs(System.currentTimeMillis() - lastActivityMs))
         }
         Log.d("TerminalSession", "MOSH: read loop exited after $loopCount iterations")
     }
@@ -1068,6 +1076,29 @@ class TerminalSessionEngine(
             nativeSsh.resize(cols, rows, widthPx, heightPx)
         }
     }
+
+    private companion object {
+        // Idle thresholds and the poll delay for each tier.
+        private const val ACTIVE_WINDOW_MS = 50L
+        private const val NEAR_IDLE_WINDOW_MS = 500L
+        private const val IDLE_WINDOW_MS = 3_000L
+        private const val MIN_READ_DELAY_MS = 2L
+        private const val NEAR_IDLE_DELAY_MS = 8L
+        private const val IDLE_DELAY_MS = 24L
+        private const val MAX_READ_DELAY_MS = 64L
+    }
+
+    // Read-loop poll interval as a function of how long the session has been idle:
+    // MIN while data is flowing (snappy echo), ramping to MAX once quiet so an idle
+    // terminal stops spinning. The first byte after idle restores MIN within one
+    // MAX interval.
+    private fun idleReadDelayMs(idleForMs: Long): Long =
+        when {
+            idleForMs < ACTIVE_WINDOW_MS -> MIN_READ_DELAY_MS
+            idleForMs < NEAR_IDLE_WINDOW_MS -> NEAR_IDLE_DELAY_MS
+            idleForMs < IDLE_WINDOW_MS -> IDLE_DELAY_MS
+            else -> MAX_READ_DELAY_MS
+        }
 
     private fun requestSnapshot(force: Boolean = false) {
         if (handle == 0L) return
