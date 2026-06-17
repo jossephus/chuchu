@@ -347,9 +347,9 @@ fun TerminalScreen(
             val builtinHints = listOf(
                 ChuchuHint(key = "t", description = "tabs"),
                 ChuchuHint(key = "n", description = "new tab"),
-                ChuchuHint(key = "q", description = "close"),
                 ChuchuHint(key = "a", description = "actions"),
                 ChuchuHint(key = "s", description = "settings"),
+                ChuchuHint(key = "q", description = "close"),
             )
             val builtinHandlers: Map<Char, () -> Unit> = mapOf(
                 't' to {
