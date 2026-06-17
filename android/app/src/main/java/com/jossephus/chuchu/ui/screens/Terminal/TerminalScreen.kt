@@ -21,6 +21,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -232,6 +234,7 @@ private fun TerminalCustomActionsFab(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TerminalScreen(
     vm: TerminalViewModel,
@@ -1397,7 +1400,7 @@ fun TerminalScreen(
                                 enter = fadeIn(),
                                 exit = fadeOut(),
                             ) {
-                                Row(
+                                FlowRow(
                                     modifier =
                                         Modifier.fillMaxWidth()
                                             .padding(horizontal = 10.dp, vertical = 4.dp)
@@ -1405,10 +1408,10 @@ fun TerminalScreen(
                                             .border(1.dp, colors.border)
                                             .padding(horizontal = 10.dp, vertical = 6.dp),
                                     horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
+                                    verticalArrangement = Arrangement.spacedBy(2.dp),
                                 ) {
                                     ChuText(
-                                        "⌘ key",
+                                        "⌘",
                                         style = typography.label,
                                         color = colors.accent,
                                     )
