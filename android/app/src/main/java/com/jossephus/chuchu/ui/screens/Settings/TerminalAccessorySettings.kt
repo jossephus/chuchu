@@ -260,7 +260,7 @@ internal fun TerminalSettings(
                     ) {
                         ChuText("termux-style accessory bar", style = typography.label)
                         ChuText(
-                            "on = compact grid, off = content-sized buttons",
+                            "equal-width buttons, no borders, tighter spacing",
                             style = typography.bodySmall,
                             color = colors.textMuted,
                         )
