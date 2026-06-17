@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
@@ -67,24 +68,30 @@ fun KeyboardAccessoryBar(
 
 	if (useSingleRow) {
 		val allItems = line1Items + line2Items
-		Row(
+		BoxWithConstraints(
 			modifier = modifier
 				.fillMaxWidth()
-				.padding(vertical = verticalPadding)
-				.horizontalScroll(rememberScrollState()),
-			horizontalArrangement = Arrangement.spacedBy(rowSpacing),
-			verticalAlignment = Alignment.CenterVertically,
+				.padding(vertical = verticalPadding),
 		) {
-			allItems.forEach { item ->
-				AccessoryButton(
-					item = item,
-					modifierState = modifierState,
-					onAction = onAction,
-					chuchuKeyActive = chuchuKeyActive,
-					buttonHeight = buttonHeight,
-					buttonPadding = buttonPadding,
-					modifier = Modifier,
-				)
+			val buttonWidth = maxWidth / 8
+			Row(
+				modifier = Modifier
+					.fillMaxWidth()
+					.horizontalScroll(rememberScrollState()),
+				horizontalArrangement = Arrangement.spacedBy(rowSpacing),
+				verticalAlignment = Alignment.CenterVertically,
+			) {
+				allItems.forEach { item ->
+					AccessoryButton(
+						item = item,
+						modifierState = modifierState,
+						onAction = onAction,
+						chuchuKeyActive = chuchuKeyActive,
+						buttonHeight = buttonHeight,
+						buttonPadding = buttonPadding,
+						modifier = Modifier.width(buttonWidth),
+					)
+				}
 			}
 		}
 		return
