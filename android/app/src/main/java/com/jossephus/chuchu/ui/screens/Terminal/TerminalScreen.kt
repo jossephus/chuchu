@@ -1400,27 +1400,33 @@ fun TerminalScreen(
                                 enter = fadeIn(),
                                 exit = fadeOut(),
                             ) {
-                                FlowRow(
+                                Row(
                                     modifier =
                                         Modifier.fillMaxWidth()
                                             .padding(horizontal = 10.dp, vertical = 4.dp)
                                             .background(colors.surface)
                                             .border(1.dp, colors.border)
                                             .padding(horizontal = 10.dp, vertical = 6.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     ChuText(
                                         "⌘",
                                         style = typography.label,
                                         color = colors.accent,
+                                        modifier = Modifier.width(24.dp),
                                     )
-                                    chuchuKeys.hints().forEach { hint ->
-                                        ChuText(
-                                            "${hint.key}: ${hint.description}",
-                                            style = typography.labelSmall,
-                                            color = colors.textSecondary,
-                                        )
+                                    FlowRow(
+                                        modifier = Modifier.weight(1f),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                                    ) {
+                                        chuchuKeys.hints().forEach { hint ->
+                                            ChuText(
+                                                "${hint.key}: ${hint.description}",
+                                                style = typography.labelSmall,
+                                                color = colors.textSecondary,
+                                            )
+                                        }
                                     }
                                 }
                             }
