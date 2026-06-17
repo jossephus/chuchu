@@ -258,9 +258,9 @@ internal fun TerminalSettings(
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        ChuText("compact accessory bar", style = typography.label)
+                        ChuText("termux-style accessory bar", style = typography.label)
                         ChuText(
-                            "removes button borders and padding for a denser bar",
+                            "on = compact grid, off = content-sized buttons",
                             style = typography.bodySmall,
                             color = colors.textMuted,
                         )
