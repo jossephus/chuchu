@@ -366,13 +366,13 @@ fun TerminalScreen(
                 BuiltinCommand.Actions to { settingsRepo.setShowCustomActionsFab(!showCustomActionsFab) },
                 BuiltinCommand.Settings to { onOpenSettings() },
             )
-            // Build builtin hints and handlers in one pass so they stay consistent.
-            // First binding for a key wins (settings already prevents duplicates).
+            // Build builtin hints and handlers in one pass over the enum so order is
+            // deterministic (enum order), not JSON-map iteration order. First binding
+            // for a key wins (settings already prevents duplicates).
             val builtinHints = mutableListOf<ChuchuHint>()
             val builtinHandlers = mutableMapOf<Char, () -> Unit>()
-            builtinShortcuts.forEach { (commandId, shortcut) ->
-                if (shortcut.isEmpty()) return@forEach
-                val command = BuiltinCommand.fromId(commandId) ?: return@forEach
+            BuiltinCommand.entries.forEach { command ->
+                val shortcut = builtinShortcuts[command.id]?.takeIf { it.isNotEmpty() } ?: return@forEach
                 val handler = builtinCommandHandlers[command] ?: return@forEach
                 val keyChar = shortcut.first().lowercaseChar()
                 if (keyChar in builtinHandlers) return@forEach
