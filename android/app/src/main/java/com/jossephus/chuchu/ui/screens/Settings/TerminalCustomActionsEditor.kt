@@ -310,39 +310,13 @@ internal fun TerminalCustomActionsEditorSheet(
                         ChuCard(modifier = Modifier.fillMaxWidth()) {
                             Column(
                                 modifier = Modifier.padding(10.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
                             ChuTextField(
                                 value = keyInput,
                                 onValueChange = { keyInput = it },
                                 label = "Key",
                                 placeholder = "a",
-                                singleLine = true,
-                                autoFocus = false,
-                            )
-                            ChuTextField(
-                                value = valueInput,
-                                onValueChange = { updated ->
-                                    if (updated.contains('\n') || updated.contains('\r')) {
-                                        valueInput = updated
-                                        registerDraftItem()
-                                    } else {
-                                        valueInput = updated
-                                    }
-                                },
-                                label = "Value",
-                                placeholder = ":q",
-                                singleLine = false,
-                                autoFocus = false,
-                                modifier = Modifier.heightIn(min = 72.dp),
-                            )
-                            ChuTextField(
-                                value = shortcutInput,
-                                onValueChange = { updated ->
-                                    shortcutInput = updated.takeLast(1)
-                                },
-                                label = "Shortcut",
-                                placeholder = "single key for chuchu command",
                                 singleLine = true,
                                 autoFocus = false,
                             )
@@ -390,6 +364,34 @@ internal fun TerminalCustomActionsEditorSheet(
                                     }
                                 }
                             }
+
+                            ChuTextField(
+                                value = valueInput,
+                                onValueChange = { updated ->
+                                    if (updated.contains('\n') || updated.contains('\r')) {
+                                        valueInput = updated
+                                        registerDraftItem()
+                                    } else {
+                                        valueInput = updated
+                                    }
+                                },
+                                label = "Value",
+                                placeholder = ":q",
+                                singleLine = false,
+                                autoFocus = false,
+                                modifier = Modifier.heightIn(min = 72.dp),
+                            )
+                            ChuTextField(
+                                value = shortcutInput,
+                                onValueChange = { updated ->
+                                    shortcutInput = updated.takeLast(1)
+                                },
+                                label = "Shortcut",
+                                placeholder = "single key for chuchu command",
+                                singleLine = true,
+                                autoFocus = false,
+                                showLabel = true,
+                            )
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                                 ChuText(
                                     text = if (valuePreview.isBlank()) "Preview: (empty)" else "Preview: $valuePreview",
