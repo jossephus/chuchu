@@ -45,6 +45,11 @@ class BuiltinShortcutStoreTest {
     }
 
     @Test
+    fun `uppercase key is normalized to lowercase`() {
+        assertEquals(mapOf("tabs" to "t"), BuiltinShortcutStore.normalize(mapOf("tabs" to "T")))
+    }
+
+    @Test
     fun `null returns defaults`() {
         assertEquals(BuiltinShortcutStore.defaults, BuiltinShortcutStore.parse(null))
     }

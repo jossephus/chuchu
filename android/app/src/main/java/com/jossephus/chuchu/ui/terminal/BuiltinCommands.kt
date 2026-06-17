@@ -43,7 +43,9 @@ object BuiltinShortcutStore {
         val result = mutableMapOf<String, String>()
         shortcuts.forEach { (id, key) ->
             if (BuiltinCommand.fromId(id) != null) {
-                result[id] = key.takeLast(1)
+                // Lowercase so the stored key, the settings conflict check, the hint
+                // label, and runtime matching (which lowercases) all agree.
+                result[id] = key.takeLast(1).lowercase()
             }
         }
         return result

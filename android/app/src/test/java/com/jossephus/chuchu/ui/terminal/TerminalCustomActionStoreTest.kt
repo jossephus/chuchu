@@ -128,6 +128,13 @@ class TerminalCustomActionStoreTest {
     }
 
     @Test
+    fun `shortcut is normalized to lowercase`() {
+        val groups = listOf(group("g", TerminalCustomAction(label = "a", payload = "x", shortcut = "Q")))
+        val normalized = TerminalCustomActionStore.normalize(groups)
+        assertEquals("q", normalized.first().actions.first().shortcut)
+    }
+
+    @Test
     fun `malformed json returns defaults`() {
         assertEquals(
             TerminalCustomActionStore.defaultGroups(),

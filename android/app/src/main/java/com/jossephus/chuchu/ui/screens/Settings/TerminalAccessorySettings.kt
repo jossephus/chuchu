@@ -362,7 +362,9 @@ internal fun TerminalSettings(
                         ChuTextField(
                             value = builtinShortcuts[command.id] ?: "",
                             onValueChange = { updated ->
-                                val key = updated.takeLast(1)
+                                // Lowercase to match runtime key matching, so the
+                                // conflict check below catches case-variant duplicates.
+                                val key = updated.takeLast(1).lowercase()
                                 val newShortcuts = builtinShortcuts.toMutableMap()
                                 if (key.isNotEmpty()) {
                                     // Keep each key bound to a single command: clear any
