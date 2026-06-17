@@ -309,7 +309,7 @@ fun TerminalScreen(
             val builtinHints = listOf(
                 ChuchuHint(key = "t", description = if (isStrip) "tab manager" else "tabs"),
                 ChuchuHint(key = "n", description = "new tab"),
-                ChuchuHint(key = "c", description = "toggle actions"),
+                ChuchuHint(key = "a", description = "actions"),
                 ChuchuHint(key = "s", description = "settings"),
             )
             val builtinHandlers: Map<Char, () -> Unit> = mapOf(
@@ -326,7 +326,7 @@ fun TerminalScreen(
                         vm.selectConnectionTab(ConnectionTab.Terminal)
                         showTabSheet = false
                     },
-                'c' to { settingsRepo.setShowCustomActionsFab(!showCustomActionsFab) },
+                'a' to { settingsRepo.setShowCustomActionsFab(!showCustomActionsFab) },
                 's' to { onOpenSettings() },
             )
             val builtinKeys = builtinHints.map { it.key }.toSet()
