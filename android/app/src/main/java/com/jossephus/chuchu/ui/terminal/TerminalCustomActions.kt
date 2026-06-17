@@ -3,6 +3,7 @@ package com.jossephus.chuchu.ui.terminal
 data class TerminalCustomAction(
     val label: String,
     val payload: String,
+    val shortcut: String? = null,
 )
 
 data class TerminalCustomKeyGroup(
@@ -87,7 +88,8 @@ object TerminalCustomActionStore {
                 val label = action.label.trim()
                 val payload = action.payload
                 if (label.isEmpty() || payload.isEmpty()) return@mapNotNull null
-                TerminalCustomAction(label = label, payload = payload)
+                val shortcut = action.shortcut?.trim()?.takeIf { it.isNotEmpty() }
+                TerminalCustomAction(label = label, payload = payload, shortcut = shortcut)
             }
             if (actions.isEmpty()) return@forEach
             seen += key
@@ -112,12 +114,13 @@ object TerminalCustomActionStore {
                 val actions = actionSection
                     .split("|")
                     .mapNotNull { actionToken ->
-                        val parts = actionToken.split("::", limit = 2)
-                        if (parts.size != 2) return@mapNotNull null
+                        val parts = actionToken.split("::", limit = 3)
+                        if (parts.size < 2) return@mapNotNull null
                         val label = parts[0].trim()
                         val payload = parts[1]
+                        val shortcut = parts.getOrNull(2)?.trim()?.takeIf { it.isNotEmpty() }
                         if (label.isEmpty() || payload.isEmpty()) return@mapNotNull null
-                        TerminalCustomAction(label = label, payload = payload)
+                        TerminalCustomAction(label = label, payload = payload, shortcut = shortcut)
                     }
                 if (actions.isEmpty()) return@mapNotNull null
                 TerminalCustomKeyGroup(keyLabel = keyLabel, actions = actions)
@@ -131,7 +134,11 @@ object TerminalCustomActionStore {
         return normalize(groups)
             .joinToString(separator = "\n") { group ->
                 val actions = group.actions.joinToString(separator = "|") { action ->
-                    "${action.label}::${action.payload}"
+                    if (action.shortcut != null) {
+                        "${action.label}::${action.payload}::${action.shortcut}"
+                    } else {
+                        "${action.label}::${action.payload}"
+                    }
                 }
                 "${group.keyLabel}=$actions"
             }

@@ -304,34 +304,53 @@ fun TerminalScreen(
     }
     val showCustomActionsFab by settingsRepo.showCustomActionsFab.collectAsStateWithLifecycle()
     val chuchuKeys =
-        remember(vm, tabMode) {
+        remember(vm, tabMode, currentTerminalCustomKeyGroups) {
             val isStrip = tabMode == TerminalTabMode.Strip
+            val builtinHints = listOf(
+                ChuchuHint(key = "t", description = if (isStrip) "tab manager" else "tabs"),
+                ChuchuHint(key = "n", description = "new tab"),
+                ChuchuHint(key = "c", description = "toggle actions"),
+                ChuchuHint(key = "s", description = "settings"),
+            )
+            val builtinHandlers: Map<Char, () -> Unit> = mapOf(
+                't' to {
+                    if (isStrip) {
+                        showGlobalTabManager = true
+                    } else {
+                        showTabSheet = true
+                    }
+                },
+                'n' to
+                    {
+                        vm.duplicateActiveTab()
+                        vm.selectConnectionTab(ConnectionTab.Terminal)
+                        showTabSheet = false
+                    },
+                'c' to { settingsRepo.setShowCustomActionsFab(!showCustomActionsFab) },
+                's' to { onOpenSettings() },
+            )
+            val builtinKeys = builtinHints.map { it.key }.toSet()
+            val customHints = mutableListOf<ChuchuHint>()
+            val customHandlers = mutableMapOf<Char, () -> Unit>()
+            val seenShortcuts = builtinKeys.toMutableSet()
+            currentTerminalCustomKeyGroups.forEach { group ->
+                group.actions.forEach { action ->
+                    val shortcut = action.shortcut?.takeIf { it.length == 1 } ?: return@forEach
+                    val keyChar = shortcut.first().lowercaseChar()
+                    if (!seenShortcuts.add(keyChar.toString())) return@forEach
+                    customHints += ChuchuHint(key = keyChar.toString(), description = group.keyLabel)
+                    customHandlers[keyChar] = {
+                        val decoded = decodeCustomActionValue(action.payload)
+                        val rawText = decoded.text +
+                            if (CustomActionModifier.Enter in decoded.modifiers) "\n" else ""
+                        val actionModifierState = modifierStateForCustomAction(decoded.modifiers)
+                        vm.dispatchTextWithModifierState(rawText, actionModifierState)
+                    }
+                }
+            }
             ChuchuKeyBindings(
-                hints =
-                    listOf(
-                        ChuchuHint(key = "t", description = if (isStrip) "tab manager" else "tabs"),
-                        ChuchuHint(key = "n", description = "new tab"),
-                        ChuchuHint(key = "c", description = "toggle actions"),
-                        ChuchuHint(key = "s", description = "settings"),
-                    ),
-                handlers =
-                    mapOf(
-                        't' to {
-                            if (isStrip) {
-                                showGlobalTabManager = true
-                            } else {
-                                showTabSheet = true
-                            }
-                        },
-                        'n' to
-                            {
-                                vm.duplicateActiveTab()
-                                vm.selectConnectionTab(ConnectionTab.Terminal)
-                                showTabSheet = false
-                            },
-                        'c' to { settingsRepo.setShowCustomActionsFab(!showCustomActionsFab) },
-                        's' to { onOpenSettings() },
-                    ),
+                hints = builtinHints + customHints,
+                handlers = builtinHandlers + customHandlers,
             )
         }
     val multiplexerState by vm.multiplexerState.collectAsStateWithLifecycle()

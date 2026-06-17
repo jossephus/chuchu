@@ -70,6 +70,7 @@ private data class CustomKeyValueDraft(
     val id: Long,
     val key: String,
     val value: String,
+    val shortcut: String? = null,
 )
 
 @Composable
@@ -98,6 +99,7 @@ internal fun TerminalCustomActionsEditorSheet(
     var reorderDirty by remember { mutableStateOf(false) }
     var keyInput by remember { mutableStateOf("") }
     var valueInput by remember { mutableStateOf("") }
+    var shortcutInput by remember { mutableStateOf("") }
 
     fun persistDraft(items: List<CustomKeyValueDraft>) {
         onSave(TerminalCustomActionStore.normalize(draftItemsToGroups(items)))
@@ -125,11 +127,13 @@ internal fun TerminalCustomActionsEditorSheet(
         val baseValue = valueInput.trim().trimEnd('\n', '\r')
         val normalizedValue = encodeCustomActionValue(baseValue, enabledModifiers)
         if (baseKey.isEmpty() || normalizedValue.isEmpty()) return
+        val shortcut = shortcutInput.trim().takeIf { it.isNotEmpty() }
         val nextId = (draftItems.maxOfOrNull { it.id } ?: 0L) + 1L
         val item = CustomKeyValueDraft(
             id = nextId,
             key = baseKey,
             value = normalizedValue,
+            shortcut = shortcut,
         )
         val nextItems = editingIndex?.let { index ->
             draftItems.toMutableList().also { list ->
@@ -144,6 +148,7 @@ internal fun TerminalCustomActionsEditorSheet(
         persistDraft(nextItems)
         keyInput = ""
         valueInput = ""
+        shortcutInput = ""
         enabledModifiers = emptySet()
         showModifierDropdown = false
         showAddRow = false
@@ -223,6 +228,7 @@ internal fun TerminalCustomActionsEditorSheet(
                             CustomActionSwipeRow(
                                 keyText = item.key,
                                 valueText = item.value,
+                                shortcut = item.shortcut,
                                 dragging = isDragging,
                                 dragOffsetPx = if (isDragging) dragOffsetPx else 0f,
                                 onEdit = {
@@ -230,6 +236,7 @@ internal fun TerminalCustomActionsEditorSheet(
                                     val decoded = decodeCustomActionValue(item.value)
                                     enabledModifiers = decoded.modifiers
                                     valueInput = decoded.text
+                                    shortcutInput = item.shortcut ?: ""
                                     showModifierDropdown = true
                                     showAddRow = true
                                     editingIndex = index
@@ -243,6 +250,7 @@ internal fun TerminalCustomActionsEditorSheet(
                                         showAddRow = false
                                         keyInput = ""
                                         valueInput = ""
+                                        shortcutInput = ""
                                         enabledModifiers = emptySet()
                                         showModifierDropdown = false
                                     }
@@ -372,6 +380,16 @@ internal fun TerminalCustomActionsEditorSheet(
                                 autoFocus = false,
                                 modifier = Modifier.heightIn(min = 72.dp),
                             )
+                            ChuTextField(
+                                value = shortcutInput,
+                                onValueChange = { updated ->
+                                    shortcutInput = updated.takeLast(1)
+                                },
+                                label = "Shortcut",
+                                placeholder = "single key for chuchu command",
+                                singleLine = true,
+                                autoFocus = false,
+                            )
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                                 ChuText(
                                     text = if (valuePreview.isBlank()) "Preview: (empty)" else "Preview: $valuePreview",
@@ -394,6 +412,7 @@ internal fun TerminalCustomActionsEditorSheet(
                                         showAddRow = false
                                         keyInput = ""
                                         valueInput = ""
+                                        shortcutInput = ""
                                         enabledModifiers = emptySet()
                                         showModifierDropdown = false
                                         editingIndex = null
@@ -421,6 +440,7 @@ internal fun TerminalCustomActionsEditorSheet(
 private fun CustomActionSwipeRow(
     keyText: String,
     valueText: String,
+    shortcut: String?,
     dragging: Boolean,
     dragOffsetPx: Float,
     onEdit: () -> Unit,
@@ -503,6 +523,14 @@ private fun CustomActionSwipeRow(
                 ChuText("⋮", style = typography.label, color = colors.textMuted)
             }
             ChuText(keyText, style = typography.label, modifier = Modifier.weight(1f))
+            if (shortcut != null) {
+                ChuText(
+                    "[${shortcut}]",
+                    style = typography.labelSmall,
+                    color = colors.accent,
+                    modifier = Modifier.padding(end = 8.dp),
+                )
+            }
             ChuText(readableStoredActionPreview(valueText), style = typography.body, color = colors.textSecondary)
         }
     }
@@ -545,6 +573,7 @@ private fun groupsToDraftItems(groups: List<TerminalCustomKeyGroup>): List<Custo
                 id = nextId++,
                 key = group.keyLabel,
                 value = action.payload,
+                shortcut = action.shortcut,
             )
         }
     }
@@ -557,7 +586,7 @@ private fun draftItemsToGroups(items: List<CustomKeyValueDraft>): List<TerminalC
         val value = item.value
         if (key.isEmpty() || value.isEmpty()) return@forEach
         val actions = grouped.getOrPut(key) { mutableListOf() }
-        actions += TerminalCustomAction(label = key, payload = value)
+        actions += TerminalCustomAction(label = key, payload = value, shortcut = item.shortcut)
     }
     return grouped.map { (key, actions) -> TerminalCustomKeyGroup(keyLabel = key, actions = actions) }
 }
