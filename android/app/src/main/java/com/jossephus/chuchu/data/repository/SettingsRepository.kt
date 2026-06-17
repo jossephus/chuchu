@@ -31,6 +31,9 @@ class SettingsRepository(context: Context) {
     private val _terminalCustomKeyGroups = MutableStateFlow(loadTerminalCustomKeyGroups())
     val terminalCustomKeyGroups: StateFlow<List<TerminalCustomKeyGroup>> = _terminalCustomKeyGroups.asStateFlow()
 
+    private val _showCustomActionsFab = MutableStateFlow(prefs.getBoolean(KEY_SHOW_CUSTOM_ACTIONS_FAB, true))
+    val showCustomActionsFab: StateFlow<Boolean> = _showCustomActionsFab.asStateFlow()
+
     private val _accessoryBarSingleRow = MutableStateFlow(prefs.getBoolean(KEY_ACCESSORY_BAR_SINGLE_ROW, false))
     val accessoryBarSingleRow: StateFlow<Boolean> = _accessoryBarSingleRow.asStateFlow()
 
@@ -75,6 +78,11 @@ class SettingsRepository(context: Context) {
         val serialized = TerminalCustomActionStore.serialize(normalized)
         prefs.edit().putString(KEY_TERMINAL_CUSTOM_ACTIONS, serialized).apply()
         _terminalCustomKeyGroups.value = normalized
+    }
+
+    fun setShowCustomActionsFab(visible: Boolean) {
+        prefs.edit().putBoolean(KEY_SHOW_CUSTOM_ACTIONS_FAB, visible).apply()
+        _showCustomActionsFab.value = visible
     }
 
     fun setAccessoryBarSingleRow(enabled: Boolean) {
@@ -128,6 +136,7 @@ class SettingsRepository(context: Context) {
         private const val KEY_FONT = "font_name"
         private const val KEY_ACCESSORY_LAYOUT = "terminal_accessory_layout"
         private const val KEY_TERMINAL_CUSTOM_ACTIONS = "terminal_custom_actions"
+        private const val KEY_SHOW_CUSTOM_ACTIONS_FAB = "show_custom_actions_fab"
         private const val KEY_ACCESSORY_BAR_SINGLE_ROW = "terminal_accessory_bar_single_row"
         private const val KEY_TAB_MODE = "terminal_tab_mode"
         private const val KEY_APP_LOCK_ENABLED = "app_lock_enabled"

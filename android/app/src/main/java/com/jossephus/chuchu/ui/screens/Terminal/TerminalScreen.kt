@@ -299,7 +299,7 @@ fun TerminalScreen(
     var terminalFontSizeSp by remember {
         mutableStateOf(terminalPrefs.getFloat("terminal_font_size_sp", 14f).coerceAtLeast(0.1f))
     }
-    var showCustomActionsFab by remember { mutableStateOf(true) }
+    val showCustomActionsFab by settingsRepo.showCustomActionsFab.collectAsStateWithLifecycle()
     val chuchuKeys =
         remember(vm, tabMode) {
             val isStrip = tabMode == TerminalTabMode.Strip
@@ -326,7 +326,7 @@ fun TerminalScreen(
                                 vm.selectConnectionTab(ConnectionTab.Terminal)
                                 showTabSheet = false
                             },
-                        'c' to { showCustomActionsFab = !showCustomActionsFab },
+                        'c' to { settingsRepo.setShowCustomActionsFab(!showCustomActionsFab) },
                         's' to { onOpenSettings() },
                     ),
             )

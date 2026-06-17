@@ -73,6 +73,8 @@ internal fun TerminalSettings(
     onAccessoryBarSingleRowChanged: (Boolean) -> Unit,
     currentTerminalCustomKeyGroups: List<TerminalCustomKeyGroup>,
     onEditCustomActions: () -> Unit,
+    showCustomActionsFab: Boolean,
+    onShowCustomActionsFabChanged: (Boolean) -> Unit,
     currentTabMode: TerminalTabMode = TerminalTabMode.Classic,
     onTabModeChanged: (TerminalTabMode) -> Unit = {},
 ) {
@@ -306,6 +308,28 @@ internal fun TerminalSettings(
                     style = typography.body,
                     color = colors.textSecondary,
                 )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        ChuText("show actions button", style = typography.label)
+                        ChuText(
+                            "toggle visibility of the floating button in terminal",
+                            style = typography.bodySmall,
+                            color = colors.textMuted,
+                        )
+                    }
+                    ChuSwitch(
+                        checked = showCustomActionsFab,
+                        onCheckedChange = onShowCustomActionsFabChanged,
+                    )
+                }
             }
         }
     }
