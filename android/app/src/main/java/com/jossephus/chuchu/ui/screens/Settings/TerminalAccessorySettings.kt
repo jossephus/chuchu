@@ -254,13 +254,15 @@ internal fun TerminalSettings(
                         color = colors.textSecondary,
                     )
                 } else {
+                    val (previewLine1, previewLine2) = TerminalAccessoryLayoutStore.splitIntoTwoRows(selectedItems)
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(colors.surfaceVariant),
                     ) {
                         KeyboardAccessoryBar(
-                            items = selectedItems,
+                            line1Items = previewLine1,
+                            line2Items = previewLine2,
                             modifierState = ModifierState(),
                             onAction = {},
                             useSingleRow = accessoryBarSingleRow,
@@ -566,12 +568,14 @@ private fun PreviewKeyChip(
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
+    val chipWidth = item.width.toDp()
 
     Box(
         modifier = modifier
             .offset { IntOffset(x = dragOffsetPx.roundToInt(), y = 0) }
-            .background(if (dragging) colors.accent.copy(alpha = 0.2f) else colors.surfaceVariant)
-            .padding(horizontal = 10.dp, vertical = 8.dp),
+            .width(chipWidth)
+            .height(30.dp)
+            .background(if (dragging) colors.accent.copy(alpha = 0.2f) else colors.surfaceVariant),
         contentAlignment = Alignment.Center,
     ) {
         ChuText(
