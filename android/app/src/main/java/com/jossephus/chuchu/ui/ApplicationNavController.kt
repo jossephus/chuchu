@@ -99,6 +99,7 @@ fun ApplicationNavController() {
             val requireAuthOnConnect by settingsRepo.requireAuthOnConnect.collectAsStateWithLifecycle()
             val accessoryLayoutIds by settingsRepo.accessoryLayoutIds.collectAsStateWithLifecycle()
             val accessoryBarSingleRow by settingsRepo.accessoryBarSingleRow.collectAsStateWithLifecycle()
+            val compactAccessoryBar by settingsRepo.compactAccessoryBar.collectAsStateWithLifecycle()
             val customKeyGroups by settingsRepo.terminalCustomKeyGroups.collectAsStateWithLifecycle()
             val tabMode by settingsRepo.terminalTabMode.collectAsStateWithLifecycle()
             val themeMode by settingsRepo.themeMode.collectAsStateWithLifecycle()
@@ -110,6 +111,7 @@ fun ApplicationNavController() {
                 requireAuthOnConnect = requireAuthOnConnect,
                 currentAccessoryLayoutIds = accessoryLayoutIds,
                 accessoryBarSingleRow = accessoryBarSingleRow,
+                compactAccessoryBar = compactAccessoryBar,
                 currentTerminalCustomKeyGroups = customKeyGroups,
                 currentTabMode = tabMode,
                 onTabModeChanged = settingsRepo::setTerminalTabMode,
@@ -123,6 +125,7 @@ fun ApplicationNavController() {
                 onRequireAuthOnConnectChanged = settingsRepo::setRequireAuthOnConnect,
                 onAccessoryLayoutChanged = settingsRepo::setAccessoryLayoutIds,
                 onAccessoryBarSingleRowChanged = settingsRepo::setAccessoryBarSingleRow,
+                onCompactAccessoryBarChanged = settingsRepo::setCompactAccessoryBar,
                 onTerminalCustomActionsChanged = settingsRepo::setTerminalCustomKeyGroups,
                 backupViewModel = backupViewModel,
                 onBack = {

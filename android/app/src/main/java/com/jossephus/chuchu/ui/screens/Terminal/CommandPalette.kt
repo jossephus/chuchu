@@ -65,6 +65,7 @@ fun CommandPalette(
     onAccessoryAction: (AccessoryAction) -> Unit,
     chuchuKeyActive: Boolean,
     useSingleRowAccessoryBar: Boolean,
+    compactAccessoryBar: Boolean = false,
     onSelectTab: (String) -> Unit,
     onCloseTab: (String) -> Unit,
     onAddTab: () -> Unit,
@@ -255,6 +256,7 @@ fun CommandPalette(
           onAction = onAccessoryAction,
           chuchuKeyActive = chuchuKeyActive,
           useSingleRow = useSingleRowAccessoryBar,
+          compact = compactAccessoryBar,
           modifier =
               Modifier.align(Alignment.BottomCenter)
                   .windowInsetsPadding(WindowInsets.safeDrawing)

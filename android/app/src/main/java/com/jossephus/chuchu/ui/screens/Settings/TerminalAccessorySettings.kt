@@ -71,6 +71,8 @@ internal fun TerminalSettings(
     onEditAccessoryLayout: () -> Unit,
     accessoryBarSingleRow: Boolean,
     onAccessoryBarSingleRowChanged: (Boolean) -> Unit,
+    compactAccessoryBar: Boolean,
+    onCompactAccessoryBarChanged: (Boolean) -> Unit,
     currentTerminalCustomKeyGroups: List<TerminalCustomKeyGroup>,
     onEditCustomActions: () -> Unit,
     currentTabMode: TerminalTabMode = TerminalTabMode.Classic,
@@ -247,6 +249,28 @@ internal fun TerminalSettings(
                     )
                 }
 
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        ChuText("compact accessory bar", style = typography.label)
+                        ChuText(
+                            "removes button borders and padding for a denser bar",
+                            style = typography.bodySmall,
+                            color = colors.textMuted,
+                        )
+                    }
+                    ChuSwitch(
+                        checked = compactAccessoryBar,
+                        onCheckedChange = onCompactAccessoryBarChanged,
+                    )
+                }
+
                 if (selectedItems.isEmpty()) {
                     ChuText(
                         "choose the accessory keys you want in the terminal bar.",
@@ -266,6 +290,7 @@ internal fun TerminalSettings(
                             modifierState = ModifierState(),
                             onAction = {},
                             useSingleRow = accessoryBarSingleRow,
+                            compact = compactAccessoryBar,
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }

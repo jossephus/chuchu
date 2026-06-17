@@ -273,6 +273,7 @@ fun TerminalScreen(
     val tabMode by settingsRepo.terminalTabMode.collectAsStateWithLifecycle()
     val currentAccessoryLayoutIds by settingsRepo.accessoryLayoutIds.collectAsStateWithLifecycle()
     val useSingleRowAccessoryBar by settingsRepo.accessoryBarSingleRow.collectAsStateWithLifecycle()
+    val useCompactAccessoryBar by settingsRepo.compactAccessoryBar.collectAsStateWithLifecycle()
     val currentTerminalCustomKeyGroups by
         settingsRepo.terminalCustomKeyGroups.collectAsStateWithLifecycle()
 
@@ -1433,6 +1434,9 @@ fun TerminalScreen(
                                     }
                                 }
                             }
+                            if (!useCompactAccessoryBar) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                            }
                             KeyboardAccessoryBar(
                                 line1Items = accessoryLine1,
                                 line2Items = accessoryLine2,
@@ -1440,7 +1444,8 @@ fun TerminalScreen(
                                 onAction = ::dispatchAccessoryAction,
                                 chuchuKeyActive = chuchuKeys.isPrefixActive,
                                 useSingleRow = useSingleRowAccessoryBar,
-                                modifier = Modifier,
+                                compact = useCompactAccessoryBar,
+                                modifier = if (useCompactAccessoryBar) Modifier else Modifier.padding(bottom = 2.dp),
                             )
                         }
                     }
@@ -1538,6 +1543,7 @@ fun TerminalScreen(
                         onAccessoryAction = paletteAccessoryAction,
                         chuchuKeyActive = chuchuKeys.isPrefixActive,
                         useSingleRowAccessoryBar = useSingleRowAccessoryBar,
+                        compactAccessoryBar = useCompactAccessoryBar,
                         onSelectTab = {
                             vm.selectTab(it)
                             showTabSheet = false

@@ -59,12 +59,17 @@ fun KeyboardAccessoryBar(
 	onAction: (AccessoryAction) -> Unit,
 	chuchuKeyActive: Boolean = false,
 	useSingleRow: Boolean = false,
+	compact: Boolean = false,
 	verticalPadding: Dp = 0.dp,
 	modifier: Modifier = Modifier,
 ) {
 	val buttonHeight = 30.dp
-	val buttonPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp)
-	val rowSpacing = 0.dp
+	val buttonPadding = if (compact) {
+		PaddingValues(horizontal = 0.dp, vertical = 2.dp)
+	} else {
+		PaddingValues(start = 10.dp, end = 10.dp, top = 3.dp, bottom = 3.dp)
+	}
+	val rowSpacing = if (compact) 0.dp else 6.dp
 
 	if (useSingleRow) {
 		val allItems = line1Items + line2Items
@@ -87,6 +92,7 @@ fun KeyboardAccessoryBar(
 						modifierState = modifierState,
 						onAction = onAction,
 						chuchuKeyActive = chuchuKeyActive,
+						compact = compact,
 						buttonHeight = buttonHeight,
 						buttonPadding = buttonPadding,
 						modifier = Modifier.width(buttonWidth),
@@ -114,6 +120,7 @@ fun KeyboardAccessoryBar(
 					modifierState = modifierState,
 					onAction = onAction,
 					chuchuKeyActive = chuchuKeyActive,
+					compact = compact,
 					buttonHeight = buttonHeight,
 					buttonPadding = buttonPadding,
 					modifier = Modifier.weight(1f),
@@ -131,6 +138,7 @@ fun KeyboardAccessoryBar(
 					modifierState = modifierState,
 					onAction = onAction,
 					chuchuKeyActive = chuchuKeyActive,
+					compact = compact,
 					buttonHeight = buttonHeight,
 					buttonPadding = buttonPadding,
 					modifier = Modifier.weight(1f),
@@ -146,6 +154,7 @@ private fun AccessoryButton(
 	modifierState: ModifierState,
 	onAction: (AccessoryAction) -> Unit,
 	chuchuKeyActive: Boolean,
+	compact: Boolean,
 	buttonHeight: Dp,
 	buttonPadding: PaddingValues,
 	modifier: Modifier,
@@ -174,6 +183,7 @@ private fun AccessoryButton(
 			label = item.label,
 			enabled = modifierState.isEnabled(toggleModifier),
 			onClick = { onAction(item.action) },
+			compact = compact,
 			modifier = modifier.height(buttonHeight),
 			contentPadding = buttonPadding,
 		)
@@ -183,6 +193,7 @@ private fun AccessoryButton(
 			RepeatableAccessoryButton(
 				item = item,
 				onAction = onAction,
+				compact = compact,
 				buttonHeight = buttonHeight,
 				buttonPadding = buttonPadding,
 				labelStyle = labelStyle,
@@ -191,7 +202,8 @@ private fun AccessoryButton(
 		} else {
 			val variant = when {
 				item.action is AccessoryAction.ChuchuKey && chuchuKeyActive -> ChuButtonVariant.Filled
-				else -> ChuButtonVariant.Ghost
+				compact -> ChuButtonVariant.Ghost
+				else -> ChuButtonVariant.Outlined
 			}
 			ChuButton(
 				onClick = { onAction(item.action) },
@@ -199,7 +211,11 @@ private fun AccessoryButton(
 				modifier = modifier.height(buttonHeight),
 				contentPadding = buttonPadding,
 			) {
-				AccessoryKeyLabel(item.label, style = labelStyle, color = labelColor, modifier = Modifier.fillMaxWidth())
+				if (compact) {
+					AccessoryKeyLabel(item.label, style = labelStyle, color = labelColor, modifier = Modifier.fillMaxWidth())
+				} else {
+					ChuText(item.label, style = labelStyle, color = labelColor)
+				}
 			}
 		}
 	}
@@ -209,6 +225,7 @@ private fun AccessoryButton(
 private fun RepeatableAccessoryButton(
 	item: AccessoryKeyItem,
 	onAction: (AccessoryAction) -> Unit,
+	compact: Boolean,
 	buttonHeight: Dp,
 	buttonPadding: PaddingValues,
 	labelStyle: TextStyle,
@@ -258,12 +275,16 @@ private fun RepeatableAccessoryButton(
 			},
 	) {
 		ChuButtonSurface(
-			modifier = Modifier.matchParentSize(),
+			modifier = if (compact) Modifier.matchParentSize() else Modifier.height(buttonHeight),
 			pressed = pressed,
-			variant = ChuButtonVariant.Ghost,
+			variant = if (compact) ChuButtonVariant.Ghost else ChuButtonVariant.Outlined,
 			contentPadding = buttonPadding,
 		) {
-			AccessoryKeyLabel(item.label, style = labelStyle, color = colors.textPrimary, modifier = Modifier.fillMaxWidth())
+			if (compact) {
+				AccessoryKeyLabel(item.label, style = labelStyle, color = colors.textPrimary, modifier = Modifier.fillMaxWidth())
+			} else {
+				ChuText(item.label, style = labelStyle, color = colors.textPrimary)
+			}
 		}
 	}
 }
@@ -273,6 +294,7 @@ private fun ToggleButton(
 	label: String,
 	enabled: Boolean,
 	onClick: () -> Unit,
+	compact: Boolean,
 	modifier: Modifier,
 	contentPadding: PaddingValues,
 ) {
@@ -282,14 +304,27 @@ private fun ToggleButton(
 		onClick = onClick,
 		modifier = modifier,
 		contentPadding = contentPadding,
-		variant = if (enabled) ChuButtonVariant.Filled else ChuButtonVariant.Ghost,
+		variant = when {
+			enabled -> ChuButtonVariant.Filled
+			compact -> ChuButtonVariant.Ghost
+			else -> ChuButtonVariant.Outlined
+		},
 	) {
-		AccessoryKeyLabel(
-			label,
-			style = typography.label,
-			color = if (enabled) colors.onAccent else colors.textSecondary,
-			modifier = Modifier.fillMaxWidth(),
-		)
+		if (compact) {
+			AccessoryKeyLabel(
+				label,
+				style = typography.label,
+				color = if (enabled) colors.onAccent else colors.textSecondary,
+				modifier = Modifier.fillMaxWidth(),
+			)
+		} else {
+			val displayLabel = if (enabled) "\u2022 $label" else label
+			ChuText(
+				displayLabel,
+				style = typography.label,
+				color = if (enabled) colors.onAccent else colors.textSecondary,
+			)
+		}
 	}
 }
 
