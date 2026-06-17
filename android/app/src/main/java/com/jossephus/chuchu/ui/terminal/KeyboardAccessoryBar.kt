@@ -76,15 +76,39 @@ fun KeyboardAccessoryBar(
 
 	if (useSingleRow) {
 		val allItems = line1Items + line2Items
-		BoxWithConstraints(
-			modifier = modifier
-				.fillMaxWidth()
-				.padding(vertical = verticalPadding),
-		) {
-			val buttonWidth = maxWidth / 8
-			Row(
-				modifier = Modifier
+		if (compact) {
+			BoxWithConstraints(
+				modifier = modifier
 					.fillMaxWidth()
+					.padding(vertical = verticalPadding),
+			) {
+				val buttonWidth = maxWidth / 8
+				Row(
+					modifier = Modifier
+						.fillMaxWidth()
+						.horizontalScroll(rememberScrollState()),
+					horizontalArrangement = Arrangement.spacedBy(rowSpacing),
+					verticalAlignment = Alignment.CenterVertically,
+				) {
+					allItems.forEach { item ->
+						AccessoryButton(
+							item = item,
+							modifierState = modifierState,
+							onAction = onAction,
+							chuchuKeyActive = chuchuKeyActive,
+							compact = compact,
+							buttonHeight = buttonHeight,
+							buttonPadding = buttonPadding,
+							modifier = Modifier.width(buttonWidth),
+						)
+					}
+				}
+			}
+		} else {
+			Row(
+				modifier = modifier
+					.fillMaxWidth()
+					.padding(vertical = verticalPadding)
 					.horizontalScroll(rememberScrollState()),
 				horizontalArrangement = Arrangement.spacedBy(rowSpacing),
 				verticalAlignment = Alignment.CenterVertically,
@@ -98,7 +122,7 @@ fun KeyboardAccessoryBar(
 						compact = compact,
 						buttonHeight = buttonHeight,
 						buttonPadding = buttonPadding,
-						modifier = Modifier.width(buttonWidth),
+						modifier = Modifier,
 					)
 				}
 			}
