@@ -343,7 +343,7 @@ internal fun TerminalSettings(
             ) {
                 ChuText("builtin shortcuts", style = typography.label)
                 ChuText(
-                    "assign shortcut keys for builtin commands. empty key hides the command. builtin shortcuts override custom action shortcuts.",
+                    "assign shortcut keys for builtin commands. empty key hides the command. overrides custom action shortcut keys.",
                     style = typography.body,
                     color = colors.textSecondary,
                 )
