@@ -106,6 +106,16 @@ internal fun TerminalCustomActionsEditorSheet(
         onSave(TerminalCustomActionStore.normalize(draftItemsToGroups(items)))
     }
 
+    fun cancelEdit() {
+        showAddRow = false
+        keyInput = ""
+        valueInput = ""
+        shortcutInput = ""
+        enabledModifiers = emptySet()
+        showModifierDropdown = false
+        editingIndex = null
+    }
+
     fun moveDraftItem(fromIndex: Int, direction: Int): Boolean {
         if (fromIndex !in draftItems.indices) return false
         val toIndex = (fromIndex + direction).coerceIn(0, draftItems.lastIndex)
@@ -234,13 +244,7 @@ internal fun TerminalCustomActionsEditorSheet(
                                 dragOffsetPx = if (isDragging) dragOffsetPx else 0f,
                                 onEdit = {
                                     if (editingIndex == index) {
-                                        editingIndex = null
-                                        showAddRow = false
-                                        keyInput = ""
-                                        valueInput = ""
-                                        shortcutInput = ""
-                                        enabledModifiers = emptySet()
-                                        showModifierDropdown = false
+                                        cancelEdit()
                                     } else {
                                         keyInput = item.key
                                         val decoded = decodeCustomActionValue(item.value)
@@ -419,15 +423,7 @@ internal fun TerminalCustomActionsEditorSheet(
                                     ChuText(if (editingIndex != null) "save" else "add", style = typography.label)
                                 }
                                 ChuButton(
-                                    onClick = {
-                                        showAddRow = false
-                                        keyInput = ""
-                                        valueInput = ""
-                                        shortcutInput = ""
-                                        enabledModifiers = emptySet()
-                                        showModifierDropdown = false
-                                        editingIndex = null
-                                    },
+                                    onClick = { cancelEdit() },
                                     variant = ChuButtonVariant.Ghost,
                                     bracketed = true,
                                     borderColor = colors.textMuted,
