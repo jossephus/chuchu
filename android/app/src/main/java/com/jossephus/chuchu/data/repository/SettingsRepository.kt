@@ -2,6 +2,7 @@ package com.jossephus.chuchu.data.repository
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.jossephus.chuchu.ui.screens.Terminal.TerminalTabMode
 import com.jossephus.chuchu.ui.terminal.TerminalAccessoryLayoutStore
 import com.jossephus.chuchu.ui.theme.ChuFontOption
 import com.jossephus.chuchu.ui.theme.ThemeMode
@@ -39,7 +40,15 @@ class SettingsRepository(context: Context) {
     private val _requireAuthOnConnect = MutableStateFlow(prefs.getBoolean(KEY_REQUIRE_AUTH_ON_CONNECT, false))
     val requireAuthOnConnect: StateFlow<Boolean> = _requireAuthOnConnect.asStateFlow()
 
-    private val _themeMode = MutableStateFlow(parseThemeMode(prefs.getString(KEY_THEME_MODE, ThemeMode.Dark.name)))
+    private val _localShellEnabled = MutableStateFlow(prefs.getBoolean(KEY_LOCAL_SHELL_ENABLED, false))
+    val localShellEnabled: StateFlow<Boolean> = _localShellEnabled.asStateFlow()
+
+    private val _terminalTabMode = MutableStateFlow(
+        parseTabMode(prefs.getString(KEY_TAB_MODE, TerminalTabMode.Classic.name)),
+    )
+    val terminalTabMode: StateFlow<TerminalTabMode> = _terminalTabMode.asStateFlow()
+
+    private val _themeMode = MutableStateFlow(parseThemeMode(prefs.getString(KEY_THEME_MODE, DEFAULT_THEME_MODE.name)))
     val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
 
     private val _lightThemeName = MutableStateFlow(
@@ -76,6 +85,11 @@ class SettingsRepository(context: Context) {
         _accessoryBarSingleRow.value = enabled
     }
 
+    fun setTerminalTabMode(mode: TerminalTabMode) {
+        prefs.edit().putString(KEY_TAB_MODE, mode.name).apply()
+        _terminalTabMode.value = mode
+    }
+
     fun setAppLockEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_APP_LOCK_ENABLED, enabled).apply()
         _appLockEnabled.value = enabled
@@ -84,6 +98,11 @@ class SettingsRepository(context: Context) {
     fun setRequireAuthOnConnect(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_REQUIRE_AUTH_ON_CONNECT, enabled).apply()
         _requireAuthOnConnect.value = enabled
+    }
+
+    fun setLocalShellEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_LOCAL_SHELL_ENABLED, enabled).apply()
+        _localShellEnabled.value = enabled
     }
 
     fun setThemeMode(mode: ThemeMode) {
@@ -118,12 +137,15 @@ class SettingsRepository(context: Context) {
         private const val KEY_ACCESSORY_LAYOUT = "terminal_accessory_layout"
         private const val KEY_TERMINAL_CUSTOM_ACTIONS = "terminal_custom_actions"
         private const val KEY_ACCESSORY_BAR_SINGLE_ROW = "terminal_accessory_bar_single_row"
+        private const val KEY_TAB_MODE = "terminal_tab_mode"
         private const val KEY_APP_LOCK_ENABLED = "app_lock_enabled"
         private const val KEY_REQUIRE_AUTH_ON_CONNECT = "require_auth_on_connect"
+        private const val KEY_LOCAL_SHELL_ENABLED = "local_shell_enabled"
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_LIGHT_THEME = "light_theme_name"
         const val DEFAULT_THEME = "Catppuccin Mocha"
         const val DEFAULT_LIGHT_THEME = "Catppuccin Latte"
+        val DEFAULT_THEME_MODE = ThemeMode.System
         const val DEFAULT_FONT = "jetbrains_mono"
 
         @Volatile
@@ -136,6 +158,13 @@ class SettingsRepository(context: Context) {
         }
 
         private fun parseThemeMode(value: String?): ThemeMode =
-            ThemeMode.entries.find { it.name == value } ?: ThemeMode.Dark
+            ThemeMode.entries.find { it.name == value } ?: DEFAULT_THEME_MODE
+
+        private fun parseTabMode(value: String?): TerminalTabMode =
+            try {
+                TerminalTabMode.valueOf(value ?: TerminalTabMode.Classic.name)
+            } catch (_: IllegalArgumentException) {
+                TerminalTabMode.Classic
+            }
     }
 }

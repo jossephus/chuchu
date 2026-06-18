@@ -6,11 +6,12 @@ import com.jossephus.chuchu.data.backup.BackupPayload
 import com.jossephus.chuchu.data.backup.BackupSshKey
 import com.jossephus.chuchu.data.backup.InvalidBackupPassphraseException
 import com.jossephus.chuchu.model.AuthMethod
+import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.Transport
 
 object ChuchuBackupCodec {
     const val FORMAT_VERSION: Int = 1
-    const val PAYLOAD_VERSION: Int = 1
+    const val PAYLOAD_VERSION: Int = 2
     const val KDF_ID_PBKDF2_HMAC_SHA1: Int = 1
     const val CIPHER_ID_AES_256_GCM: Int = 1
     const val KDF_ITERATIONS: Int = 210_000
@@ -102,6 +103,7 @@ object ChuchuBackupCodec {
             writeStringField(host.authMethod.name, "auth method")
             writer.writeBoolean(host.requireAuthOnConnect)
             writeNullableStringField(host.postConnectCommand, "post-connect command")
+            writeNullableStringField(host.multiplexer?.id, "multiplexer")
         }
 
         val encoded = writer.toByteArray()
@@ -126,9 +128,14 @@ object ChuchuBackupCodec {
             return values.firstOrNull { it.name == value } ?: throw BackupFormatException("Unknown $label")
         }
 
+        fun readNullableMultiplexerField(label: String): MultiplexerType? {
+            val value = readNullableStringField(label) ?: return null
+            return MultiplexerType.fromPersistedValue(value) ?: throw BackupFormatException("Unknown $label")
+        }
+
         if (reader.readInt() != PAYLOAD_MAGIC) throw BackupFormatException("Invalid backup payload")
         val version = reader.readInt()
-        if (version != PAYLOAD_VERSION) throw BackupFormatException("Unsupported backup payload version")
+        if (version !in 1..PAYLOAD_VERSION) throw BackupFormatException("Unsupported backup payload version")
 
         val keyCount = reader.readPositiveInt("key count")
         validateItemCount(keyCount, "key count")
@@ -177,6 +184,11 @@ object ChuchuBackupCodec {
                         authMethod = readEnumField("auth method", enumValues<AuthMethod>()),
                         requireAuthOnConnect = reader.readBoolean(),
                         postConnectCommand = readNullableStringField("post-connect command"),
+                        multiplexer = if (version >= 2) {
+                            readNullableMultiplexerField("multiplexer")
+                        } else {
+                            null
+                        },
                     ),
                 )
             }

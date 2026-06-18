@@ -22,6 +22,8 @@ fun ChuSwitch(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    interactive: Boolean = true,
 ) {
     val colors = ChuColors.current
     val interactionSource = remember { MutableInteractionSource() }
@@ -34,8 +36,9 @@ fun ChuSwitch(
             .size(width = 36.dp, height = 18.dp)
             .background(trackColor)
             .border(1.dp, colors.border)
-            .alpha(1f)
+            .alpha(if (enabled) 1f else 0.5f)
             .clickable(
+                enabled = enabled && interactive,
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = { onCheckedChange(!checked) },

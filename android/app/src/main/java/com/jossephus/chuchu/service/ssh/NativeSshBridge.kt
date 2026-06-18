@@ -51,6 +51,16 @@ class NativeSshBridge {
 
     external fun nativeOpenExec(handle: Long, command: String): Boolean
 
+    external fun nativeOpenExecPty(
+        handle: Long,
+        command: String,
+        cols: Int,
+        rows: Int,
+        widthPx: Int,
+        heightPx: Int,
+        term: String,
+    ): Boolean
+
     external fun nativeChannelEof(handle: Long): Boolean
 
     external fun nativeResize(

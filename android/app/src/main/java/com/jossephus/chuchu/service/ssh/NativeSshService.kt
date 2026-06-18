@@ -210,6 +210,15 @@ class NativeSshService(
         return bridge.nativeOpenExec(handle, command)
     }
 
+    fun openExecPty(command: String, cols: Int, rows: Int, widthPx: Int, heightPx: Int) {
+        check(handle != 0L) { "Not connected" }
+        if (!bridge.nativeOpenExecPty(handle, command, cols, rows, widthPx, heightPx, "xterm-ghostty")) {
+            throw IllegalStateException(
+                bridge.nativeGetLastError(handle) ?: "Native SSH exec PTY open failed"
+            )
+        }
+    }
+
     fun isChannelEof(): Boolean {
         if (handle == 0L) return true
         return bridge.nativeChannelEof(handle)

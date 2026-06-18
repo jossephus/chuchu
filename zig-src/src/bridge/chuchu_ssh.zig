@@ -35,6 +35,9 @@ fn logError(comptime fmt: []const u8, args: anytype) void {
 }
 const setup_wait_timeout_ms = 10_000;
 const io_wait_timeout_ms = 120;
+// SFTP servers may make progress between short 120ms socket waits; use a
+// longer idle cap before failing directory listing/realpath as truly stalled.
+const sftp_idle_limit_ms: i64 = 15_000;
 
 const NativeSshSession = struct {
     socket_fd: c_int = -1,
@@ -78,6 +81,45 @@ fn setLibssh2Error(session: *NativeSshSession, prefix: []const u8, rc: c_int) vo
     } else {
         setError(session, "{s}: rc={}", .{ prefix, rc });
     }
+}
+
+fn sftpStatusName(code: c_ulong) []const u8 {
+    return switch (code) {
+        c.LIBSSH2_FX_OK => "ok",
+        c.LIBSSH2_FX_EOF => "eof",
+        c.LIBSSH2_FX_NO_SUCH_FILE => "no such file",
+        c.LIBSSH2_FX_PERMISSION_DENIED => "permission denied",
+        c.LIBSSH2_FX_FAILURE => "failure",
+        c.LIBSSH2_FX_BAD_MESSAGE => "bad message",
+        c.LIBSSH2_FX_NO_CONNECTION => "no connection",
+        c.LIBSSH2_FX_CONNECTION_LOST => "connection lost",
+        c.LIBSSH2_FX_OP_UNSUPPORTED => "operation unsupported",
+        c.LIBSSH2_FX_INVALID_HANDLE => "invalid handle",
+        c.LIBSSH2_FX_NO_SUCH_PATH => "no such path",
+        c.LIBSSH2_FX_FILE_ALREADY_EXISTS => "file already exists",
+        c.LIBSSH2_FX_WRITE_PROTECT => "write protected",
+        c.LIBSSH2_FX_NO_MEDIA => "no media",
+        c.LIBSSH2_FX_NO_SPACE_ON_FILESYSTEM => "no space on filesystem",
+        c.LIBSSH2_FX_QUOTA_EXCEEDED => "quota exceeded",
+        c.LIBSSH2_FX_UNKNOWN_PRINCIPAL => "unknown principal",
+        c.LIBSSH2_FX_LOCK_CONFLICT => "lock conflict",
+        c.LIBSSH2_FX_DIR_NOT_EMPTY => "directory not empty",
+        c.LIBSSH2_FX_NOT_A_DIRECTORY => "not a directory",
+        c.LIBSSH2_FX_INVALID_FILENAME => "invalid filename",
+        c.LIBSSH2_FX_LINK_LOOP => "link loop",
+        else => "unknown status",
+    };
+}
+
+fn setSftpError(session: *NativeSshSession, sftp: *c.LIBSSH2_SFTP, prefix: []const u8, rc: c_int) void {
+    var errmsg_ptr: [*c]const u8 = null;
+    var errmsg_len: c_int = 0;
+    if (session.session) |ssh_session| {
+        _ = c.libssh2_session_last_error(ssh_session, @ptrCast(&errmsg_ptr), &errmsg_len, 0);
+    }
+    const status = c.libssh2_sftp_last_error(sftp);
+    const detail = if (errmsg_ptr != null and errmsg_len > 0) errmsg_ptr[0..@intCast(errmsg_len)] else "libssh2 SFTP error";
+    setError(session, "{s}: {s} (SFTP status {d}: {s}, rc={d})", .{ prefix, detail, status, sftpStatusName(status), rc });
 }
 
 fn closeSocket(fd: c_int) void {
@@ -154,11 +196,12 @@ fn nowMs() i64 {
 
 fn destroyNativeSshSession(session: *NativeSshSession) void {
     if (session.upload_handle) |uh| {
-        _ = c.libssh2_sftp_close_handle(uh);
+        _ = closeSftpHandle(session, uh, "destroy upload handle");
         session.upload_handle = null;
     }
     if (session.sftp) |sftp| {
-        _ = c.libssh2_sftp_shutdown(sftp);
+        _ = shutdownSftp(session, sftp, "destroy session");
+        session.sftp = null;
     }
     if (session.channel) |channel| {
         _ = c.libssh2_channel_close(channel);
@@ -199,18 +242,122 @@ fn ensureSftp(session: *NativeSshSession) ?*c.LIBSSH2_SFTP {
     }
 }
 
+/// Result of waiting for the SFTP socket after a libssh2 EAGAIN.
+const SftpProgress = enum {
+    /// Socket signalled activity, or we are still inside the idle budget; retry.
+    retry,
+    /// No progress for longer than sftp_idle_limit_ms; the peer is stalled.
+    stalled,
+    /// No socket to wait on (session torn down mid-operation).
+    no_socket,
+};
+
+/// Block briefly on the SFTP socket after an EAGAIN and decide whether the
+/// caller should retry. `idle_since_ms` is reset whenever the socket signals
+/// activity so the idle budget only measures genuinely silent periods.
+fn awaitSftpProgress(session: *NativeSshSession, idle_since_ms: *i64) SftpProgress {
+    if (session.session == null or session.socket_fd < 0) return .no_socket;
+    if (waitSocket(session, io_wait_timeout_ms)) {
+        idle_since_ms.* = nowMs();
+        return .retry;
+    }
+    if (nowMs() - idle_since_ms.* > sftp_idle_limit_ms) return .stalled;
+    return .retry;
+}
+
+fn shutdownSftp(session: *NativeSshSession, sftp: *c.LIBSSH2_SFTP, reason: []const u8) bool {
+    var idle_since_ms = nowMs();
+    while (true) {
+        const rc = c.libssh2_sftp_shutdown(sftp);
+        if (rc == 0) return true;
+        if (rc != c.LIBSSH2_ERROR_EAGAIN) {
+            logInfo("SFTP shutdown ended during {s} rc={}", .{ reason, rc });
+            return true;
+        }
+        switch (awaitSftpProgress(session, &idle_since_ms)) {
+            .retry => {},
+            .no_socket => {
+                setError(session, "SFTP shutdown would block during {s} without an active socket", .{reason});
+                return false;
+            },
+            .stalled => {
+                const idle_ms = nowMs() - idle_since_ms;
+                setError(session, "SFTP shutdown stalled during {s} (idle {d}ms)", .{ reason, idle_ms });
+                logError("SFTP shutdown stalled during {s} idle={}ms", .{ reason, idle_ms });
+                return false;
+            },
+        }
+    }
+}
+
+fn closeSftpHandle(session: *NativeSshSession, handle: *c.LIBSSH2_SFTP_HANDLE, reason: []const u8) bool {
+    var idle_since_ms = nowMs();
+    while (true) {
+        const rc = c.libssh2_sftp_close_handle(handle);
+        if (rc == 0) return true;
+        if (rc != c.LIBSSH2_ERROR_EAGAIN) {
+            setLibssh2Error(session, reason, @intCast(rc));
+            return false;
+        }
+        switch (awaitSftpProgress(session, &idle_since_ms)) {
+            .retry => {},
+            .no_socket => {
+                setError(session, "{s} would block without an active socket", .{reason});
+                return false;
+            },
+            .stalled => {
+                const idle_ms = nowMs() - idle_since_ms;
+                setError(session, "{s} stalled (idle {d}ms)", .{ reason, idle_ms });
+                logError("{s} stalled idle={}ms", .{ reason, idle_ms });
+                return false;
+            },
+        }
+    }
+}
+
+fn resetSftpAfterFailure(session: *NativeSshSession, reason: []const u8) void {
+    if (session.sftp == null) return;
+    if (session.upload_handle != null) {
+        logError("Skipping SFTP reset after {s}: upload active", .{reason});
+        return;
+    }
+    logError("Resetting SFTP subsystem after {s}", .{reason});
+    if (session.sftp) |sftp| {
+        if (shutdownSftp(session, sftp, reason)) {
+            session.sftp = null;
+        }
+    }
+}
+
 fn sftpOpenDir(session: *NativeSshSession, sftp: *c.LIBSSH2_SFTP, path_z: [:0]u8) ?*c.LIBSSH2_SFTP_HANDLE {
+    const started_ms = nowMs();
+    var idle_since_ms = started_ms;
+    var eagain_count: u32 = 0;
     while (true) {
         const dir = c.libssh2_sftp_opendir(sftp, path_z.ptr);
         if (dir != null) return dir;
         const rc = c.libssh2_session_last_errno(session.session.?);
         if (rc != c.LIBSSH2_ERROR_EAGAIN) {
-            setLibssh2Error(session, "SFTP opendir failed", rc);
+            setSftpError(session, sftp, "SFTP opendir failed", rc);
             return null;
         }
-        if (!waitSocket(session, io_wait_timeout_ms)) {
-            setError(session, "SFTP opendir timed out", .{});
-            return null;
+
+        eagain_count +%= 1;
+        switch (awaitSftpProgress(session, &idle_since_ms)) {
+            .retry => {},
+            .no_socket, .stalled => {
+                const now = nowMs();
+                setError(
+                    session,
+                    "SFTP opendir timed out for {s} after {d}ms (idle {d}ms, EAGAIN={d})",
+                    .{ path_z, now - started_ms, now - idle_since_ms, eagain_count },
+                );
+                logError(
+                    "SFTP opendir timeout path={s} elapsed={}ms idle={}ms eagain={}",
+                    .{ path_z, now - started_ms, now - idle_since_ms, eagain_count },
+                );
+                return null;
+            },
         }
     }
 }
@@ -864,6 +1011,86 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeOpenExec(e
     return c.JNI_TRUE;
 }
 
+export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeOpenExecPty(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, command: c.jstring, cols: c.jint, rows: c.jint, width_px: c.jint, height_px: c.jint, term: c.jstring) callconv(.c) c.jboolean {
+    _ = thiz;
+    const session = sessionFromHandle(handle) orelse return c.JNI_FALSE;
+    const ssh_session = session.session orelse {
+        setError(session, "Not connected", .{});
+        return c.JNI_FALSE;
+    };
+    const command_slice = jniDupString(env, command) orelse {
+        setError(session, "Missing exec command", .{});
+        return c.JNI_FALSE;
+    };
+    defer allocator.free(command_slice);
+    const term_slice = jniDupString(env, term) orelse {
+        setError(session, "Missing TERM", .{});
+        return c.JNI_FALSE;
+    };
+    defer allocator.free(term_slice);
+
+    var channel: ?*c.LIBSSH2_CHANNEL = null;
+    while (channel == null) {
+        channel = c.libssh2_channel_open_ex(ssh_session, "session", 7, c.LIBSSH2_CHANNEL_WINDOW_DEFAULT, c.LIBSSH2_CHANNEL_PACKET_DEFAULT, null, 0);
+        if (channel != null) break;
+        const open_rc = c.libssh2_session_last_errno(ssh_session);
+        if (open_rc != c.LIBSSH2_ERROR_EAGAIN) {
+            setLibssh2Error(session, "Channel open failed", open_rc);
+            return c.JNI_FALSE;
+        }
+        if (!waitSocket(session, setup_wait_timeout_ms)) {
+            setError(session, "Channel open timed out", .{});
+            return c.JNI_FALSE;
+        }
+    }
+    if (session.channel) |old_ch| {
+        _ = c.libssh2_channel_close(old_ch);
+        _ = c.libssh2_channel_free(old_ch);
+    }
+    session.channel = channel;
+    c.libssh2_channel_set_blocking(channel.?, 0);
+
+    var term_buf = allocator.allocSentinel(u8, term_slice.len, 0) catch {
+        setError(session, "TERM alloc failed", .{});
+        return c.JNI_FALSE;
+    };
+    defer allocator.free(term_buf);
+    @memcpy(term_buf[0..term_slice.len], term_slice);
+
+    while (true) {
+        const pty_rc = c.libssh2_channel_request_pty_ex(channel.?, term_buf.ptr, @intCast(term_slice.len), null, 0, cols, rows, width_px, height_px);
+        if (pty_rc == 0) break;
+        if (pty_rc != c.LIBSSH2_ERROR_EAGAIN) {
+            setLibssh2Error(session, "PTY request failed", pty_rc);
+            return c.JNI_FALSE;
+        }
+        if (!waitSocket(session, setup_wait_timeout_ms)) {
+            setError(session, "PTY request timed out", .{});
+            return c.JNI_FALSE;
+        }
+    }
+    trySetChannelEnv(session, channel.?, "COLORTERM", "truecolor");
+    trySetChannelEnv(session, channel.?, "TERM_PROGRAM", "ghostty");
+    trySetChannelEnv(session, channel.?, "TERM_PROGRAM_VERSION", "1");
+
+    while (true) {
+        const startup_rc = c.libssh2_channel_process_startup(channel.?, "exec", 4, command_slice.ptr, @intCast(command_slice.len));
+        if (startup_rc == 0) break;
+        if (startup_rc != c.LIBSSH2_ERROR_EAGAIN) {
+            setLibssh2Error(session, "Exec start failed", startup_rc);
+            return c.JNI_FALSE;
+        }
+        if (!waitSocket(session, setup_wait_timeout_ms)) {
+            setError(session, "Exec start timed out", .{});
+            return c.JNI_FALSE;
+        }
+    }
+    setSocketNonBlocking(session.socket_fd);
+    c.libssh2_session_set_blocking(ssh_session, 0);
+    c.libssh2_channel_set_blocking(channel.?, 0);
+    return c.JNI_TRUE;
+}
+
 export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeChannelEof(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong) callconv(.c) c.jboolean {
     _ = env;
     _ = thiz;
@@ -947,6 +1174,17 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeClose(env:
     _ = env;
     _ = thiz;
     const session = sessionFromHandle(handle) orelse return;
+    // Best-effort SFTP teardown: even if it stalls (e.g. the peer is gone), we
+    // must still free the channel, session, and socket below. libssh2_session_free
+    // releases any remaining SFTP state, so a stalled shutdown is not fatal here.
+    if (session.upload_handle) |upload_handle| {
+        _ = closeSftpHandle(session, upload_handle, "native close upload handle");
+        session.upload_handle = null;
+    }
+    if (session.sftp) |sftp| {
+        _ = shutdownSftp(session, sftp, "native close");
+        session.sftp = null;
+    }
     if (session.channel) |channel| {
         _ = c.libssh2_channel_close(channel);
         _ = c.libssh2_channel_free(channel);
@@ -977,8 +1215,10 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeSftpListDi
     const path_z = dupSentinel(path_bytes) orelse return null;
     defer allocator.free(path_z);
 
-    const dir = sftpOpenDir(session, sftp, path_z) orelse return null;
-    defer _ = c.libssh2_sftp_closedir(dir);
+    const dir = sftpOpenDir(session, sftp, path_z) orelse {
+        resetSftpAfterFailure(session, "opendir failure");
+        return null;
+    };
 
     var names: std.ArrayList([]u8) = .empty;
     defer {
@@ -988,6 +1228,10 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeSftpListDi
 
     var entry_buf: [1024]u8 = undefined;
     var attrs: c.LIBSSH2_SFTP_ATTRIBUTES = undefined;
+    const started_ms = nowMs();
+    var idle_since_ms = started_ms;
+    var eagain_count: u32 = 0;
+    var read_failed = false;
     while (true) {
         const rc = c.libssh2_sftp_readdir_ex(dir, &entry_buf, @intCast(entry_buf.len), null, 0, &attrs);
         if (rc > 0) {
@@ -1006,20 +1250,56 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeSftpListDi
             const size: u64 = if ((attrs.flags & c.LIBSSH2_SFTP_ATTR_SIZE) != 0) @intCast(attrs.filesize) else 0;
             const mtime: u64 = if ((attrs.flags & c.LIBSSH2_SFTP_ATTR_ACMODTIME) != 0) @intCast(attrs.mtime) else 0;
             const perms: u64 = if ((attrs.flags & c.LIBSSH2_SFTP_ATTR_PERMISSIONS) != 0) @intCast(attrs.permissions) else 0;
-            const line = std.fmt.allocPrint(allocator, "{s}\t{s}\t{}\t{}\t{}", .{ name, kind, size, mtime, perms }) catch break;
+            const line = std.fmt.allocPrint(allocator, "{s}\t{s}\t{}\t{}\t{}", .{ name, kind, size, mtime, perms }) catch {
+                setError(session, "SFTP list allocation failed after {} entries", .{names.items.len});
+                read_failed = true;
+                break;
+            };
             const copy = line;
             names.append(allocator, copy) catch {
                 allocator.free(copy);
+                setError(session, "SFTP list allocation failed after {} entries", .{names.items.len});
+                read_failed = true;
                 break;
             };
+            idle_since_ms = nowMs();
             continue;
         }
         if (rc == 0) break;
         if (rc == c.LIBSSH2_ERROR_EAGAIN) {
-            if (!waitSocket(session, io_wait_timeout_ms)) break;
-            continue;
+            eagain_count +%= 1;
+            switch (awaitSftpProgress(session, &idle_since_ms)) {
+                .retry => continue,
+                .no_socket, .stalled => {
+                    const now = nowMs();
+                    setError(
+                        session,
+                        "SFTP readdir timed out for {s} after {d}ms (idle {d}ms, EAGAIN={d}, entries={d})",
+                        .{ path_z, now - started_ms, now - idle_since_ms, eagain_count, names.items.len },
+                    );
+                    logError(
+                        "SFTP readdir timeout path={s} elapsed={}ms idle={}ms eagain={} entries={}",
+                        .{ path_z, now - started_ms, now - idle_since_ms, eagain_count, names.items.len },
+                    );
+                    read_failed = true;
+                    break;
+                },
+            }
         }
+        setSftpError(session, sftp, "SFTP readdir failed", @intCast(rc));
+        read_failed = true;
         break;
+    }
+
+    if (read_failed) {
+        _ = closeSftpHandle(session, dir, "SFTP closedir after readdir failure");
+        resetSftpAfterFailure(session, "readdir failure");
+        return null;
+    }
+
+    if (!closeSftpHandle(session, dir, "SFTP closedir after list")) {
+        resetSftpAfterFailure(session, "closedir failure");
+        return null;
     }
 
     const string_class = env.*.*.FindClass.?(env, "java/lang/String") orelse return null;
@@ -1041,12 +1321,37 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeSftpRealpa
     defer allocator.free(path_z);
 
     var out_buf: [2048]u8 = undefined;
-    const rc = c.libssh2_sftp_realpath(sftp, path_z.ptr, &out_buf, @as(c_int, @intCast(out_buf.len)));
-    if (rc <= 0) {
-        setLibssh2Error(session, "SFTP realpath failed", c.libssh2_session_last_errno(session.session.?));
-        return null;
+    const started_ms = nowMs();
+    var idle_since_ms = started_ms;
+    var eagain_count: u32 = 0;
+    while (true) {
+        const rc = c.libssh2_sftp_realpath(sftp, path_z.ptr, &out_buf, @as(c_int, @intCast(out_buf.len)));
+        if (rc > 0) return jniNewStringOrNull(env, out_buf[0..@intCast(rc)]);
+        const last_rc = c.libssh2_session_last_errno(session.session.?);
+        if (last_rc != c.LIBSSH2_ERROR_EAGAIN) {
+            setSftpError(session, sftp, "SFTP realpath failed", last_rc);
+            return null;
+        }
+
+        eagain_count +%= 1;
+        switch (awaitSftpProgress(session, &idle_since_ms)) {
+            .retry => {},
+            .no_socket, .stalled => {
+                const now = nowMs();
+                setError(
+                    session,
+                    "SFTP realpath timed out for {s} after {d}ms (idle {d}ms, EAGAIN={d})",
+                    .{ path_z, now - started_ms, now - idle_since_ms, eagain_count },
+                );
+                logError(
+                    "SFTP realpath timeout path={s} elapsed={}ms idle={}ms eagain={}",
+                    .{ path_z, now - started_ms, now - idle_since_ms, eagain_count },
+                );
+                resetSftpAfterFailure(session, "realpath timeout");
+                return null;
+            },
+        }
     }
-    return jniNewStringOrNull(env, out_buf[0..@intCast(rc)]);
 }
 
 export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeSftpOpenWrite(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, path: c.jstring) callconv(.c) c.jboolean {

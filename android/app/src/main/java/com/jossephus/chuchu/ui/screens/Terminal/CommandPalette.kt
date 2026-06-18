@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -28,14 +29,18 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
+import kotlinx.coroutines.flow.map
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerSession
 import com.jossephus.chuchu.service.terminal.TabSession
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
@@ -66,13 +71,21 @@ fun CommandPalette(
     onCloseTab: (String) -> Unit,
     onAddTab: () -> Unit,
     onDismiss: () -> Unit,
+    // Multiplexer section parameters (optional, scoped to current host)
+    multiplexerSessions: List<RemoteMultiplexerSession> = emptyList(),
+    multiplexerSessionsLoading: Boolean = false,
+    multiplexerSessionsError: String? = null,
+    multiplexerEnabled: Boolean = false,
+    onMultiplexerRefresh: () -> Unit = {},
+    onMultiplexerNew: () -> Unit = {},
+    onMultiplexerAttach: (String) -> Unit = {},
 ) {
   val colors = ChuColors.current
   val typography = ChuTypography.current
   val context = LocalContext.current
   val view = LocalView.current
   val keyboardController = LocalSoftwareKeyboardController.current
-  val entries = remember(tabs) { tabs.map { it to tabAlias(it) } }
+  val entries = remember(tabs) { tabs.map { it to terminalTabDisplayLabel(it) } }
   val maxIndex = (entries.size - 1).coerceAtLeast(0)
   LaunchedEffect(entries.size) { onFocusedTabIndexChange(focusedTabIndex.coerceIn(0, maxIndex)) }
   LaunchedEffect(activeTabId, entries) {
@@ -123,8 +136,10 @@ fun CommandPalette(
               val (tab, alias) = entries[idx]
               val isActive = tab.id == activeTabId
               val isFocused = idx == focusedTabIndex
-              val state = tab.sessionState.value
-              val displayLabel = state.title?.takeIf { it.isNotBlank() } ?: alias
+              val title by remember(tab) {
+                  tab.sessionState.map { it.title?.takeIf(String::isNotBlank) }
+              }.collectAsStateWithLifecycle(initialValue = null)
+              val displayLabel = title ?: alias
               Row(
                   modifier =
                       Modifier.fillMaxWidth()
@@ -169,34 +184,39 @@ fun CommandPalette(
             }
           }
         }
-        val focusedSnapshot =
-            entries.getOrNull(focusedTabIndex)?.first?.sessionState?.value?.snapshot
-        if (focusedSnapshot != null) {
-          Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(colors.border))
-          Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
-            Box(
-                modifier =
-                    Modifier.fillMaxWidth(0.68f)
-                        .height(104.dp)
-                        .background(colors.background.copy(alpha = 0.86f))
-                        .border(1.dp, colors.border.copy(alpha = 0.8f))
-                        .align(Alignment.Center)
-            ) {
-              TerminalCanvas(
-                  snapshot = focusedSnapshot,
-                  fontSizeSp = 10.5f,
-                  fitSnapshotToCanvas = true,
-                  enableGestures = false,
-                  cursorColor = Color.Transparent,
-                  selectionBackgroundColor = Color.Transparent,
-                  selectionForegroundColor = Color.Transparent,
-                  onTap = {},
-                  onPrimaryClick = { _, _ -> },
-                  onScroll = { _, _, _ -> },
-                  onZoom = {},
-                  onSelectionChanged = { _, _, _, _ -> },
-                  modifier = Modifier.fillMaxSize(),
-              )
+        val focusedTab = entries.getOrNull(focusedTabIndex)?.first
+        if (focusedTab != null) {
+          val focusedSnapshot by remember(focusedTab) {
+              focusedTab.sessionState.map { it.snapshot }
+          }.collectAsStateWithLifecycle(initialValue = null)
+          val snapshot = focusedSnapshot
+          if (snapshot != null) {
+            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(colors.border))
+            Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+              Box(
+                  modifier =
+                      Modifier.fillMaxWidth(0.68f)
+                          .height(104.dp)
+                          .background(colors.background.copy(alpha = 0.86f))
+                          .border(1.dp, colors.border.copy(alpha = 0.8f))
+                          .align(Alignment.Center)
+              ) {
+                TerminalCanvas(
+                    snapshot = snapshot,
+                    fontSizeSp = 10.5f,
+                    fitSnapshotToCanvas = true,
+                    enableGestures = false,
+                    cursorColor = Color.Transparent,
+                    selectionBackgroundColor = Color.Transparent,
+                    selectionForegroundColor = Color.Transparent,
+                    onTap = {},
+                    onPrimaryClick = { _, _ -> },
+                    onScroll = { _, _, _ -> },
+                    onZoom = {},
+                    onSelectionChanged = { _, _, _, _ -> },
+                    modifier = Modifier.fillMaxSize(),
+                )
+              }
             }
           }
         }
@@ -218,6 +238,17 @@ fun CommandPalette(
             ChuText("+ new", style = typography.labelSmall, color = colors.accent)
           }
         }
+        if (multiplexerEnabled) {
+          MultiplexerSessionPanel(
+              sessions = multiplexerSessions,
+              loading = multiplexerSessionsLoading,
+              error = multiplexerSessionsError,
+              onRefresh = onMultiplexerRefresh,
+              onNew = onMultiplexerNew,
+              onAttach = onMultiplexerAttach,
+              onDismiss = onDismiss,
+          )
+        }
       }
       KeyboardAccessoryBar(
           items = accessoryItems,
@@ -235,64 +266,4 @@ fun CommandPalette(
       )
     }
   }
-}
-
-@Composable
-private fun PaletteHint(key: String, label: String) {
-  val colors = ChuColors.current
-  val typography = ChuTypography.current
-  Row(
-      verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.spacedBy(4.dp),
-  ) {
-    Box(
-        modifier = Modifier.border(1.dp, colors.border).padding(horizontal = 5.dp, vertical = 1.dp)
-    ) {
-      ChuText(key, style = typography.labelSmall, color = colors.textSecondary)
-    }
-    ChuText(label, style = typography.labelSmall, color = colors.textMuted)
-  }
-}
-
-private fun tabAlias(tab: TabSession): String {
-  val adjectives =
-      listOf(
-          "amber",
-          "brisk",
-          "cedar",
-          "delta",
-          "ember",
-          "frost",
-          "golden",
-          "hazel",
-          "indigo",
-          "jade",
-          "kilo",
-          "lunar",
-          "mango",
-          "nova",
-          "onyx",
-          "pluto",
-      )
-  val nouns =
-      listOf(
-          "otter",
-          "falcon",
-          "pine",
-          "river",
-          "comet",
-          "harbor",
-          "meadow",
-          "quartz",
-          "signal",
-          "orbit",
-          "anchor",
-          "summit",
-          "thunder",
-          "voyager",
-          "willow",
-          "zenith",
-      )
-  val seed = tab.id.hashCode().let { if (it == Int.MIN_VALUE) 0 else kotlin.math.abs(it) }
-  return "${adjectives[seed % adjectives.size]}-${nouns[(seed / adjectives.size) % nouns.size]}"
 }

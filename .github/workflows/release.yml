@@ -63,7 +63,7 @@ jobs:
         run: |
           cd android/app/ && echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > key.jks
 
-      - name: build android release
+      - name: build android release artifacts (APK + AAB)
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
@@ -77,7 +77,7 @@ jobs:
             cd android
             chmod +x ./gradlew
             if [ -f local.properties ]; then chmod -w local.properties; fi
-            ./gradlew assembleRelease
+            ./gradlew assembleRelease bundleRelease
           '
 
       - name: upload release
@@ -89,5 +89,6 @@ jobs:
           draft: true
           files: |
             ./android/app/build/outputs/apk/release/*.apk
+            ./android/app/build/outputs/bundle/release/*.aab
           fail_on_unmatched_files: true
 

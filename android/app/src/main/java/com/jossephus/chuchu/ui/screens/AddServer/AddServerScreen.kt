@@ -33,6 +33,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jossephus.chuchu.model.AuthMethod
+import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
@@ -251,6 +252,11 @@ fun AddServerScreen(
                 )
             }
             SectionDivider()
+            MultiplexerSection(
+                selected = form.multiplexer,
+                onSelect = vm::updateMultiplexer,
+            )
+            SectionDivider()
             PostConnectActionSection(
                 command = form.postConnectCommand,
                 onCommandChange = vm::updatePostConnectCommand,
@@ -374,6 +380,39 @@ private fun KeyAuthSection(
             ChuText("generate key", style = typography.label)
         }
     }
+}
+
+// The segmented control requires a non-null selection, but "no persistence" is
+// modeled as a null MultiplexerType, so wrap the choices in a UI-only enum.
+private enum class MultiplexerOption(val type: MultiplexerType?) {
+    Off(null),
+    Tmux(MultiplexerType.Tmux),
+    Zellij(MultiplexerType.Zellij),
+    Zmx(MultiplexerType.Zmx),
+}
+
+@Composable
+private fun MultiplexerSection(
+    selected: MultiplexerType?,
+    onSelect: (MultiplexerType?) -> Unit,
+) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+    SectionHeader("SESSION PERSISTENCE")
+    val options = MultiplexerOption.entries.toList()
+    val selectedOption = options.firstOrNull { it.type == selected } ?: MultiplexerOption.Off
+    ChuSegmentedControl(
+        options = options,
+        labels = mapOf(
+            MultiplexerOption.Off to "off",
+            MultiplexerOption.Tmux to "tmux",
+            MultiplexerOption.Zellij to "zellij",
+            MultiplexerOption.Zmx to "zmx",
+        ),
+        selected = selectedOption,
+        onSelect = { onSelect(it.type) },
+        disabledOptions = setOf(MultiplexerOption.Zellij),
+    )
 }
 
 @Composable

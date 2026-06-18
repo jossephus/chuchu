@@ -65,6 +65,7 @@ fun ServerListScreen(
     searchQuery: String,
     onSearchChange: (String) -> Unit,
     onAddServer: () -> Unit,
+    localShellEnabled: Boolean,
     onOpenLocalShell: () -> Unit,
     onEditServer: (Long) -> Unit,
     onConnectServer: (Long) -> Unit,
@@ -153,11 +154,13 @@ fun ServerListScreen(
             SectionHeader("HOSTS")
 
             LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                item(key = "local-shell") {
-                    LocalShellCard(
-                        isOpen = hasOpenLocalShell,
-                        onOpen = { openLocalShellWithPermission() },
-                    )
+                if (localShellEnabled) {
+                    item(key = "local-shell") {
+                        LocalShellCard(
+                            isOpen = hasOpenLocalShell,
+                            onOpen = { openLocalShellWithPermission() },
+                        )
+                    }
                 }
                 if (hosts.isEmpty()) {
                     item(key = "empty") { EmptyState() }

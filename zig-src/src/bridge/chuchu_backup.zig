@@ -33,7 +33,7 @@ const NativeError = error{
     CryptoFailure,
 };
 
-export fn Java_com_jossephus_chuchu_data_backup_NativeBackupBridge_nativeEncrypt(
+export fn Java_com_jossephus_chuchu_service_backup_NativeBackupBridge_nativeEncrypt(
     env: *c.JNIEnv,
     thiz: c.jobject,
     plaintext: c.jbyteArray,
@@ -65,7 +65,7 @@ export fn Java_com_jossephus_chuchu_data_backup_NativeBackupBridge_nativeEncrypt
     return statusResultBytes(env, STATUS_OK, encrypted);
 }
 
-export fn Java_com_jossephus_chuchu_data_backup_NativeBackupBridge_nativeDecrypt(
+export fn Java_com_jossephus_chuchu_service_backup_NativeBackupBridge_nativeDecrypt(
     env: *c.JNIEnv,
     thiz: c.jobject,
     ciphertext: c.jbyteArray,
