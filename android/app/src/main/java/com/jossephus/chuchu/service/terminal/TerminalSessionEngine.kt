@@ -632,6 +632,28 @@ class TerminalSessionEngine(
         // read in termux).  The IO dispatcher keeps the session dispatcher
         // free for resize / write / snapshot operations.
         while (currentCoroutineContext().isActive) {
+            // When backgrounded, stay on the IO thread and just drain the
+            // SSH channel without dispatching back to the session thread.
+            // This eliminates the IO→session→IO round-trip overhead.
+            if (!isForeground) {
+                withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    while (!isForeground && currentCoroutineContext().isActive) {
+                        val chunk = nativeSsh.blockingRead(maxBytes = 65536, timeoutMs = 1000)
+                        if (chunk == null) return@withContext
+                        if (chunk.isEmpty()) continue
+                        // Still feed data to the terminal emulator so it can
+                        // respond to protocol queries (cursor position, etc.)
+                        // and maintain correct state.  Just skip snapshots.
+                        if (handle != 0L) {
+                            flushPtyWrites()
+                            bridge.nativeWriteRemote(handle, chunk)
+                            flushPtyWrites()
+                        }
+                    }
+                }
+                // isForeground changed — loop back to foreground path.
+                continue
+            }
             val chunk = withContext(kotlinx.coroutines.Dispatchers.IO) {
                 nativeSsh.blockingRead(maxBytes = 65536, timeoutMs = 1000)
             }
@@ -644,10 +666,6 @@ class TerminalSessionEngine(
                 continue
             }
             if (handle == 0L) continue
-            // When backgrounded, still drain the SSH channel (prevents
-            // buffer overflow and keeps the connection alive) but skip the
-            // expensive terminal-parsing and snapshot work.
-            if (!isForeground) continue
             val wasImageLoading = bridge.nativeIsImageLoading(handle)
             flushPtyWrites()
             bridge.nativeWriteRemote(handle, chunk)
