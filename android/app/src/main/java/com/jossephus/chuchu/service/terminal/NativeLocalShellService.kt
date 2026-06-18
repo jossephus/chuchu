@@ -1,11 +1,11 @@
 package com.jossephus.chuchu.service.terminal
 
 import java.io.Closeable
-import java.nio.file.Path
+import java.io.File
 
 class NativeLocalShellService(
-    private val homeDir: Path,
-    private val tempDir: Path,
+    private val homeDir: File,
+    private val tempDir: File,
     private val bridge: NativeLocalShellBridge = NativeLocalShellBridge(),
     private val command: String = "/system/bin/sh",
 ) : Closeable {
@@ -15,8 +15,8 @@ class NativeLocalShellService(
 
     fun start(cols: Int, rows: Int, widthPx: Int, heightPx: Int) {
         require(bridge.isAvailable()) { "Native local shell unavailable: ${bridge.nativeStatus()}" }
-        homeDir.toFile().mkdirs()
-        tempDir.toFile().mkdirs()
+        homeDir.mkdirs()
+        tempDir.mkdirs()
         close()
         handle = bridge.nativeCreateSession()
         check(handle != 0L) { "Failed to create native local shell session" }
@@ -24,8 +24,8 @@ class NativeLocalShellService(
             bridge.nativeStart(
                 handle = handle,
                 command = command,
-                homeDir = homeDir.toString(),
-                tempDir = tempDir.toString(),
+                homeDir = homeDir.absolutePath,
+                tempDir = tempDir.absolutePath,
                 cols = cols,
                 rows = rows,
                 widthPx = widthPx,

@@ -168,8 +168,8 @@ class TerminalSessionRepository private constructor(application: Application) {
             val engine =
                 TerminalSessionEngine(
                     scope,
-                    appContext.filesDir.toPath(),
-                    appContext.cacheDir.toPath(),
+                    appContext.filesDir,
+                    appContext.cacheDir,
                     hostKeyStore,
                     tailscaleStatusChecker,
                 )
@@ -200,8 +200,8 @@ class TerminalSessionRepository private constructor(application: Application) {
         val engine =
             TerminalSessionEngine(
                 scope,
-                appContext.filesDir.toPath(),
-                appContext.cacheDir.toPath(),
+                appContext.filesDir,
+                appContext.cacheDir,
                 hostKeyStore,
                 tailscaleStatusChecker,
             )
