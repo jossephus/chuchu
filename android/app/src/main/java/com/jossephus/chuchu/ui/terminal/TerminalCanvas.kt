@@ -170,6 +170,8 @@ fun TerminalCanvas(
     val currentOnScroll = rememberUpdatedState(onScroll)
     val ghosttyBridge = remember { GhosttyBridge() }
 
+    var selectionViewportBaseline by remember { mutableStateOf<Int?>(null) }
+
     val scrollDeltaChannel = remember { Channel<TerminalScrollDelta>(capacity = Channel.UNLIMITED) }
     LaunchedEffect(scrollDeltaChannel) {
         while (isActive) {
@@ -199,7 +201,11 @@ fun TerminalCanvas(
             val text = if (terminalHandle != 0L && snapshot.cols > 0) {
                 val normalized = currentSelection.normalized(snapshot.codepoints.size)
                 if (normalized != null) {
-                    ghosttyBridge.nativeFormatSelectionRange(terminalHandle, normalized.first, normalized.last)
+                    val screenOffset = snapshot.viewportScrollY * snapshot.cols
+                    val screenStart = (normalized.first + screenOffset).coerceAtLeast(0)
+                    val screenEnd = (normalized.last + screenOffset).coerceAtLeast(screenStart)
+                    ghosttyBridge.nativeFormatSelectionScreenRange(terminalHandle, screenStart, screenEnd)
+                        ?: ghosttyBridge.nativeFormatSelectionRange(terminalHandle, normalized.first, normalized.last)
                 } else null
             } else {
                 extractSelectionText(snapshot, currentSelection)
@@ -210,6 +216,24 @@ fun TerminalCanvas(
         LaunchedEffect(currentSelection) {
             currentOnSelectionChanged.value(false, null, 0f, 0f)
         }
+    }
+    val hasSelection = selection != null
+    LaunchedEffect(hasSelection) {
+        selectionViewportBaseline = if (hasSelection) currentSnapshot.value.viewportScrollY else null
+    }
+
+    LaunchedEffect(snapshot) {
+        val sel = selection
+        val baseline = selectionViewportBaseline
+        if (sel == null || baseline == null) return@LaunchedEffect
+        val cur = snapshot.viewportScrollY
+        if (baseline == cur) return@LaunchedEffect
+        val deltaCells = (baseline - cur) * max(snapshot.cols, 1)
+        selectionViewportBaseline = cur
+        selection = sel.copy(
+            anchorIndex = sel.anchorIndex + deltaCells,
+            focusIndex = sel.focusIndex + deltaCells,
+        )
     }
 
     LaunchedEffect(canvasSize, cellWidth, cellHeight) {
@@ -741,7 +765,7 @@ internal fun TerminalSnapshot.isSpacerContinuation(cellIndex: Int): Boolean {
     return ((flags[cellIndex].toInt() and 0xFF) and TerminalSnapshot.CELL_FLAG_SPACER) != 0
 }
 
-private fun TerminalSnapshot.glyphAt(cellIndex: Int): String {
+internal fun TerminalSnapshot.glyphAt(cellIndex: Int): String {
     val codepoint = codepoints[cellIndex]
     val extras = graphemeExtras[cellIndex]
     if (extras == null || extras.isEmpty()) return String(Character.toChars(codepoint))

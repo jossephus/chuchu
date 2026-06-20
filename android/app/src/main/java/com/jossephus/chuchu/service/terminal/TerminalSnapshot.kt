@@ -40,6 +40,12 @@ data class TerminalSnapshot(
      */
     val graphemeExtras: Map<Int, IntArray> = emptyMap(),
     val images: List<ImagePlacement> = emptyList(),
+    /**
+     * Stable screen.y of the content currently at viewport row 0. Changes
+     * monotonically as the viewport scrolls, so the host can subtract it
+     * across snapshots to remap a content-tracking selection anchor.
+     */
+    val viewportScrollY: Int = 0,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -54,7 +60,8 @@ data class TerminalSnapshot(
             bgArgb.contentEquals(other.bgArgb) &&
             flags.contentEquals(other.flags) &&
             graphemeExtrasEquals(graphemeExtras, other.graphemeExtras) &&
-            images == other.images
+            images == other.images &&
+            viewportScrollY == other.viewportScrollY
     }
 
     override fun hashCode(): Int {
@@ -73,13 +80,14 @@ data class TerminalSnapshot(
             acc + key + arr.contentHashCode()
         }
         result = 31 * result + images.hashCode()
+        result = 31 * result + viewportScrollY
         return result
     }
 
     companion object {
         const val CELL_FLAG_HAS_GRAPHEME: Int = 0x40
         const val CELL_FLAG_SPACER: Int = 0x80
-        private const val HEADER_I32_COUNT = 12
+        private const val HEADER_I32_COUNT = 13
         private const val CELL_SIZE_BYTES = 11
         private const val IMAGE_HEADER_BYTES = 52
 
@@ -117,6 +125,7 @@ data class TerminalSnapshot(
             val defaultFgG = wrapped.int
             val defaultFgB = wrapped.int
             val extrasOffset = wrapped.int
+            val viewportScrollY = wrapped.int
 
             val cellCount = cols * rows
             val expectedSize = (HEADER_I32_COUNT * 4) + (cellCount * CELL_SIZE_BYTES)
@@ -203,6 +212,7 @@ data class TerminalSnapshot(
                 flags = flags,
                 graphemeExtras = graphemeExtras,
                 images = images,
+                viewportScrollY = viewportScrollY,
             )
 
             return snapshot

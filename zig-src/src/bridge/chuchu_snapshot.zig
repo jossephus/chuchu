@@ -25,7 +25,10 @@ const verbose_snapshot_perf_logs = false;
 //   9  default_fg_g
 //  10  default_fg_b
 //  11  extras_offset (byte offset to grapheme extras section, 0 if none)
-const SNAPSHOT_HEADER_I32_COUNT = 12;
+//  12  viewport_scroll_y (screen.y of the content at viewport row 0; stable
+//      content coordinate that changes as the viewport scrolls, so the host
+//      can remap a content-tracking selection anchor across scrolls)
+const SNAPSHOT_HEADER_I32_COUNT = 13;
 const SNAPSHOT_CELL_SIZE_BYTES = 11;
 // Flag bit set on a cell whose codepoint has additional grapheme codepoints
 // in the extras section.
@@ -710,6 +713,15 @@ export fn chuchu_build_text_snapshot(handle: c.jlong, out_size: [*c]usize) callc
     writeIntLe(i32, buffer[0..base_total_size], 40, terminal.render_state.colors.foreground.b);
     // extras_offset gets patched after we know whether extras exist.
     writeIntLe(i32, buffer[0..base_total_size], 44, 0);
+    // viewport_scroll_y: stable screen.y of the content currently at
+    // viewport row 0. The host subtracts this across snapshots to remap a
+    // selection anchor that must track content, not screen position.
+    const viewport_scroll_y: i32 = blk: {
+        const pages = &terminal.terminal.screens.active.pages;
+        const vp_top = pages.pointFromPin(.screen, pages.getTopLeft(.viewport)) orelse break :blk 0;
+        break :blk @intCast(vp_top.screen.y);
+    };
+    writeIntLe(i32, buffer[0..base_total_size], 48, viewport_scroll_y);
 
     terminal.snapshot_extras_scratch.clearRetainingCapacity();
     var extras_records: usize = 0;
@@ -1361,6 +1373,22 @@ fn viewportCellToPin(terminal: *ChuchuTerminal, vp_x: u32, vp_y: u32) ?ghostty.P
     } });
 }
 
+/// Resolve an absolute screen-space cell index (screen.y * cols + screen.x)
+/// to a pin, without adding the viewport top offset. Used for content-tracking
+/// selections that span off-screen scrollback.
+fn screenCellToPin(terminal: *ChuchuTerminal, screen_cell: i64) ?ghostty.Pin {
+    if (screen_cell < 0) return null;
+    const cols: i64 = @intCast(terminal.render_state.cols);
+    if (cols <= 0) return null;
+    const screen_x: u32 = @intCast(@rem(screen_cell, cols));
+    const screen_y: u32 = @intCast(@divTrunc(screen_cell, cols));
+    const pages = &terminal.terminal.screens.active.pages;
+    return pages.pin(.{ .screen = .{
+        .x = @as(u16, @intCast(screen_x)),
+        .y = @intCast(screen_y),
+    } });
+}
+
 fn selectionTextFromPins(
     terminal: *ChuchuTerminal,
     start_pin: ghostty.Pin,
@@ -1394,6 +1422,30 @@ export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeFormatS
 
     const start_pin = viewportCellToPin(terminal, start_x, start_y) orelse return null;
     const end_pin = viewportCellToPin(terminal, end_x, end_y) orelse return null;
+
+    const text = selectionTextFromPins(terminal, start_pin, end_pin, allocator) catch return null;
+    defer allocator.free(text);
+    return jniNewStringUTF(env, text.ptr);
+}
+
+/// Like nativeFormatSelectionRange but takes absolute screen-space cell
+/// indices (screen.y * cols + screen.x) instead of viewport-space ones.
+/// Used for content-tracking selections that span off-screen scrollback —
+/// the host converts viewport-space to screen-space via viewportScrollY so
+/// the full selected range (including scrolled-away content) is extracted.
+export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeFormatSelectionScreenRange(
+    env: *c.JNIEnv,
+    thiz: c.jobject,
+    handle: c.jlong,
+    start_screen_cell: c.jint,
+    end_screen_cell: c.jint,
+) callconv(.c) c.jstring {
+    _ = thiz;
+    const terminal = chuchuFromHandle(handle) orelse return null;
+    if (terminal.render_state.cols <= 0) return null;
+
+    const start_pin = screenCellToPin(terminal, start_screen_cell) orelse return null;
+    const end_pin = screenCellToPin(terminal, end_screen_cell) orelse return null;
 
     const text = selectionTextFromPins(terminal, start_pin, end_pin, allocator) catch return null;
     defer allocator.free(text);

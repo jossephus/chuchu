@@ -15,7 +15,7 @@ class EmojiSnapshotRegressionTest {
         val cols = 4
         val rows = 1
         val cellCount = cols * rows
-        val headerBytes = 12 * 4
+        val headerBytes = 13 * 4
         val gridBytes = cellCount * 11
         val extrasOffset = headerBytes + gridBytes
 
@@ -38,6 +38,7 @@ class EmojiSnapshotRegressionTest {
         raw.putInt(255)
         raw.putInt(255)
         raw.putInt(extrasOffset)
+        raw.putInt(0) // viewport_scroll_y
 
         fun putCell(codepoint: Int, flags: Int) {
             raw.putInt(codepoint)
@@ -133,7 +134,7 @@ class EmojiSnapshotRegressionTest {
         val cols = 3
         val rows = 1
         val cellCount = cols * rows
-        val headerBytes = 12 * 4
+        val headerBytes = 13 * 4
         val gridBytes = cellCount * 11
         val extrasOffset = headerBytes + gridBytes
 
@@ -160,6 +161,7 @@ class EmojiSnapshotRegressionTest {
         raw.putInt(255)
         raw.putInt(255)
         raw.putInt(extrasOffset)
+        raw.putInt(0) // viewport_scroll_y
 
         fun putCell(codepoint: Int, flags: Int) {
             raw.putInt(codepoint)
