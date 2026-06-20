@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jossephus.chuchu.service.terminal.TerminalSnapshot
 import com.jossephus.chuchu.ui.theme.LocalChuFont
@@ -58,7 +59,10 @@ fun TerminalCanvas(
     cursorTextColor: Color? = null,
     selectionBackgroundColor: Color = Color(0x663B82F6),
     selectionForegroundColor: Color? = null,
-    selectionResetKey: Int = 0,
+    // Hoisted: the host owns selection state so it can render drag handles
+    // and mutate either endpoint independently.
+    selection: TerminalSelection? = null,
+    onSelectionChange: (TerminalSelection?) -> Unit = {},
     terminalHandle: Long = 0,
     onResize: (cols: Int, rows: Int, cellWidth: Int, cellHeight: Int, widthPx: Int, heightPx: Int) -> Unit =
         { _, _, _, _, _, _ -> },
@@ -66,7 +70,7 @@ fun TerminalCanvas(
     onPrimaryClick: (x: Float, y: Float) -> Unit = { _, _ -> },
     onScroll: (delta: Int, x: Float, y: Float) -> Unit = { _, _, _ -> },
     onZoom: (zoomFactor: Float) -> Unit = {},
-    onSelectionChanged: (selectionActive: Boolean, text: String?, anchorOffsetX: Float, anchorOffsetY: Float) -> Unit = { _, _, _, _ -> },
+    onSelectionChanged: (TerminalSelectionState?) -> Unit = {},
 ) {
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
@@ -75,12 +79,13 @@ fun TerminalCanvas(
     val fontSizePx = with(density) { fontSizeSp.sp.toPx() }
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
     var lastResizedGrid by remember { mutableStateOf(Pair(0, 0)) }
-    var selection by remember { mutableStateOf<TerminalSelection?>(null) }
-    var selectionAnchorOffset by remember { mutableStateOf(Offset.Zero) }
     val doubleTapState = remember { DoubleTapState() }
     val androidViewConfiguration = remember(context) { ViewConfiguration.get(context) }
     val touchSlopPx = remember(androidViewConfiguration) { androidViewConfiguration.scaledTouchSlop.toFloat() }
+    val longPressSlopPx = remember(touchSlopPx) { touchSlopPx * 1.5f }
     val longPressTimeoutMillis = remember { ViewConfiguration.getLongPressTimeout().toLong() }
+    val autoScrollEdgeZonePx = with(density) { 48.dp.toPx() }
+    val autoScrollIntervalMs = 55L
     val doubleTapTimeoutMillis = remember { ViewConfiguration.getDoubleTapTimeout().toLong() }
     val doubleTapSlopPx = remember(androidViewConfiguration) { androidViewConfiguration.scaledDoubleTapSlop.toFloat() }
     val primaryTypeface = remember(context, fontOption) {
@@ -167,8 +172,16 @@ fun TerminalCanvas(
 
     val currentOnSelectionChanged = rememberUpdatedState(onSelectionChanged)
     val currentSnapshot = rememberUpdatedState(snapshot)
+    val currentSelectionState = rememberUpdatedState(selection)
+    val currentOnSelectionChange = rememberUpdatedState(onSelectionChange)
+    val currentOnTap = rememberUpdatedState(onTap)
+    val currentOnPrimaryClick = rememberUpdatedState(onPrimaryClick)
     val currentOnScroll = rememberUpdatedState(onScroll)
+    val currentOnZoom = rememberUpdatedState(onZoom)
     val ghosttyBridge = remember { GhosttyBridge() }
+
+    var selectionViewportBaseline by remember { mutableStateOf<Int?>(null) }
+    var autoScrollingSelection by remember { mutableStateOf(false) }
 
     val scrollDeltaChannel = remember { Channel<TerminalScrollDelta>(capacity = Channel.UNLIMITED) }
     LaunchedEffect(scrollDeltaChannel) {
@@ -188,28 +201,41 @@ fun TerminalCanvas(
         }
     }
 
-    LaunchedEffect(selectionResetKey) {
-        selection = null
-        selectionAnchorOffset = Offset.Zero
-    }
-
     val currentSelection = selection
     if (currentSelection != null) {
-        LaunchedEffect(snapshot, currentSelection) {
-            val text = if (terminalHandle != 0L && snapshot.cols > 0) {
-                val normalized = currentSelection.normalized(snapshot.codepoints.size)
-                if (normalized != null) {
-                    ghosttyBridge.nativeFormatSelectionRange(terminalHandle, normalized.first, normalized.last)
-                } else null
-            } else {
-                extractSelectionText(snapshot, currentSelection)
-            }
-            currentOnSelectionChanged.value(true, text, selectionAnchorOffset.x, selectionAnchorOffset.y)
+        LaunchedEffect(snapshot, currentSelection, cellWidth, cellHeight, canvasSize, terminalHandle) {
+            currentOnSelectionChanged.value(
+                buildSelectionState(
+                    snapshot = snapshot,
+                    selection = currentSelection,
+                    cellWidth = cellWidth,
+                    cellHeight = cellHeight,
+                    canvasWidthPx = canvasSize.width,
+                    canvasHeightPx = canvasSize.height,
+                    terminalHandle = terminalHandle,
+                    ghosttyBridge = ghosttyBridge,
+                ),
+            )
         }
     } else {
         LaunchedEffect(currentSelection) {
-            currentOnSelectionChanged.value(false, null, 0f, 0f)
+            currentOnSelectionChanged.value(null)
         }
+    }
+    val hasSelection = selection != null
+    LaunchedEffect(hasSelection) {
+        selectionViewportBaseline = if (hasSelection) currentSnapshot.value.viewportScrollY else null
+    }
+
+    LaunchedEffect(snapshot) {
+        remapSelectionForViewportScroll(
+            snapshot = snapshot,
+            selection = currentSelectionState.value,
+            baseline = selectionViewportBaseline,
+            autoScrollingSelection = autoScrollingSelection,
+            onBaselineChange = { selectionViewportBaseline = it },
+            onSelectionChange = currentOnSelectionChange.value,
+        )
     }
 
     LaunchedEffect(canvasSize, cellWidth, cellHeight) {
@@ -232,7 +258,7 @@ fun TerminalCanvas(
             if (!enableGestures) {
                 baseModifier
             } else {
-                baseModifier.pointerInput(cellWidth, cellHeight, selectionResetKey) {
+                baseModifier.pointerInput(cellWidth, cellHeight) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         fun toSnapshotSpace(position: Offset, s: TerminalSnapshot): Offset {
@@ -259,32 +285,49 @@ fun TerminalCanvas(
                         var longPressActive = false
                         var lastEventUptime = down.uptimeMillis
                         val longPressDeadline = down.uptimeMillis + longPressTimeoutMillis
+                        var lastPointerPos = down.position
+                        var autoScrollDir = 0
 
                         while (true) {
                             val timeoutMs = (longPressDeadline - lastEventUptime).coerceAtLeast(1L)
-                            val event = if (!longPressActive && !didScroll && !didPinch && !didSelect && !didDragGesture) {
-                                withTimeoutOrNull(timeoutMs) { awaitPointerEvent() }
-                            } else {
-                                awaitPointerEvent()
+                            val inAutoScrollZone = longPressActive && autoScrollDir != 0
+                            val event = when {
+                                !longPressActive && !didScroll && !didPinch && !didSelect && !didDragGesture ->
+                                    withTimeoutOrNull(timeoutMs) { awaitPointerEvent() }
+                                inAutoScrollZone ->
+                                    withTimeoutOrNull(autoScrollIntervalMs) { awaitPointerEvent() }
+                                else -> awaitPointerEvent()
                             }
 
                             if (event == null) {
-                                val s = currentSnapshot.value
-                                val downPos = toSnapshotSpace(down.position, s)
-                                val selectedCell = s.cellAt(downPos.x, downPos.y, cellWidth, cellHeight)
-                                selection = selectedCell?.let { TerminalSelection(it, it) }
-                                if (selectedCell != null) {
-                                    selectionAnchorOffset = downPos
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    didSelect = true
-                                    longPressActive = true
+                                if (!longPressActive) {
+                                    val s = currentSnapshot.value
+                                    val downPos = toSnapshotSpace(down.position, s)
+                                    if (startSelection(s, downPos, cellWidth, cellHeight, currentOnSelectionChange.value)) {
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        didSelect = true
+                                        longPressActive = true
+                                    }
+                                    continue
                                 }
+                                val pos = lastPointerPos
+                                val depth = if (autoScrollDir > 0) {
+                                    pos.y - (canvasSize.height - autoScrollEdgeZonePx)
+                                } else {
+                                    autoScrollEdgeZonePx - pos.y
+                                }.coerceAtLeast(0f)
+                                val rows = (depth / cellHeight).toInt().coerceIn(1, 8)
+                                scrollDeltaChannel.trySend(
+                                    TerminalScrollDelta(autoScrollDir * rows, pos.x, pos.y),
+                                )
                                 continue
                             }
 
                             lastEventUptime = event.changes.maxOfOrNull { it.uptimeMillis } ?: lastEventUptime
                             val pressed = event.changes.filter { it.pressed }
                             if (pressed.isEmpty()) {
+                                autoScrollDir = 0
+                                autoScrollingSelection = false
                                 if (didSelect) {
                                     break
                                 }
@@ -305,18 +348,17 @@ fun TerminalCanvas(
                                         if (cellIdx != null) {
                                             val wordRange = s.wordAt(cellIdx)
                                             if (wordRange != null) {
-                                                selection = TerminalSelection(wordRange.first, wordRange.last)
-                                                selectionAnchorOffset = tapPos
+                                                currentOnSelectionChange.value(TerminalSelection(wordRange.first, wordRange.last))
                                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                             }
                                         }
                                     } else {
-                                        if (selection != null) {
-                                            selection = null
-                                            selectionAnchorOffset = Offset.Zero
+                                        if (currentSelectionState.value != null) {
+                                            currentOnSelectionChange.value(null)
+                                        } else {
+                                            currentOnPrimaryClick.value(tapPos.x, tapPos.y)
+                                            currentOnTap.value()
                                         }
-                                        onPrimaryClick(tapPos.x, tapPos.y)
-                                        onTap()
                                     }
                                 }
                                 break
@@ -335,7 +377,7 @@ fun TerminalCanvas(
                                 if (previous != null && previous > 0f && distance > 0f) {
                                     val zoomFactor = distance / previous
                                     if (abs(zoomFactor - 1f) > 0.02f) {
-                                        onZoom(zoomFactor)
+                                        currentOnZoom.value(zoomFactor)
                                     }
                                 }
                                 lastPinchDistance = distance
@@ -357,10 +399,18 @@ fun TerminalCanvas(
                             val downPos = toSnapshotSpace(down.position, s)
                             val selectedCell = s.cellAt(changePos.x, changePos.y, cellWidth, cellHeight)
                             if (longPressActive && selectedCell != null) {
-                                val currentSelection = selection
-                                if (currentSelection == null || currentSelection.focusIndex != selectedCell) {
-                                    selection = (currentSelection ?: TerminalSelection(selectedCell, selectedCell)).copy(focusIndex = selectedCell)
+                                lastPointerPos = change.position
+                                updateSelectionDrag(
+                                    existing = currentSelectionState.value,
+                                    selectedCell = selectedCell,
+                                    onSelectionChange = currentOnSelectionChange.value,
+                                )
+                                autoScrollDir = when {
+                                    change.position.y < autoScrollEdgeZonePx -> -1
+                                    change.position.y > canvasSize.height - autoScrollEdgeZonePx -> 1
+                                    else -> 0
                                 }
+                                autoScrollingSelection = autoScrollDir != 0
                                 if (change.position != change.previousPosition) {
                                     change.consume()
                                 }
@@ -373,14 +423,16 @@ fun TerminalCanvas(
                                 (changePos.x - downPos.x).toDouble(),
                                 (changePos.y - downPos.y).toDouble(),
                             ).toFloat()
-                            if (movedDistance > touchSlopPx) {
+                            val abortSlopPx = if (longPressActive) touchSlopPx else longPressSlopPx
+                            if (movedDistance > abortSlopPx) {
                                 didDragGesture = true
-                                if (selection != null && !selectionCleared) {
-                                    selection = null
-                                    selectionAnchorOffset = Offset.Zero
+                                if (currentSelectionState.value != null && !selectionCleared) {
+                                    currentOnSelectionChange.value(null)
                                     selectionCleared = true
                                 }
                             }
+                            autoScrollDir = 0
+                            autoScrollingSelection = false
                             val verticalIntent = abs(dragY) > abs(dragX) * 1.2f
                             if (verticalIntent) {
                                 dragRemainder += dragY / cellHeight
@@ -644,20 +696,49 @@ private data class TerminalScrollDelta(
     val y: Float,
 )
 
-private data class TerminalSelection(
-    val anchorIndex: Int,
-    val focusIndex: Int,
+private fun startSelection(
+    snapshot: TerminalSnapshot,
+    downPos: Offset,
+    cellWidth: Float,
+    cellHeight: Float,
+    onSelectionChange: (TerminalSelection?) -> Unit,
+): Boolean {
+    val selectedCell = snapshot.cellAt(downPos.x, downPos.y, cellWidth, cellHeight)
+    onSelectionChange(selectedCell?.let { TerminalSelection(it, it) })
+    return selectedCell != null
+}
+
+private fun updateSelectionDrag(
+    existing: TerminalSelection?,
+    selectedCell: Int,
+    onSelectionChange: (TerminalSelection?) -> Unit,
 ) {
-    fun normalized(cellCount: Int): IntRange? {
-        if (cellCount <= 0) return null
-        val start = minOf(anchorIndex, focusIndex).coerceIn(0, cellCount - 1)
-        val end = maxOf(anchorIndex, focusIndex).coerceIn(0, cellCount - 1)
-        return start..end
+    if (existing == null || existing.focusIndex != selectedCell) {
+        onSelectionChange(
+            (existing ?: TerminalSelection(selectedCell, selectedCell)).copy(focusIndex = selectedCell),
+        )
     }
 }
 
-private fun safeChars(cp: Int): String =
-    if (cp in 0..0x10FFFF) String(Character.toChars(cp)) else "\uFFFD"
+private fun remapSelectionForViewportScroll(
+    snapshot: TerminalSnapshot,
+    selection: TerminalSelection?,
+    baseline: Int?,
+    autoScrollingSelection: Boolean,
+    onBaselineChange: (Int) -> Unit,
+    onSelectionChange: (TerminalSelection?) -> Unit,
+) {
+    val sel = selection ?: return
+    val startBaseline = baseline ?: return
+    val cur = snapshot.viewportScrollY
+    if (startBaseline == cur) return
+    val deltaCells = (startBaseline - cur) * max(snapshot.cols, 1)
+    onBaselineChange(cur)
+    onSelectionChange(
+        if (autoScrollingSelection) sel.copy(anchorIndex = sel.anchorIndex + deltaCells)
+        else sel.copy(anchorIndex = sel.anchorIndex + deltaCells, focusIndex = sel.focusIndex + deltaCells),
+    )
+}
 
 private fun TerminalSnapshot.cellAt(x: Float, y: Float, cellWidth: Float, cellHeight: Float): Int? {
     if (cols <= 0 || rows <= 0 || cellWidth <= 0f || cellHeight <= 0f) return null
@@ -666,82 +747,11 @@ private fun TerminalSnapshot.cellAt(x: Float, y: Float, cellWidth: Float, cellHe
     return row * cols + col
 }
 
-/** Find the word boundaries around [cellIndex], expanding left and right within the same row. */
-private fun TerminalSnapshot.wordAt(cellIndex: Int): IntRange? {
-    if (cols <= 0 || cellIndex !in codepoints.indices) return null
-    val row = cellIndex / cols
-    val rowStart = row * cols
-    val rowEnd = rowStart + cols - 1
-
-    val cp = codepoints[cellIndex]
-    if (cp == 0 || (cp == 32 && !isSpacerContinuation(cellIndex))) return null
-
-    var start = cellIndex
-    while (start > rowStart) {
-        val prev = start - 1
-        val prevCp = codepoints[prev]
-        if (prevCp == 0 || (prevCp == 32 && !isSpacerContinuation(prev))) break
-        start--
-    }
-    var end = cellIndex
-    while (end < rowEnd) {
-        val next = end + 1
-        val nextCp = codepoints[next]
-        if (nextCp == 0 || (nextCp == 32 && !isSpacerContinuation(next))) break
-        end++
-    }
-    return start..end
-}
-
-private fun extractSelectionText(snapshot: TerminalSnapshot, selection: TerminalSelection?): String? {
-    if (selection == null) return null
-    val range = selection.normalized(snapshot.codepoints.size) ?: return null
-    return extractSelectionText(snapshot, range)
-}
-
-internal fun extractSelectionText(snapshot: TerminalSnapshot, range: IntRange): String? {
-    if (snapshot.cols <= 0 || snapshot.codepoints.isEmpty()) return null
-
-    val normalizedRange = IntRange(
-        start = range.first.coerceIn(0, snapshot.codepoints.lastIndex),
-        endInclusive = range.last.coerceIn(0, snapshot.codepoints.lastIndex),
-    )
-    val startRow = normalizedRange.first / snapshot.cols
-    val endRow = normalizedRange.last / snapshot.cols
-    val builder = StringBuilder(normalizedRange.last - normalizedRange.first + 1 + (endRow - startRow))
-
-    for (row in startRow..endRow) {
-        val rowStart = row * snapshot.cols
-        val from = maxOf(normalizedRange.first, rowStart)
-        val until = minOf(normalizedRange.last, rowStart + snapshot.cols - 1)
-        // Find last non-blank cell in this row range to trim trailing whitespace
-        var lastContentIdx = until
-        while (lastContentIdx >= from) {
-            val cp = snapshot.codepoints[lastContentIdx]
-            if (cp != 0 && (cp != 32 || snapshot.isSpacerContinuation(lastContentIdx))) break
-            lastContentIdx--
-        }
-        for (index in from..lastContentIdx) {
-            val codepoint = snapshot.codepoints[index]
-            if (codepoint == 0 || (codepoint == 32 && !snapshot.isSpacerContinuation(index))) {
-                builder.append(' ')
-            } else if (codepoint != 32) {
-                builder.append(snapshot.glyphAt(index))
-            }
-        }
-        if (row != endRow) {
-            builder.append('\n')
-        }
-    }
-
-    return builder.toString()
-}
-
 internal fun TerminalSnapshot.isSpacerContinuation(cellIndex: Int): Boolean {
     return ((flags[cellIndex].toInt() and 0xFF) and TerminalSnapshot.CELL_FLAG_SPACER) != 0
 }
 
-private fun TerminalSnapshot.glyphAt(cellIndex: Int): String {
+internal fun TerminalSnapshot.glyphAt(cellIndex: Int): String {
     val codepoint = codepoints[cellIndex]
     val extras = graphemeExtras[cellIndex]
     if (extras == null || extras.isEmpty()) return String(Character.toChars(codepoint))
