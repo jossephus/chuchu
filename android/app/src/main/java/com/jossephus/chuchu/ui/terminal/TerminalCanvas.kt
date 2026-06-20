@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jossephus.chuchu.service.terminal.TerminalSnapshot
 import com.jossephus.chuchu.ui.theme.LocalChuFont
@@ -81,7 +82,10 @@ fun TerminalCanvas(
     val doubleTapState = remember { DoubleTapState() }
     val androidViewConfiguration = remember(context) { ViewConfiguration.get(context) }
     val touchSlopPx = remember(androidViewConfiguration) { androidViewConfiguration.scaledTouchSlop.toFloat() }
+    val longPressSlopPx = remember(touchSlopPx) { touchSlopPx * 1.5f }
     val longPressTimeoutMillis = remember { ViewConfiguration.getLongPressTimeout().toLong() }
+    val autoScrollEdgeZonePx = with(density) { 48.dp.toPx() }
+    val autoScrollIntervalMs = 55L
     val doubleTapTimeoutMillis = remember { ViewConfiguration.getDoubleTapTimeout().toLong() }
     val doubleTapSlopPx = remember(androidViewConfiguration) { androidViewConfiguration.scaledDoubleTapSlop.toFloat() }
     val primaryTypeface = remember(context, fontOption) {
@@ -281,29 +285,49 @@ fun TerminalCanvas(
                         var longPressActive = false
                         var lastEventUptime = down.uptimeMillis
                         val longPressDeadline = down.uptimeMillis + longPressTimeoutMillis
+                        var lastPointerPos = down.position
+                        var autoScrollDir = 0
 
                         while (true) {
                             val timeoutMs = (longPressDeadline - lastEventUptime).coerceAtLeast(1L)
-                            val event = if (!longPressActive && !didScroll && !didPinch && !didSelect && !didDragGesture) {
-                                withTimeoutOrNull(timeoutMs) { awaitPointerEvent() }
-                            } else {
-                                awaitPointerEvent()
+                            val inAutoScrollZone = longPressActive && autoScrollDir != 0
+                            val event = when {
+                                !longPressActive && !didScroll && !didPinch && !didSelect && !didDragGesture ->
+                                    withTimeoutOrNull(timeoutMs) { awaitPointerEvent() }
+                                inAutoScrollZone ->
+                                    withTimeoutOrNull(autoScrollIntervalMs) { awaitPointerEvent() }
+                                else -> awaitPointerEvent()
                             }
 
                             if (event == null) {
-                                val s = currentSnapshot.value
-                                val downPos = toSnapshotSpace(down.position, s)
-                                if (startSelection(s, downPos, cellWidth, cellHeight, currentOnSelectionChange.value)) {
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    didSelect = true
-                                    longPressActive = true
+                                if (!longPressActive) {
+                                    val s = currentSnapshot.value
+                                    val downPos = toSnapshotSpace(down.position, s)
+                                    if (startSelection(s, downPos, cellWidth, cellHeight, currentOnSelectionChange.value)) {
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        didSelect = true
+                                        longPressActive = true
+                                    }
+                                    continue
                                 }
+                                val pos = lastPointerPos
+                                val depth = if (autoScrollDir > 0) {
+                                    pos.y - (canvasSize.height - autoScrollEdgeZonePx)
+                                } else {
+                                    autoScrollEdgeZonePx - pos.y
+                                }.coerceAtLeast(0f)
+                                val rows = (depth / cellHeight).toInt().coerceIn(1, 8)
+                                scrollDeltaChannel.trySend(
+                                    TerminalScrollDelta(autoScrollDir * rows, pos.x, pos.y),
+                                )
                                 continue
                             }
 
                             lastEventUptime = event.changes.maxOfOrNull { it.uptimeMillis } ?: lastEventUptime
                             val pressed = event.changes.filter { it.pressed }
                             if (pressed.isEmpty()) {
+                                autoScrollDir = 0
+                                autoScrollingSelection = false
                                 if (didSelect) {
                                     break
                                 }
@@ -375,11 +399,18 @@ fun TerminalCanvas(
                             val downPos = toSnapshotSpace(down.position, s)
                             val selectedCell = s.cellAt(changePos.x, changePos.y, cellWidth, cellHeight)
                             if (longPressActive && selectedCell != null) {
+                                lastPointerPos = change.position
                                 updateSelectionDrag(
                                     existing = currentSelectionState.value,
                                     selectedCell = selectedCell,
                                     onSelectionChange = currentOnSelectionChange.value,
                                 )
+                                autoScrollDir = when {
+                                    change.position.y < autoScrollEdgeZonePx -> -1
+                                    change.position.y > canvasSize.height - autoScrollEdgeZonePx -> 1
+                                    else -> 0
+                                }
+                                autoScrollingSelection = autoScrollDir != 0
                                 if (change.position != change.previousPosition) {
                                     change.consume()
                                 }
@@ -392,13 +423,16 @@ fun TerminalCanvas(
                                 (changePos.x - downPos.x).toDouble(),
                                 (changePos.y - downPos.y).toDouble(),
                             ).toFloat()
-                            if (movedDistance > touchSlopPx) {
+                            val abortSlopPx = if (longPressActive) touchSlopPx else longPressSlopPx
+                            if (movedDistance > abortSlopPx) {
                                 didDragGesture = true
                                 if (currentSelectionState.value != null && !selectionCleared) {
                                     currentOnSelectionChange.value(null)
                                     selectionCleared = true
                                 }
                             }
+                            autoScrollDir = 0
+                            autoScrollingSelection = false
                             val verticalIntent = abs(dragY) > abs(dragX) * 1.2f
                             if (verticalIntent) {
                                 dragRemainder += dragY / cellHeight
