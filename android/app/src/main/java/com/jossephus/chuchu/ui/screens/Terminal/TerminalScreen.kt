@@ -52,6 +52,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -60,6 +61,8 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
@@ -94,6 +97,9 @@ import com.jossephus.chuchu.ui.terminal.TerminalCanvas
 import com.jossephus.chuchu.ui.terminal.TerminalCustomAction
 import com.jossephus.chuchu.ui.terminal.TerminalCustomKeyGroup
 import com.jossephus.chuchu.ui.terminal.TerminalInputView
+import com.jossephus.chuchu.ui.terminal.TerminalSelection
+import com.jossephus.chuchu.ui.terminal.TerminalSelectionHandle
+import com.jossephus.chuchu.ui.terminal.TerminalSelectionState
 import com.jossephus.chuchu.ui.terminal.TerminalSpecialKey
 import com.jossephus.chuchu.ui.terminal.decodeCustomActionValue
 import com.jossephus.chuchu.ui.terminal.modifierStateForCustomAction
@@ -296,10 +302,8 @@ fun TerminalScreen(
     val ghosttyTheme =
         remember(context, resolvedThemeName) { GhosttyThemeRegistry.getTheme(context, resolvedThemeName) }
     val isDarkTheme = (ghosttyTheme?.background ?: colors.background).luminance() < 0.5f
-    var selectedText by remember { mutableStateOf<String?>(null) }
-    var hasSelectionActive by remember { mutableStateOf(false) }
-    var selectionAnchorOffset by remember { mutableStateOf(Offset.Zero) }
-    var selectionResetKey by remember { mutableStateOf(0) }
+    var selection by remember { mutableStateOf<TerminalSelection?>(null) }
+    var selectionState by remember { mutableStateOf<TerminalSelectionState?>(null) }
     var showPassphrasePrompt by remember { mutableStateOf(false) }
     var passphraseInput by remember { mutableStateOf("") }
     var pendingTabSpec by remember { mutableStateOf<TabSpec?>(null) }
@@ -739,8 +743,14 @@ fun TerminalScreen(
             if (snapshot != null) {
                 var modifierState by remember { mutableStateOf(ModifierState()) }
                 val inputViewRef = remember { mutableStateOf<TerminalInputView?>(null) }
+                var menuSize by remember { mutableStateOf(IntSize.Zero) }
                 val clipboard = remember {
                     context.getSystemService(ClipboardManager::class.java)
+                }
+                LaunchedEffect(sessionState.handle, activeTabId) {
+                    selection = null
+                    selectionState = null
+                    menuSize = IntSize.Zero
                 }
 
                 fun pasteClipboard(): Boolean {
@@ -751,10 +761,8 @@ fun TerminalScreen(
                     val text = clip.getItemAt(0).coerceToText(context).toString()
                     if (text.isNotEmpty()) {
                         vm.onPasteText(modifierState.applyToText(text))
-                        selectedText = null
-                        hasSelectionActive = false
-                        selectionAnchorOffset = Offset.Zero
-                        selectionResetKey += 1
+                        selection = null
+                        selectionState = null
                         return true
                     }
                     return false
@@ -851,13 +859,11 @@ fun TerminalScreen(
                     }
 
                     fun copySelection() {
-                        val text = selectedText ?: return
+                        val text = selectionState?.text ?: return
                         clipboard?.setPrimaryClip(ClipData.newPlainText("terminal selection", text))
                         Toast.makeText(context, "Copied selection", Toast.LENGTH_SHORT).show()
-                        selectedText = null
-                        hasSelectionActive = false
-                        selectionAnchorOffset = Offset.Zero
-                        selectionResetKey += 1
+                        selection = null
+                        selectionState = null
                     }
 
                     val importFileLauncher =
@@ -1202,7 +1208,8 @@ fun TerminalScreen(
                                             ?: colors.accent.copy(alpha = 0.45f),
                                     selectionForegroundColor =
                                         ghosttyTheme?.selectionForeground ?: colors.onAccent,
-                                    selectionResetKey = selectionResetKey,
+                                    selection = selection,
+                                    onSelectionChange = { selection = it },
                                     terminalHandle = sessionState.handle,
                                     modifier = Modifier.fillMaxSize(),
                                     onResize = vm::onCanvasSizeChanged,
@@ -1217,11 +1224,7 @@ fun TerminalScreen(
                                                     SettingsRepository.MAX_TERMINAL_FONT_SIZE,
                                                 )
                                     },
-                                    onSelectionChanged = { active, text, anchorX, anchorY ->
-                                        hasSelectionActive = active
-                                        selectedText = text
-                                        selectionAnchorOffset = Offset(anchorX, anchorY)
-                                    },
+                                    onSelectionChanged = { state -> selectionState = state },
                                 )
 
                                 Row(
@@ -1246,25 +1249,66 @@ fun TerminalScreen(
                                     }
                                 }
 
-                                if (hasSelectionActive) {
-                                    val menuOffsetX =
-                                        with(density) { selectionAnchorOffset.x.toDp() }
-                                    val menuOffsetY =
-                                        with(density) {
-                                            (selectionAnchorOffset.y - 44f)
-                                                .toDp()
-                                                .coerceAtLeast(0.dp)
-                                        }
+                                val selState = selectionState
+                                if (selState != null) {
+                                    TerminalSelectionHandle(
+                                        tipX = selState.startOffset.x,
+                                        tipY = selState.startOffset.y + selState.cellHeightPx / 2f,
+                                        color = colors.accent,
+                                        borderColor = colors.background,
+                                        cellWidthPx = selState.cellWidthPx,
+                                        cellHeightPx = selState.cellHeightPx,
+                                        cols = selState.cols,
+                                        startCellProvider = {
+                                            val s = selection
+                                            if (s != null) minOf(s.anchorIndex, s.focusIndex) else 0
+                                        },
+                                        onDragToCell = { newCell ->
+                                            selection = selection?.withStart(newCell)
+                                        },
+                                    )
+                                    TerminalSelectionHandle(
+                                        tipX = selState.endOffset.x,
+                                        tipY = selState.endOffset.y - selState.cellHeightPx / 2f,
+                                        color = colors.accent,
+                                        borderColor = colors.background,
+                                        cellWidthPx = selState.cellWidthPx,
+                                        cellHeightPx = selState.cellHeightPx,
+                                        cols = selState.cols,
+                                        startCellProvider = {
+                                            val s = selection
+                                            if (s != null) maxOf(s.anchorIndex, s.focusIndex) else 0
+                                        },
+                                        onDragToCell = { newCell ->
+                                            selection = selection?.withEnd(newCell)
+                                        },
+                                    )
+
+                                    val menuGapPx = with(density) { 8.dp.toPx() }
+                                    val selLeft = selState.boundsLeft
+                                    val selRight = selState.boundsRight
+                                    val selTop = selState.boundsTop
+                                    val selBottom = selState.boundsBottom
+                                    val centerX = (selLeft + selRight) / 2f
+                                    val menuWidth = menuSize.width.coerceAtLeast(1)
+                                    val menuHeight = menuSize.height.coerceAtLeast(1)
+                                    val maxMenuX = (selState.canvasWidthPx - menuWidth).coerceAtLeast(0)
+                                    val menuX = (centerX - menuWidth / 2f).toInt().coerceIn(0, maxMenuX)
+                                    val aboveY = (selTop - menuHeight - menuGapPx).toInt()
+                                    val belowY = (selBottom + menuGapPx).toInt()
+                                    val maxMenuY = (selState.canvasHeightPx - menuHeight).coerceAtLeast(0)
+                                    val menuY = if (aboveY >= 0) aboveY else belowY.coerceIn(0, maxMenuY)
                                     Row(
                                         modifier =
-                                            Modifier.offset(x = menuOffsetX, y = menuOffsetY)
+                                            Modifier.offset { IntOffset(menuX, menuY) }
+                                                .onGloballyPositioned { menuSize = it.size }
                                                 .background(colors.background)
                                                 .border(1.dp, colors.border)
                                                 .padding(horizontal = 4.dp, vertical = 2.dp),
                                         horizontalArrangement = Arrangement.spacedBy(2.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
-                                        if (!selectedText.isNullOrEmpty()) {
+                                        if (!selState.text.isNullOrEmpty()) {
                                             ChuButton(
                                                 onClick = ::copySelection,
                                                 variant = ChuButtonVariant.Ghost,
