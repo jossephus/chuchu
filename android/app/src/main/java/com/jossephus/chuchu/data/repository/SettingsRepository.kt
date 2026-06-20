@@ -40,7 +40,7 @@ class SettingsRepository(context: Context) {
     private val _requireAuthOnConnect = MutableStateFlow(prefs.getBoolean(KEY_REQUIRE_AUTH_ON_CONNECT, false))
     val requireAuthOnConnect: StateFlow<Boolean> = _requireAuthOnConnect.asStateFlow()
 
-    private val _localShellEnabled = MutableStateFlow(prefs.getBoolean(KEY_LOCAL_SHELL_ENABLED, false))
+    private val _localShellEnabled = MutableStateFlow(prefs.getBoolean(KEY_LOCAL_SHELL_ENABLED, true))
     val localShellEnabled: StateFlow<Boolean> = _localShellEnabled.asStateFlow()
 
     private val _terminalTabMode = MutableStateFlow(

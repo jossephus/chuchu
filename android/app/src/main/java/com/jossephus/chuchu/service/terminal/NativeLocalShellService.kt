@@ -11,10 +11,8 @@ class NativeLocalShellService(
 ) : Closeable {
     private var handle: Long = 0L
 
-    fun isAvailable(): Boolean = bridge.isAvailable()
-
     fun start(cols: Int, rows: Int, widthPx: Int, heightPx: Int) {
-        require(bridge.isAvailable()) { "Native local shell unavailable: ${bridge.nativeStatus()}" }
+        require(bridge.isLoaded()) { "Native local shell unavailable: ${bridge.nativeStatus()}" }
         homeDir.mkdirs()
         tempDir.mkdirs()
         close()
@@ -47,25 +45,11 @@ class NativeLocalShellService(
     fun write(data: ByteArray) {
         check(handle != 0L) { "Local shell not open" }
         if (data.isEmpty()) return
-        var offset = 0
-        var stalledLoops = 0
-        while (offset < data.size) {
-            val chunk = if (offset == 0) data else data.copyOfRange(offset, data.size)
-            val written = bridge.nativeWrite(handle, chunk)
-            if (written < 0) {
-                throw IllegalStateException(bridge.nativeGetLastError(handle) ?: "Local shell write failed")
-            }
-            if (written == 0) {
-                stalledLoops += 1
-                if (stalledLoops > 64) {
-                    throw IllegalStateException("Local shell write stalled")
-                }
-                Thread.sleep(2)
-                continue
-            }
-            stalledLoops = 0
-            offset += written.coerceAtMost(chunk.size)
+        val written = bridge.nativeWrite(handle, data)
+        if (written < 0) {
+            throw IllegalStateException(bridge.nativeGetLastError(handle) ?: "Local shell write failed")
         }
+        check(written == data.size) { "Local shell write incomplete" }
     }
 
     fun resize(cols: Int, rows: Int, widthPx: Int, heightPx: Int) {

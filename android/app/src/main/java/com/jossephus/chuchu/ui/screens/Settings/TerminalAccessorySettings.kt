@@ -30,7 +30,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import com.jossephus.chuchu.ui.screens.Terminal.TerminalTabMode
@@ -48,7 +47,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
@@ -319,11 +317,6 @@ internal fun TerminalSettings(
                 modifier = Modifier
                     .fillMaxWidth()
                     .defaultMinSize(minHeight = 48.dp)
-                    .toggleable(
-                        value = localShellEnabled,
-                        role = Role.Switch,
-                        onValueChange = onLocalShellEnabledChanged,
-                    )
                     .padding(12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
@@ -342,7 +335,6 @@ internal fun TerminalSettings(
                 ChuSwitch(
                     checked = localShellEnabled,
                     onCheckedChange = onLocalShellEnabledChanged,
-                    interactive = false,
                 )
             }
         }

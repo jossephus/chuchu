@@ -8,21 +8,14 @@ class NativeLocalShellBridge {
 
     fun isLoaded(): Boolean = loadError == null
 
-    fun isAvailable(): Boolean {
-        if (loadError != null) return false
-        return runCatching { nativeIsSupported() }.getOrDefault(false)
-    }
-
     fun nativeStatus(): String {
         return if (loadError == null) {
-            if (isAvailable()) "loaded" else "loaded without local shell support"
+            "loaded"
         } else {
             val message = loadError.message?.takeIf { it.isNotBlank() } ?: "unknown"
             "not loaded (${loadError::class.simpleName}: $message)"
         }
     }
-
-    external fun nativeIsSupported(): Boolean
 
     external fun nativeCreateSession(): Long
 

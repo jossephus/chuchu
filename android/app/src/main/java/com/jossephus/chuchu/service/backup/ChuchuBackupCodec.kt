@@ -58,8 +58,9 @@ object ChuchuBackupCodec {
 
     @Throws(BackupFormatException::class)
     fun encodePayload(payload: BackupPayload): ByteArray {
+        val backupHosts = payload.hosts.filterNot { it.transport == Transport.LocalShell }
         validateItemCount(payload.keys.size, "key count")
-        validateItemCount(payload.hosts.size, "host count")
+        validateItemCount(backupHosts.size, "host count")
 
         val writer = ByteWriter()
         fun writeStringField(value: String, label: String) {
@@ -86,11 +87,8 @@ object ChuchuBackupCodec {
             writer.writeLong(key.createdAtEpochMs)
         }
 
-        writer.writeInt(payload.hosts.size)
-        payload.hosts.forEach { host ->
-            if (host.transport == Transport.LocalShell) {
-                throw BackupFormatException("Local shell profiles cannot be backed up")
-            }
+        writer.writeInt(backupHosts.size)
+        backupHosts.forEach { host ->
             writer.writeLong(host.id)
             writeStringField(host.name, "host name")
             writeStringField(host.host, "host")
@@ -167,30 +165,33 @@ object ChuchuBackupCodec {
                 val keyId = reader.readNullableLong()
                 val keyPassphrase = readStringField("key passphrase")
                 val transport = readEnumField("transport", enumValues<Transport>())
-                if (transport == Transport.LocalShell) {
-                    throw BackupFormatException("Local shell profiles cannot be imported")
+                val authMethod = readEnumField("auth method", enumValues<AuthMethod>())
+                val requireAuthOnConnect = reader.readBoolean()
+                val postConnectCommand = readNullableStringField("post-connect command")
+                val multiplexer = if (version >= 2) {
+                    readNullableMultiplexerField("multiplexer")
+                } else {
+                    null
                 }
-                add(
-                    BackupHostProfile(
-                        id = id,
-                        name = name,
-                        host = host,
-                        port = port,
-                        username = username,
-                        password = password,
-                        keyId = keyId,
-                        keyPassphrase = keyPassphrase,
-                        transport = transport,
-                        authMethod = readEnumField("auth method", enumValues<AuthMethod>()),
-                        requireAuthOnConnect = reader.readBoolean(),
-                        postConnectCommand = readNullableStringField("post-connect command"),
-                        multiplexer = if (version >= 2) {
-                            readNullableMultiplexerField("multiplexer")
-                        } else {
-                            null
-                        },
-                    ),
-                )
+                if (transport != Transport.LocalShell) {
+                    add(
+                        BackupHostProfile(
+                            id = id,
+                            name = name,
+                            host = host,
+                            port = port,
+                            username = username,
+                            password = password,
+                            keyId = keyId,
+                            keyPassphrase = keyPassphrase,
+                            transport = transport,
+                            authMethod = authMethod,
+                            requireAuthOnConnect = requireAuthOnConnect,
+                            postConnectCommand = postConnectCommand,
+                            multiplexer = multiplexer,
+                        ),
+                    )
+                }
             }
         }
 

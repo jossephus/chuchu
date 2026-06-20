@@ -12,7 +12,8 @@ object ChuchuBackupImportPlanner {
         existingKeys: List<SshKey>,
         existingHosts: List<HostProfile>,
     ): BackupImportPlan {
-        validatePayload(payload)
+        val importableHosts = payload.hosts.filterNot { it.transport == Transport.LocalShell }
+        validatePayload(payload, importableHosts)
 
         val usedKeyNames = existingKeys.map { it.name }.toMutableSet()
         val keyActions = mutableListOf<KeyImportAction>()
@@ -40,7 +41,7 @@ object ChuchuBackupImportPlanner {
         }
 
         val usedHostNames = existingHosts.map { it.name }.toMutableSet()
-        val hostActions = payload.hosts.map { backupHost ->
+        val hostActions = importableHosts.map { backupHost ->
             val localKeyId = backupHost.keyId?.let { exportedKeyId ->
                 when (val ref = keyRefs[exportedKeyId]) {
                     is KeyReference.Existing -> ref.localId
@@ -68,7 +69,7 @@ object ChuchuBackupImportPlanner {
     }
 
     @Throws(BackupFormatException::class)
-    private fun validatePayload(payload: BackupPayload) {
+    private fun validatePayload(payload: BackupPayload, importableHosts: List<BackupHostProfile>) {
         val keyIds = mutableSetOf<Long>()
         payload.keys.forEach { key ->
             if (key.id <= 0L) throw BackupFormatException("Invalid SSH key id")
@@ -79,16 +80,13 @@ object ChuchuBackupImportPlanner {
         }
 
         val hostIds = mutableSetOf<Long>()
-        payload.hosts.forEach { host ->
+        importableHosts.forEach { host ->
             if (host.id <= 0L) throw BackupFormatException("Invalid host id")
             if (!hostIds.add(host.id)) throw BackupFormatException("Duplicate host id")
             if (host.name.isBlank()) throw BackupFormatException("Host name is required")
             if (host.host.isBlank()) throw BackupFormatException("Host address is required")
             if (host.username.isBlank()) throw BackupFormatException("Host username is required")
             if (host.port !in 1..65535) throw BackupFormatException("Invalid host port")
-            if (host.transport == Transport.LocalShell) {
-                throw BackupFormatException("Local shell profiles cannot be imported")
-            }
             if (host.keyId != null && host.keyId !in keyIds) {
                 throw BackupFormatException("Host references a missing SSH key")
             }

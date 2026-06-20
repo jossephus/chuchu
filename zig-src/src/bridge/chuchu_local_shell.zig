@@ -18,6 +18,8 @@ const c = @cImport({
 const allocator = std.heap.c_allocator;
 const LOG_TAG = "ChuLocalShell";
 const read_wait_timeout_ms = 0;
+const write_stall_attempts = 64;
+const write_stall_us = 2_000;
 const close_wait_attempts = 20;
 const close_wait_us = 10_000;
 
@@ -253,12 +255,6 @@ fn childExec(
     c._exit(127);
 }
 
-export fn Java_com_jossephus_chuchu_service_terminal_NativeLocalShellBridge_nativeIsSupported(env: *c.JNIEnv, thiz: c.jobject) callconv(.c) c.jboolean {
-    _ = env;
-    _ = thiz;
-    return c.JNI_TRUE;
-}
-
 export fn Java_com_jossephus_chuchu_service_terminal_NativeLocalShellBridge_nativeCreateSession(env: *c.JNIEnv, thiz: c.jobject) callconv(.c) c.jlong {
     _ = env;
     _ = thiz;
@@ -472,6 +468,35 @@ export fn Java_com_jossephus_chuchu_service_terminal_NativeLocalShellBridge_nati
     return null;
 }
 
+fn writeAllToPty(session: *NativeLocalShellSession, fd: c_int, bytes: []const u8) c.jint {
+    var offset: usize = 0;
+    var stalled_attempts: usize = 0;
+    while (offset < bytes.len) {
+        const rc = c.write(fd, bytes[offset..].ptr, bytes.len - offset);
+        if (rc > 0) {
+            offset += @intCast(rc);
+            stalled_attempts = 0;
+            continue;
+        }
+        if (rc == 0) {
+            stalled_attempts += 1;
+        } else {
+            const err = errnoValue();
+            if (err != c.EINTR and !isWouldBlock(err)) {
+                setErrnoError(session, "local shell write failed");
+                return -1;
+            }
+            stalled_attempts += 1;
+        }
+        if (stalled_attempts > write_stall_attempts) {
+            setError(session, "Local shell write stalled", .{});
+            return -1;
+        }
+        _ = c.usleep(write_stall_us);
+    }
+    return @intCast(offset);
+}
+
 export fn Java_com_jossephus_chuchu_service_terminal_NativeLocalShellBridge_nativeWrite(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, data: c.jbyteArray) callconv(.c) c.jint {
     _ = thiz;
     const session = sessionFromHandle(handle) orelse return -1;
@@ -491,13 +516,8 @@ export fn Java_com_jossephus_chuchu_service_terminal_NativeLocalShellBridge_nati
     }
     defer env.*.*.ReleaseByteArrayElements.?(env, data, bytes, c.JNI_ABORT);
 
-    const rc = c.write(fd, @ptrCast(bytes), @intCast(len));
-    if (rc >= 0) return @intCast(rc);
-
-    const err = errnoValue();
-    if (err == c.EINTR or isWouldBlock(err)) return 0;
-    setErrnoError(session, "local shell write failed");
-    return -1;
+    const slice: []const u8 = @as([*]const u8, @ptrCast(bytes))[0..@intCast(len)];
+    return writeAllToPty(session, fd, slice);
 }
 
 export fn Java_com_jossephus_chuchu_service_terminal_NativeLocalShellBridge_nativeResize(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, cols: c.jint, rows: c.jint, width_px: c.jint, height_px: c.jint) callconv(.c) c.jboolean {

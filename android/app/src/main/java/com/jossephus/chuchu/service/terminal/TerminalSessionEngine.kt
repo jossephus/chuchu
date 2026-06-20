@@ -15,7 +15,6 @@ import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerSession
 import com.jossephus.chuchu.service.ssh.HostKeyStore
 import com.jossephus.chuchu.service.ssh.NativeSshService
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
-import java.io.File
 import java.util.concurrent.Executors
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -65,8 +64,7 @@ data class HostKeyPrompt(
 
 class TerminalSessionEngine(
     private val scope: CoroutineScope,
-    private val userHomeDir: File,
-    private val userTempDir: File,
+    private val localShellService: NativeLocalShellService,
     private val hostKeyStore: HostKeyStore,
     private val tailscaleStatusChecker: TailscaleStatusChecker,
 ) {
@@ -108,7 +106,6 @@ class TerminalSessionEngine(
     private val bridge = GhosttyBridge()
     private val nativeSsh = NativeSshService(hostKeyPolicy = ::verifyHostKey)
     private val moshService = NativeMoshService()
-    private val localShellService = NativeLocalShellService(userHomeDir, userTempDir)
 
     private var handle: Long = 0L
     private var readJob: Job? = null
@@ -225,15 +222,6 @@ class TerminalSessionEngine(
                         status = SessionStatus.Error,
                         sessionKey = sessionKey,
                         error = "Native mosh unavailable. Check ABI/NDK build.",
-                    )
-                return@launch
-            }
-            if (transport == Transport.LocalShell && !localShellService.isAvailable()) {
-                _state.value =
-                    SessionState(
-                        status = SessionStatus.Error,
-                        sessionKey = sessionKey,
-                        error = "Native local shell unavailable. Check ABI/NDK build.",
                     )
                 return@launch
             }
@@ -445,52 +433,27 @@ class TerminalSessionEngine(
     }
 
     suspend fun sftpListDirectory(path: String): List<String> =
-        withContext(dispatcher) {
-            ensureSftpSupported()
-            nativeSsh.sftpListDirectory(path)
-        }
+        withContext(dispatcher) { nativeSsh.sftpListDirectory(path) }
 
     suspend fun sftpRealpath(path: String): String =
-        withContext(dispatcher) {
-            ensureSftpSupported()
-            nativeSsh.sftpRealpath(path)
-        }
+        withContext(dispatcher) { nativeSsh.sftpRealpath(path) }
 
     suspend fun sftpOpenWrite(path: String) =
-        withContext(dispatcher) {
-            ensureSftpSupported()
-            nativeSsh.sftpOpenWrite(path)
-        }
+        withContext(dispatcher) { nativeSsh.sftpOpenWrite(path) }
 
     suspend fun sftpWriteChunk(data: ByteArray): Int =
-        withContext(dispatcher) {
-            ensureSftpSupported()
-            nativeSsh.sftpWriteChunk(data)
-        }
+        withContext(dispatcher) { nativeSsh.sftpWriteChunk(data) }
 
     suspend fun sftpCloseWrite() =
-        withContext(dispatcher) {
-            ensureSftpSupported()
-            nativeSsh.sftpCloseWrite()
-        }
+        withContext(dispatcher) { nativeSsh.sftpCloseWrite() }
 
     suspend fun sftpReadFile(path: String, maxBytes: Int): ByteArray =
-        withContext(dispatcher) {
-            ensureSftpSupported()
-            nativeSsh.sftpReadFile(path, maxBytes)
-        }
+        withContext(dispatcher) { nativeSsh.sftpReadFile(path, maxBytes) }
 
     suspend fun sftpDelete(path: String, isDirectory: Boolean) =
         withContext(dispatcher) {
-            ensureSftpSupported()
             if (isDirectory) nativeSsh.sftpDeleteDirectory(path) else nativeSsh.sftpDeleteFile(path)
         }
-
-    private fun ensureSftpSupported() {
-        check(lastConnectionParams?.transport != Transport.LocalShell) {
-            "Files are not supported for local shell sessions"
-        }
-    }
 
     suspend fun checkMultiplexerAvailability(spec: TabSpec): MultiplexerAvailability =
         withContext(dispatcher) { checkMultiplexerAvailability(spec.toConnectionParams()) }
@@ -713,15 +676,17 @@ class TerminalSessionEngine(
 
     private suspend fun startLocalShellReadLoop() {
         val buf = ByteArray(65536)
+        var lastActivityMs = System.currentTimeMillis()
         while (currentCoroutineContext().isActive) {
             val chunk = localShellService.read(buf.size)
             if (chunk == null) {
                 break
             }
             if (chunk.isEmpty()) {
-                delay(2)
+                delay(idleReadDelayMs(System.currentTimeMillis() - lastActivityMs))
                 continue
             }
+            lastActivityMs = System.currentTimeMillis()
             feedRemoteChunk(chunk)
         }
     }
@@ -831,7 +796,6 @@ class TerminalSessionEngine(
     }
 
     private fun establishLocalShellConnection() {
-        check(localShellService.isAvailable()) { "Native local shell unavailable" }
         localShellService.start(cols, rows, screenWidth, screenHeight)
     }
 

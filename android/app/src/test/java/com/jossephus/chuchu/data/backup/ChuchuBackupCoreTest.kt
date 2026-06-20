@@ -220,36 +220,6 @@ class ChuchuBackupCoreTest {
     }
 
     @Test(expected = BackupFormatException::class)
-    fun payloadEncodeRejectsLocalShellHostProfiles() {
-        val payload = samplePayload().copy(
-            hosts = listOf(BackupHostProfile.fromEntity(sampleHost(transport = Transport.LocalShell))),
-        )
-
-        ChuchuBackupCodec.encodePayload(payload)
-    }
-
-    @Test(expected = BackupFormatException::class)
-    fun payloadDecodeRejectsLocalShellHostProfiles() {
-        val encoded = ChuchuBackupCodec.encodePayload(samplePayload())
-        val crafted = replaceLastLengthPrefixedUtf8(encoded, "Mosh", "LocalShell")
-
-        ChuchuBackupCodec.decodePayload(crafted)
-    }
-
-    @Test(expected = BackupFormatException::class)
-    fun importPlanRejectsLocalShellHostProfiles() {
-        val payload = samplePayload().copy(
-            hosts = listOf(BackupHostProfile.fromEntity(sampleHost(transport = Transport.LocalShell))),
-        )
-
-        ChuchuBackupImportPlanner.planImport(
-            payload = payload,
-            existingKeys = emptyList(),
-            existingHosts = emptyList(),
-        )
-    }
-
-    @Test(expected = BackupFormatException::class)
     fun payloadDecodeRejectsMalformedBytes() {
         ChuchuBackupCodec.decodePayload(byteArrayOf(1, 2, 3))
     }
@@ -336,41 +306,5 @@ class ChuchuBackupCoreTest {
         }
         require(matchIndex >= 0)
         newBytes.copyInto(bytes, destinationOffset = matchIndex)
-    }
-
-    /**
-     * Replaces the last length-prefixed UTF-8 string in a backup payload.
-     *
-     * Backup strings are encoded as a 4-byte big-endian length followed by UTF-8 bytes.
-     * This validates the discovered prefix with [readIntAt], updates it with [writeIntAt],
-     * and rebuilds the array so surrounding zero-based byte offsets stay intact.
-     */
-    private fun replaceLastLengthPrefixedUtf8(
-        bytes: ByteArray,
-        oldValue: String,
-        newValue: String,
-    ): ByteArray {
-        val oldBytes = oldValue.toByteArray(Charsets.UTF_8)
-        val newBytes = newValue.toByteArray(Charsets.UTF_8)
-        var matchIndex = -1
-        for (index in 0..bytes.size - oldBytes.size) {
-            if (oldBytes.indices.all { offset -> bytes[index + offset] == oldBytes[offset] }) {
-                matchIndex = index
-            }
-        }
-        require(matchIndex >= Int.SIZE_BYTES)
-        val lengthOffset = matchIndex - Int.SIZE_BYTES
-        require(readIntAt(bytes, lengthOffset) == oldBytes.size)
-
-        val out = ByteArray(bytes.size - oldBytes.size + newBytes.size)
-        bytes.copyInto(out, endIndex = lengthOffset)
-        writeIntAt(out, lengthOffset, newBytes.size)
-        newBytes.copyInto(out, destinationOffset = matchIndex)
-        bytes.copyInto(
-            out,
-            destinationOffset = matchIndex + newBytes.size,
-            startIndex = matchIndex + oldBytes.size,
-        )
-        return out
     }
 }

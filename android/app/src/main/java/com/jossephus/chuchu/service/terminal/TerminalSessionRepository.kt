@@ -2,6 +2,7 @@ package com.jossephus.chuchu.service.terminal
 
 import android.app.Application
 import com.jossephus.chuchu.model.MultiplexerType
+import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.multiplexer.MultiplexerRegistry
 import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerSession
 import com.jossephus.chuchu.service.ssh.HostKeyStore
@@ -168,8 +169,7 @@ class TerminalSessionRepository private constructor(application: Application) {
             val engine =
                 TerminalSessionEngine(
                     scope,
-                    appContext.filesDir,
-                    appContext.cacheDir,
+                    newLocalShellService(),
                     hostKeyStore,
                     tailscaleStatusChecker,
                 )
@@ -200,8 +200,7 @@ class TerminalSessionRepository private constructor(application: Application) {
         val engine =
             TerminalSessionEngine(
                 scope,
-                appContext.filesDir,
-                appContext.cacheDir,
+                newLocalShellService(),
                 hostKeyStore,
                 tailscaleStatusChecker,
             )
@@ -298,14 +297,20 @@ class TerminalSessionRepository private constructor(application: Application) {
     private fun activeEngine(): TerminalSessionEngine? = activeTab.value?.engine
 
     private fun sessionKeyFor(tab: TabSession): String =
-        if (tab.spec.transport == com.jossephus.chuchu.model.Transport.LocalShell) {
+        if (tab.spec.transport == Transport.LocalShell) {
             "local-shell:${tab.id}"
         } else {
             tab.spec.sessionKey
         }
 
-    private fun engineForTab(tabId: String): TerminalSessionEngine? =
-        _tabs.value.firstOrNull { it.id == tabId }?.engine
+    private fun newLocalShellService(): NativeLocalShellService =
+        NativeLocalShellService(appContext.filesDir, appContext.cacheDir)
+
+    private fun activeSftpEngine(): TerminalSessionEngine? =
+        activeTab.value?.takeIf { it.spec.transport != Transport.LocalShell }?.engine
+
+    private fun sftpEngineForTab(tabId: String): TerminalSessionEngine? =
+        _tabs.value.firstOrNull { it.id == tabId && it.spec.transport != Transport.LocalShell }?.engine
 
     fun resize(
         cols: Int,
@@ -367,42 +372,42 @@ class TerminalSessionRepository private constructor(application: Application) {
     }
 
     suspend fun sftpListDirectory(path: String): List<String> =
-        activeEngine()?.sftpListDirectory(path) ?: emptyList()
+        activeSftpEngine()?.sftpListDirectory(path) ?: emptyList()
 
     suspend fun sftpListDirectory(tabId: String, path: String): List<String> =
-        engineForTab(tabId)?.sftpListDirectory(path) ?: emptyList()
+        sftpEngineForTab(tabId)?.sftpListDirectory(path) ?: emptyList()
 
-    suspend fun sftpRealpath(path: String): String = activeEngine()?.sftpRealpath(path) ?: "/"
+    suspend fun sftpRealpath(path: String): String = activeSftpEngine()?.sftpRealpath(path) ?: "/"
 
     suspend fun sftpRealpath(tabId: String, path: String): String =
-        engineForTab(tabId)?.sftpRealpath(path) ?: "/"
+        sftpEngineForTab(tabId)?.sftpRealpath(path) ?: "/"
 
     suspend fun sftpOpenWrite(path: String) {
-        activeEngine()?.sftpOpenWrite(path)
+        activeSftpEngine()?.sftpOpenWrite(path)
     }
 
     suspend fun sftpOpenWrite(tabId: String, path: String) {
-        engineForTab(tabId)?.sftpOpenWrite(path)
+        sftpEngineForTab(tabId)?.sftpOpenWrite(path)
     }
 
-    suspend fun sftpWriteChunk(data: ByteArray): Int = activeEngine()?.sftpWriteChunk(data) ?: 0
+    suspend fun sftpWriteChunk(data: ByteArray): Int = activeSftpEngine()?.sftpWriteChunk(data) ?: 0
 
     suspend fun sftpWriteChunk(tabId: String, data: ByteArray): Int =
-        engineForTab(tabId)?.sftpWriteChunk(data) ?: 0
+        sftpEngineForTab(tabId)?.sftpWriteChunk(data) ?: 0
 
     suspend fun sftpCloseWrite() {
-        activeEngine()?.sftpCloseWrite()
+        activeSftpEngine()?.sftpCloseWrite()
     }
 
     suspend fun sftpCloseWrite(tabId: String) {
-        engineForTab(tabId)?.sftpCloseWrite()
+        sftpEngineForTab(tabId)?.sftpCloseWrite()
     }
 
     suspend fun sftpReadFile(tabId: String, path: String, maxBytes: Int): ByteArray =
-        engineForTab(tabId)?.sftpReadFile(path, maxBytes) ?: ByteArray(0)
+        sftpEngineForTab(tabId)?.sftpReadFile(path, maxBytes) ?: ByteArray(0)
 
     suspend fun sftpDelete(tabId: String, path: String, isDirectory: Boolean) {
-        engineForTab(tabId)?.sftpDelete(path, isDirectory)
+        sftpEngineForTab(tabId)?.sftpDelete(path, isDirectory)
     }
 
     companion object {
