@@ -1,8 +1,13 @@
 package com.jossephus.chuchu.ui.terminal
 
+import org.json.JSONArray
+import org.json.JSONException
+import org.json.JSONObject
+
 data class TerminalCustomAction(
     val label: String,
     val payload: String,
+    val shortcut: String? = null,
 )
 
 data class TerminalCustomKeyGroup(
@@ -87,7 +92,8 @@ object TerminalCustomActionStore {
                 val label = action.label.trim()
                 val payload = action.payload
                 if (label.isEmpty() || payload.isEmpty()) return@mapNotNull null
-                TerminalCustomAction(label = label, payload = payload)
+                val shortcut = action.shortcut?.trim()?.takeIf { it.isNotEmpty() }
+                TerminalCustomAction(label = label, payload = payload, shortcut = shortcut)
             }
             if (actions.isEmpty()) return@forEach
             seen += key
@@ -99,7 +105,38 @@ object TerminalCustomActionStore {
     fun parse(raw: String?): List<TerminalCustomKeyGroup> {
         if (raw == null) return defaultGroups
         if (raw.isBlank()) return emptyList()
-        val parsed = raw
+        val parsed = try {
+            val array = JSONArray(raw)
+            (0 until array.length()).mapNotNull { groupIndex ->
+                val groupObj = array.optJSONObject(groupIndex) ?: return@mapNotNull null
+                val keyLabel = groupObj.optString("key").trim()
+                if (keyLabel.isEmpty()) return@mapNotNull null
+                val actionsArray = groupObj.optJSONArray("actions") ?: return@mapNotNull null
+                val actions = (0 until actionsArray.length()).mapNotNull { actionIndex ->
+                    val actionObj = actionsArray.optJSONObject(actionIndex)
+                        ?: return@mapNotNull null
+                    val label = actionObj.optString("label").trim()
+                    val payload = actionObj.optString("payload")
+                    if (label.isEmpty() || payload.isEmpty()) return@mapNotNull null
+                    val shortcut = actionObj.optString("shortcut").trim().takeIf { it.isNotEmpty() }
+                    TerminalCustomAction(label = label, payload = payload, shortcut = shortcut)
+                }
+                if (actions.isEmpty()) return@mapNotNull null
+                TerminalCustomKeyGroup(keyLabel = keyLabel, actions = actions)
+            }
+        } catch (_: JSONException) {
+            // Migration: actions saved before the JSON switch used a delimited
+            // "keyLabel=label::payload|..." string. The shortcut field is new, so
+            // legacy entries never carried one — split on the first "::" only, which
+            // preserves any "::" inside the payload. Re-saving rewrites it as JSON.
+            parseLegacy(raw)
+        }
+
+        return normalize(parsed).ifEmpty { defaultGroups }
+    }
+
+    private fun parseLegacy(raw: String): List<TerminalCustomKeyGroup> {
+        return raw
             .lineSequence()
             .map { it.trim() }
             .filter { it.isNotEmpty() }
@@ -123,17 +160,25 @@ object TerminalCustomActionStore {
                 TerminalCustomKeyGroup(keyLabel = keyLabel, actions = actions)
             }
             .toList()
-
-        return normalize(parsed).ifEmpty { defaultGroups }
     }
 
     fun serialize(groups: List<TerminalCustomKeyGroup>): String {
-        return normalize(groups)
-            .joinToString(separator = "\n") { group ->
-                val actions = group.actions.joinToString(separator = "|") { action ->
-                    "${action.label}::${action.payload}"
+        val normalized = normalize(groups)
+        if (normalized.isEmpty()) return ""
+        val array = JSONArray()
+        normalized.forEach { group ->
+            val actionsArray = JSONArray()
+            group.actions.forEach { action ->
+                val actionObj = JSONObject()
+                actionObj.put("label", action.label)
+                actionObj.put("payload", action.payload)
+                if (action.shortcut != null) {
+                    actionObj.put("shortcut", action.shortcut)
                 }
-                "${group.keyLabel}=$actions"
+                actionsArray.put(actionObj)
             }
+            array.put(JSONObject().put("key", group.keyLabel).put("actions", actionsArray))
+        }
+        return array.toString()
     }
 }

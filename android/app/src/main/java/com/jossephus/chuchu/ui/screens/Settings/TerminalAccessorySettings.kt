@@ -56,7 +56,9 @@ import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuCard
 import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.components.ChuSwitch
+import com.jossephus.chuchu.ui.components.ChuTextField
 import com.jossephus.chuchu.ui.terminal.AccessoryKeyItem
+import com.jossephus.chuchu.ui.terminal.BuiltinCommand
 import com.jossephus.chuchu.ui.terminal.KeyboardAccessoryBar
 import com.jossephus.chuchu.ui.terminal.ModifierState
 import com.jossephus.chuchu.ui.terminal.TerminalAccessoryLayoutStore
@@ -73,6 +75,10 @@ internal fun TerminalSettings(
     onAccessoryBarSingleRowChanged: (Boolean) -> Unit,
     currentTerminalCustomKeyGroups: List<TerminalCustomKeyGroup>,
     onEditCustomActions: () -> Unit,
+    showCustomActionsFab: Boolean,
+    onShowCustomActionsFabChanged: (Boolean) -> Unit,
+    builtinShortcuts: Map<String, String> = emptyMap(),
+    onBuiltinShortcutsChanged: (Map<String, String>) -> Unit = {},
     currentTabMode: TerminalTabMode = TerminalTabMode.Classic,
     onTabModeChanged: (TerminalTabMode) -> Unit = {},
 ) {
@@ -306,6 +312,77 @@ internal fun TerminalSettings(
                     style = typography.body,
                     color = colors.textSecondary,
                 )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        ChuText("show actions button", style = typography.label)
+                        ChuText(
+                            "toggle visibility of the floating button in terminal",
+                            style = typography.bodySmall,
+                            color = colors.textMuted,
+                        )
+                    }
+                    ChuSwitch(
+                        checked = showCustomActionsFab,
+                        onCheckedChange = onShowCustomActionsFabChanged,
+                    )
+                }
+            }
+        }
+
+        ChuCard(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                ChuText("chuchu commands", style = typography.label)
+                ChuText(
+                    "assign shortcut keys for builtin commands. empty key hides the command. overrides custom action shortcut keys.",
+                    style = typography.body,
+                    color = colors.textSecondary,
+                )
+
+                BuiltinCommand.entries.forEach { command ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            ChuText(command.label, style = typography.label)
+                            ChuText(command.description, style = typography.bodySmall, color = colors.textMuted)
+                        }
+                        ChuTextField(
+                            value = builtinShortcuts[command.id] ?: "",
+                            onValueChange = { updated ->
+                                val key = updated.takeLast(1)
+                                val newShortcuts = builtinShortcuts.toMutableMap()
+                                if (key.isNotEmpty()) {
+                                    // Keep each key bound to a single command: clear any
+                                    // other command currently using this key.
+                                    newShortcuts.entries
+                                        .filter { it.value == key && it.key != command.id }
+                                        .forEach { newShortcuts[it.key] = "" }
+                                }
+                                newShortcuts[command.id] = key
+                                onBuiltinShortcutsChanged(newShortcuts)
+                            },
+                            label = command.label,
+                            showLabel = false,
+                            placeholder = "key",
+                            singleLine = true,
+                            autoFocus = false,
+                            modifier = Modifier.width(64.dp),
+                        )
+                    }
+                }
             }
         }
     }

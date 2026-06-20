@@ -21,6 +21,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -77,6 +79,7 @@ import com.jossephus.chuchu.ui.screens.Files.UploadProgress
 import com.jossephus.chuchu.ui.screens.Files.formatFileSize
 import com.jossephus.chuchu.ui.screens.Terminal.TerminalTabMode
 import com.jossephus.chuchu.ui.terminal.AccessoryAction
+import com.jossephus.chuchu.ui.terminal.BuiltinCommand
 import com.jossephus.chuchu.ui.terminal.ChuchuHint
 import com.jossephus.chuchu.ui.terminal.ChuchuKeyBindings
 import com.jossephus.chuchu.ui.terminal.CustomActionModifier
@@ -142,15 +145,24 @@ private fun TerminalCustomActionsFab(
     groups: List<TerminalCustomKeyGroup>,
     onActionClick: (TerminalCustomAction) -> Unit,
     modifier: Modifier = Modifier,
+    filteredActions: List<TerminalCustomAction>? = null,
+    onClearFilter: () -> Unit = {},
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
-    var expanded by remember { mutableStateOf(false) }
+    var expanded by remember { mutableStateOf(filteredActions != null) }
     var selectedGroupKey by remember { mutableStateOf<String?>(null) }
     val selectedGroup =
         remember(selectedGroupKey, groups) {
             groups.firstOrNull { it.keyLabel == selectedGroupKey }
         }
+
+    LaunchedEffect(filteredActions) {
+        if (filteredActions != null) {
+            expanded = true
+            selectedGroupKey = null
+        }
+    }
 
     Column(
         modifier = modifier,
@@ -162,7 +174,34 @@ private fun TerminalCustomActionsFab(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                if (selectedGroup == null) {
+                if (filteredActions != null) {
+                    filteredActions.forEach { action ->
+                        ChuButton(
+                            onClick = {
+                                onActionClick(action)
+                                expanded = false
+                                onClearFilter()
+                            },
+                            variant = ChuButtonVariant.Outlined,
+                            bracketed = true,
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                        ) {
+                            ChuText(action.label, style = typography.label)
+                        }
+                    }
+                    ChuButton(
+                        onClick = {
+                            expanded = false
+                            onClearFilter()
+                        },
+                        variant = ChuButtonVariant.Ghost,
+                        bracketed = true,
+                        borderColor = colors.textMuted,
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    ) {
+                        ChuText("<", style = typography.label, color = colors.textMuted)
+                    }
+                } else if (selectedGroup == null) {
                     groups.forEach { group ->
                         ChuButton(
                             onClick = {
@@ -216,6 +255,7 @@ private fun TerminalCustomActionsFab(
                 expanded = !expanded
                 if (!expanded) {
                     selectedGroupKey = null
+                    onClearFilter()
                 }
             },
             variant = if (expanded) ChuButtonVariant.Ghost else ChuButtonVariant.Filled,
@@ -232,6 +272,7 @@ private fun TerminalCustomActionsFab(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TerminalScreen(
     vm: TerminalViewModel,
@@ -299,31 +340,76 @@ fun TerminalScreen(
     var terminalFontSizeSp by remember {
         mutableStateOf(terminalPrefs.getFloat("terminal_font_size_sp", 14f).coerceAtLeast(0.1f))
     }
+    val showCustomActionsFab by settingsRepo.showCustomActionsFab.collectAsStateWithLifecycle()
+    val builtinShortcuts by settingsRepo.builtinShortcuts.collectAsStateWithLifecycle()
+    var fabFilteredActions by remember { mutableStateOf<List<TerminalCustomAction>?>(null) }
     val chuchuKeys =
-        remember(vm, tabMode) {
+        remember(vm, tabMode, currentTerminalCustomKeyGroups, builtinShortcuts) {
             val isStrip = tabMode == TerminalTabMode.Strip
+            val builtinCommandHandlers: Map<BuiltinCommand, () -> Unit> = mapOf(
+                BuiltinCommand.Tabs to {
+                    if (isStrip) {
+                        showGlobalTabManager = true
+                    } else {
+                        showTabSheet = true
+                    }
+                },
+                BuiltinCommand.NewTab to {
+                    vm.duplicateActiveTab()
+                    vm.selectConnectionTab(ConnectionTab.Terminal)
+                    showTabSheet = false
+                },
+                BuiltinCommand.Close to {
+                    val activeId = vm.activeTabId.value
+                    if (activeId != null) vm.closeTab(activeId)
+                },
+                BuiltinCommand.Actions to { settingsRepo.setShowCustomActionsFab(!showCustomActionsFab) },
+                BuiltinCommand.Settings to { onOpenSettings() },
+            )
+            // Build builtin hints and handlers in one pass so they stay consistent.
+            // First binding for a key wins (settings already prevents duplicates).
+            val builtinHints = mutableListOf<ChuchuHint>()
+            val builtinHandlers = mutableMapOf<Char, () -> Unit>()
+            builtinShortcuts.forEach { (commandId, shortcut) ->
+                if (shortcut.isEmpty()) return@forEach
+                val command = BuiltinCommand.fromId(commandId) ?: return@forEach
+                val handler = builtinCommandHandlers[command] ?: return@forEach
+                val keyChar = shortcut.first().lowercaseChar()
+                if (keyChar in builtinHandlers) return@forEach
+                builtinHandlers[keyChar] = handler
+                builtinHints += ChuchuHint(key = shortcut, description = command.label)
+            }
+            val builtinKeys = builtinHandlers.keys.toSet()
+            val customHints = mutableListOf<ChuchuHint>()
+            val customHandlers = mutableMapOf<Char, () -> Unit>()
+            val seenShortcuts = builtinKeys.toMutableSet()
+            val shortcutActionsMap = mutableMapOf<Char, MutableList<TerminalCustomAction>>()
+            currentTerminalCustomKeyGroups.forEach { group ->
+                group.actions.forEach { action ->
+                    val shortcut = action.shortcut?.takeIf { it.length == 1 } ?: return@forEach
+                    val keyChar = shortcut.first().lowercaseChar()
+                    if (keyChar in builtinKeys) return@forEach
+                    shortcutActionsMap.getOrPut(keyChar) { mutableListOf() }.add(action)
+                }
+            }
+            shortcutActionsMap.forEach { (keyChar, actions) ->
+                if (!seenShortcuts.add(keyChar)) return@forEach
+                customHints += ChuchuHint(key = keyChar.toString(), description = "[${actions.joinToString(", ") { it.label }}]")
+                customHandlers[keyChar] = {
+                    if (actions.size == 1) {
+                        val decoded = decodeCustomActionValue(actions.first().payload)
+                        val rawText = decoded.text +
+                            if (CustomActionModifier.Enter in decoded.modifiers) "\n" else ""
+                        val actionModifierState = modifierStateForCustomAction(decoded.modifiers)
+                        vm.dispatchTextWithModifierState(rawText, actionModifierState)
+                    } else {
+                        fabFilteredActions = actions
+                    }
+                }
+            }
             ChuchuKeyBindings(
-                hints =
-                    listOf(
-                        ChuchuHint(key = "t", description = if (isStrip) "tab manager" else "tabs"),
-                        ChuchuHint(key = "n", description = "new tab"),
-                    ),
-                handlers =
-                    mapOf(
-                        't' to {
-                            if (isStrip) {
-                                showGlobalTabManager = true
-                            } else {
-                                showTabSheet = true
-                            }
-                        },
-                        'n' to
-                            {
-                                vm.duplicateActiveTab()
-                                vm.selectConnectionTab(ConnectionTab.Terminal)
-                                showTabSheet = false
-                            },
-                    ),
+                hints = builtinHints + customHints,
+                handlers = builtinHandlers + customHandlers,
             )
         }
     val multiplexerState by vm.multiplexerState.collectAsStateWithLifecycle()
@@ -1344,7 +1430,9 @@ fun TerminalScreen(
                                     },
                                 )
 
-                                if (currentTerminalCustomKeyGroups.isNotEmpty()) {
+                                if (currentTerminalCustomKeyGroups.isNotEmpty() &&
+                                    (showCustomActionsFab || fabFilteredActions != null)
+                                ) {
                                     TerminalCustomActionsFab(
                                         groups = currentTerminalCustomKeyGroups,
                                         onActionClick = { action ->
@@ -1368,7 +1456,46 @@ fun TerminalScreen(
                                         modifier =
                                             Modifier.align(Alignment.BottomEnd)
                                                 .padding(end = 14.dp, bottom = 12.dp),
+                                        filteredActions = fabFilteredActions,
+                                        onClearFilter = { fabFilteredActions = null },
                                     )
+                                }
+
+                                androidx.compose.animation.AnimatedVisibility(
+                                    visible = chuchuKeys.isPrefixActive,
+                                    enter = fadeIn(),
+                                    exit = fadeOut(),
+                                    modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth(),
+                                ) {
+                                    Row(
+                                        modifier =
+                                            Modifier.fillMaxWidth()
+                                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                                                .background(colors.surface)
+                                                .border(1.dp, colors.border)
+                                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        ChuText(
+                                            "⌘",
+                                            style = typography.label,
+                                            color = colors.accent,
+                                            modifier = Modifier.width(24.dp),
+                                        )
+                                        FlowRow(
+                                            modifier = Modifier.weight(1f),
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                                        ) {
+                                            chuchuKeys.hints().forEach { hint ->
+                                                ChuText(
+                                                    "${hint.key}: ${hint.description}",
+                                                    style = typography.labelSmall,
+                                                    color = colors.textSecondary,
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1385,35 +1512,6 @@ fun TerminalScreen(
                                         style = typography.labelSmall,
                                         color = colors.textMuted.copy(alpha = 0.7f),
                                     )
-                                }
-                            }
-                            AnimatedVisibility(
-                                visible = chuchuKeys.isPrefixActive,
-                                enter = fadeIn(),
-                                exit = fadeOut(),
-                            ) {
-                                Row(
-                                    modifier =
-                                        Modifier.fillMaxWidth()
-                                            .padding(horizontal = 10.dp, vertical = 4.dp)
-                                            .background(colors.surface)
-                                            .border(1.dp, colors.border)
-                                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    ChuText(
-                                        "⌘ key",
-                                        style = typography.label,
-                                        color = colors.accent,
-                                    )
-                                    chuchuKeys.hints().forEach { hint ->
-                                        ChuText(
-                                            "${hint.key}: ${hint.description}",
-                                            style = typography.labelSmall,
-                                            color = colors.textSecondary,
-                                        )
-                                    }
                                 }
                             }
                             KeyboardAccessoryBar(

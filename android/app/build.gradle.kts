@@ -93,6 +93,9 @@ dependencies {
     implementation("androidx.biometric:biometric:1.2.0-alpha05")
     implementation("androidx.fragment:fragment-ktx:1.8.2")
     testImplementation(libs.junit)
+    // Real org.json on the unit-test classpath: android.jar ships a stub that throws
+    // "not mocked", so tests exercising JSON (de)serialization need the actual impl.
+    testImplementation("org.json:json:20240303")
     androidTestImplementation(libs.androidx.junit)
     implementation(libs.androidx.compose.foundation)
     androidTestImplementation(libs.androidx.espresso.core)
