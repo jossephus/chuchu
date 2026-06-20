@@ -1256,6 +1256,24 @@ export fn chuchu_resize(handle: c.jlong, cols: c.jint, rows: c.jint, cell_width:
     terminal.cell_height = @intCast(clampI32(cell_height, 1, 1));
     terminal.terminal.width_px = @as(u32, new_cols) * terminal.cell_width;
     terminal.terminal.height_px = @as(u32, new_rows) * terminal.cell_height;
+
+    terminal.terminal.modes.set(.synchronized_output, false);
+
+    // Emit a DEC 2048 in-band size report on resize. TUIs like Textual disable
+    // their SIGWINCH fallback once mode 2048 is on and rely on this report.
+    // Report form: ESC [ 48 ; rows ; cols ; height_px ; width_px t
+    if (terminal.terminal.modes.get(.in_band_size_reports)) {
+        var report_buf: [64]u8 = undefined;
+        if (std.fmt.bufPrint(&report_buf, "\x1b[48;{d};{d};{d};{d}t", .{
+            new_rows,
+            new_cols,
+            @as(u32, new_rows) * terminal.cell_height,
+            @as(u32, new_cols) * terminal.cell_width,
+        })) |report| {
+            appendPtyWrite(terminal, report);
+        } else |_| {}
+    }
+
     update_render_state(terminal);
 }
 

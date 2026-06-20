@@ -380,6 +380,9 @@ class TerminalSessionEngine(
                 screenHeight = newScreenHeight
                 if (handle != 0L) {
                     bridge.nativeResize(handle, cols, rows, cellWidth, cellHeight)
+                    // Flush pty output from the resize (e.g. the DEC 2048 in-band
+                    // size report) so Textual-based TUIs detect the resize.
+                    flushPtyWrites()
                     bridge.nativeSetMouseEncodingSize(
                         handle,
                         screenWidth,
