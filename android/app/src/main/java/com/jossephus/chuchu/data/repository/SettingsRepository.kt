@@ -14,6 +14,9 @@ import kotlinx.coroutines.flow.asStateFlow
 
 class SettingsRepository(context: Context) {
 
+    private val legacyTerminalPrefs: SharedPreferences =
+        context.getSharedPreferences(LEGACY_TERMINAL_PREFS, Context.MODE_PRIVATE)
+
     private val prefs: SharedPreferences =
         context.getSharedPreferences("chuchu_settings", Context.MODE_PRIVATE)
 
@@ -52,6 +55,11 @@ class SettingsRepository(context: Context) {
         prefs.getString(KEY_LIGHT_THEME, DEFAULT_LIGHT_THEME) ?: DEFAULT_LIGHT_THEME,
     )
     val lightThemeName: StateFlow<String> = _lightThemeName.asStateFlow()
+
+    private val _terminalFontSize = MutableStateFlow(
+        loadTerminalFontSize(),
+    )
+    val terminalFontSize: StateFlow<Float> = _terminalFontSize.asStateFlow()
 
     fun setTheme(name: String) {
         prefs.edit().putString(KEY_THEME, name).apply()
@@ -107,6 +115,25 @@ class SettingsRepository(context: Context) {
         _lightThemeName.value = name
     }
 
+    fun setTerminalFontSize(sizeSp: Float) {
+        val clamped = sizeSp.coerceIn(MIN_TERMINAL_FONT_SIZE, MAX_TERMINAL_FONT_SIZE)
+        prefs.edit()
+            .putFloat(KEY_TERMINAL_FONT_SIZE, clamped)
+            .putBoolean(KEY_TERMINAL_FONT_SIZE_CUSTOMIZED, true)
+            .apply()
+        _terminalFontSize.value = clamped
+    }
+
+    private fun loadTerminalFontSize(): Float {
+        val stored =
+            if (prefs.getBoolean(KEY_TERMINAL_FONT_SIZE_CUSTOMIZED, false)) {
+                prefs.getFloat(KEY_TERMINAL_FONT_SIZE, DEFAULT_TERMINAL_FONT_SIZE)
+            } else {
+                legacyTerminalPrefs.getFloat(KEY_TERMINAL_FONT_SIZE, DEFAULT_TERMINAL_FONT_SIZE)
+            }
+        return stored.coerceIn(MIN_TERMINAL_FONT_SIZE, MAX_TERMINAL_FONT_SIZE)
+    }
+
     private fun loadAccessoryLayoutIds(): List<String> {
         val stored = prefs.getString(KEY_ACCESSORY_LAYOUT, null)
             ?: return TerminalAccessoryLayoutStore.defaultLayoutIds()
@@ -134,10 +161,16 @@ class SettingsRepository(context: Context) {
         private const val KEY_REQUIRE_AUTH_ON_CONNECT = "require_auth_on_connect"
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_LIGHT_THEME = "light_theme_name"
+        private const val KEY_TERMINAL_FONT_SIZE = "terminal_font_size_sp"
+        private const val KEY_TERMINAL_FONT_SIZE_CUSTOMIZED = "terminal_font_size_customized"
+        private const val LEGACY_TERMINAL_PREFS = "chuchu_terminal"
         const val DEFAULT_THEME = "Catppuccin Mocha"
         const val DEFAULT_LIGHT_THEME = "Catppuccin Latte"
         val DEFAULT_THEME_MODE = ThemeMode.System
         const val DEFAULT_FONT = "jetbrains_mono"
+        const val DEFAULT_TERMINAL_FONT_SIZE = 14f
+        const val MIN_TERMINAL_FONT_SIZE = 6f
+        const val MAX_TERMINAL_FONT_SIZE = 72f
 
         @Volatile
         private var instance: SettingsRepository? = null

@@ -24,6 +24,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
@@ -43,6 +44,7 @@ fun ChuTextField(
         autoCorrectEnabled = false,
     ),
     autoFocus: Boolean = true,
+    textAlign: TextAlign = TextAlign.Start,
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
@@ -80,7 +82,7 @@ fun ChuTextField(
                 )
                 .padding(horizontal = 10.dp, vertical = 9.dp),
             singleLine = singleLine,
-            textStyle = typography.body.copy(color = colors.textPrimary),
+            textStyle = typography.body.copy(color = colors.textPrimary, textAlign = textAlign),
             keyboardOptions = keyboardOptions,
             visualTransformation = visualTransformation,
             interactionSource = interactionSource,
