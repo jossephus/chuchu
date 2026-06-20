@@ -1251,6 +1251,8 @@ fun TerminalScreen(
 
                                 val selState = selectionState
                                 if (selState != null) {
+                                    val sel = selection
+                                    val isAnchorStart = sel != null && sel.anchorIndex <= sel.focusIndex
                                     TerminalSelectionHandle(
                                         tipX = selState.startOffset.x,
                                         tipY = selState.startOffset.y + selState.cellHeightPx / 2f,
@@ -1264,7 +1266,7 @@ fun TerminalScreen(
                                             if (s != null) minOf(s.anchorIndex, s.focusIndex) else 0
                                         },
                                         onDragToCell = { newCell ->
-                                            selection = selection?.withStart(newCell)
+                                            selection = selection?.withStart(newCell, updateAnchor = isAnchorStart)
                                         },
                                     )
                                     TerminalSelectionHandle(
@@ -1280,7 +1282,7 @@ fun TerminalScreen(
                                             if (s != null) maxOf(s.anchorIndex, s.focusIndex) else 0
                                         },
                                         onDragToCell = { newCell ->
-                                            selection = selection?.withEnd(newCell)
+                                            selection = selection?.withEnd(newCell, updateAnchor = !isAnchorStart)
                                         },
                                     )
 
