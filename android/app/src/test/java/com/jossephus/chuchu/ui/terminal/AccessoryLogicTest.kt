@@ -6,6 +6,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.jossephus.chuchu.ui.theme.ChuSymbolsFontFamily
 
 /**
  * Focused tests for pure accessory-bar logic:
@@ -256,5 +257,126 @@ class AccessoryLogicTest {
     fun `catalog paste item is Paste action`() {
         val item = TerminalAccessoryLayoutStore.catalog().first { it.id == "paste" }
         assertTrue(item.action is AccessoryAction.Paste)
+    }
+
+    // ── UI action dispatch ───────────────────────────────────────────────
+
+    @Test
+    fun `dispatch Settings returns empty result`() {
+        val s = ModifierState(ctrl = true)
+        val r = TerminalAccessoryDispatcher.dispatch(AccessoryAction.Settings, s)
+        assertTrue(r.modifierState.ctrl)
+        assertNull(r.specialKey)
+        assertNull(r.text)
+        assertFalse(r.shouldPaste)
+        assertFalse(r.suppressImeInput)
+    }
+
+    @Test
+    fun `dispatch ChuchuKey returns empty result`() {
+        val s = ModifierState()
+        val r = TerminalAccessoryDispatcher.dispatch(AccessoryAction.ChuchuKey, s)
+        assertFalse(r.modifierState.hasActiveModifiers())
+        assertNull(r.specialKey)
+        assertNull(r.text)
+        assertFalse(r.shouldPaste)
+        assertFalse(r.suppressImeInput)
+    }
+
+    @Test
+    fun `dispatch OpenFiles returns empty result`() {
+        val s = ModifierState()
+        val r = TerminalAccessoryDispatcher.dispatch(AccessoryAction.OpenFiles, s)
+        assertFalse(r.modifierState.hasActiveModifiers())
+        assertNull(r.specialKey)
+        assertNull(r.text)
+        assertFalse(r.shouldPaste)
+        assertFalse(r.suppressImeInput)
+    }
+
+    // ── New catalog entries ──────────────────────────────────────────────
+
+    @Test
+    fun `catalog contains chuchu_key`() {
+        val ids = TerminalAccessoryLayoutStore.catalog().map { it.id }
+        assertTrue("catalog must contain chuchu_key", "chuchu_key" in ids)
+    }
+
+    @Test
+    fun `catalog contains open_files`() {
+        val ids = TerminalAccessoryLayoutStore.catalog().map { it.id }
+        assertTrue("catalog must contain open_files", "open_files" in ids)
+    }
+
+    @Test
+    fun `catalog contains settings`() {
+        val ids = TerminalAccessoryLayoutStore.catalog().map { it.id }
+        assertTrue("catalog must contain settings", "settings" in ids)
+    }
+
+    @Test
+    fun `chuchu_key is ChuchuKey action with Medium width`() {
+        val item = TerminalAccessoryLayoutStore.catalog().first { it.id == "chuchu_key" }
+        assertTrue(item.action is AccessoryAction.ChuchuKey)
+        assertEquals(KeyWidth.Medium, item.width)
+    }
+
+    @Test
+    fun `open_files is OpenFiles action with Medium width and symbol font`() {
+        val item = TerminalAccessoryLayoutStore.catalog().first { it.id == "open_files" }
+        assertTrue(item.action is AccessoryAction.OpenFiles)
+        assertEquals(KeyWidth.Medium, item.width)
+        assertEquals(ChuSymbolsFontFamily, item.labelFontFamily)
+    }
+
+    @Test
+    fun `settings is Settings action with Medium width`() {
+        val item = TerminalAccessoryLayoutStore.catalog().first { it.id == "settings" }
+        assertTrue(item.action is AccessoryAction.Settings)
+        assertEquals(KeyWidth.Medium, item.width)
+    }
+
+    // ── Width categories ─────────────────────────────────────────────────
+
+    @Test
+    fun `arrow keys have Medium width`() {
+        for (id in listOf("up", "down", "left", "right")) {
+            val item = TerminalAccessoryLayoutStore.catalog().first { it.id == id }
+            assertEquals("$id must have Medium width", KeyWidth.Medium, item.width)
+        }
+    }
+
+    @Test
+    fun `enter has Medium width`() {
+        val item = TerminalAccessoryLayoutStore.catalog().first { it.id == "enter" }
+        assertEquals(KeyWidth.Medium, item.width)
+    }
+
+    @Test
+    fun `space has Medium width`() {
+        val item = TerminalAccessoryLayoutStore.catalog().first { it.id == "space" }
+        assertEquals(KeyWidth.Medium, item.width)
+    }
+
+    @Test
+    fun `shift has Medium width`() {
+        val item = TerminalAccessoryLayoutStore.catalog().first { it.id == "shift" }
+        assertEquals(KeyWidth.Medium, item.width)
+    }
+
+    @Test
+    fun `tab has Medium width (default)`() {
+        val item = TerminalAccessoryLayoutStore.catalog().first { it.id == "tab" }
+        assertEquals(KeyWidth.Medium, item.width)
+    }
+
+    // ── Default layout includes new items ────────────────────────────────
+
+    @Test
+    fun `defaultLayout includes chuchu_key open_files and settings`() {
+        val ids = TerminalAccessoryLayoutStore.defaultLayout().map { it.id }
+        assertTrue("chuchu_key" in ids)
+        assertTrue("open_files" in ids)
+        assertTrue("settings" in ids)
     }
 }

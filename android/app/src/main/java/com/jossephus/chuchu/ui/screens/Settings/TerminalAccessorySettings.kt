@@ -71,6 +71,8 @@ internal fun TerminalSettings(
     onEditAccessoryLayout: () -> Unit,
     accessoryBarSingleRow: Boolean,
     onAccessoryBarSingleRowChanged: (Boolean) -> Unit,
+    compactAccessoryBar: Boolean,
+    onCompactAccessoryBarChanged: (Boolean) -> Unit,
     currentTerminalCustomKeyGroups: List<TerminalCustomKeyGroup>,
     onEditCustomActions: () -> Unit,
     currentTabMode: TerminalTabMode = TerminalTabMode.Classic,
@@ -247,6 +249,28 @@ internal fun TerminalSettings(
                     )
                 }
 
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        ChuText("termux-style accessory bar", style = typography.label)
+                        ChuText(
+                            "equal-width buttons, no borders, tighter spacing",
+                            style = typography.bodySmall,
+                            color = colors.textMuted,
+                        )
+                    }
+                    ChuSwitch(
+                        checked = compactAccessoryBar,
+                        onCheckedChange = onCompactAccessoryBarChanged,
+                    )
+                }
+
                 if (selectedItems.isEmpty()) {
                     ChuText(
                         "choose the accessory keys you want in the terminal bar.",
@@ -254,16 +278,19 @@ internal fun TerminalSettings(
                         color = colors.textSecondary,
                     )
                 } else {
+                    val (previewLine1, previewLine2) = TerminalAccessoryLayoutStore.splitIntoTwoRows(selectedItems)
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(colors.surfaceVariant),
                     ) {
                         KeyboardAccessoryBar(
-                            items = selectedItems,
+                            line1Items = previewLine1,
+                            line2Items = previewLine2,
                             modifierState = ModifierState(),
                             onAction = {},
                             useSingleRow = accessoryBarSingleRow,
+                            compact = compactAccessoryBar,
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
@@ -566,12 +593,14 @@ private fun PreviewKeyChip(
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
+    val chipWidth = item.width.toDp()
 
     Box(
         modifier = modifier
             .offset { IntOffset(x = dragOffsetPx.roundToInt(), y = 0) }
-            .background(if (dragging) colors.accent.copy(alpha = 0.2f) else colors.surfaceVariant)
-            .padding(horizontal = 10.dp, vertical = 8.dp),
+            .width(chipWidth)
+            .height(30.dp)
+            .background(if (dragging) colors.accent.copy(alpha = 0.2f) else colors.surfaceVariant),
         contentAlignment = Alignment.Center,
     ) {
         ChuText(

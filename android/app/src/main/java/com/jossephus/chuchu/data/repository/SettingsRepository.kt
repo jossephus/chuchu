@@ -34,6 +34,9 @@ class SettingsRepository(context: Context) {
     private val _accessoryBarSingleRow = MutableStateFlow(prefs.getBoolean(KEY_ACCESSORY_BAR_SINGLE_ROW, false))
     val accessoryBarSingleRow: StateFlow<Boolean> = _accessoryBarSingleRow.asStateFlow()
 
+    private val _compactAccessoryBar = MutableStateFlow(prefs.getBoolean(KEY_COMPACT_ACCESSORY_BAR, false))
+    val compactAccessoryBar: StateFlow<Boolean> = _compactAccessoryBar.asStateFlow()
+
     private val _appLockEnabled = MutableStateFlow(prefs.getBoolean(KEY_APP_LOCK_ENABLED, false))
     val appLockEnabled: StateFlow<Boolean> = _appLockEnabled.asStateFlow()
 
@@ -80,6 +83,11 @@ class SettingsRepository(context: Context) {
     fun setAccessoryBarSingleRow(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_ACCESSORY_BAR_SINGLE_ROW, enabled).apply()
         _accessoryBarSingleRow.value = enabled
+    }
+
+    fun setCompactAccessoryBar(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_COMPACT_ACCESSORY_BAR, enabled).apply()
+        _compactAccessoryBar.value = enabled
     }
 
     fun setTerminalTabMode(mode: TerminalTabMode) {
@@ -129,6 +137,7 @@ class SettingsRepository(context: Context) {
         private const val KEY_ACCESSORY_LAYOUT = "terminal_accessory_layout"
         private const val KEY_TERMINAL_CUSTOM_ACTIONS = "terminal_custom_actions"
         private const val KEY_ACCESSORY_BAR_SINGLE_ROW = "terminal_accessory_bar_single_row"
+        private const val KEY_COMPACT_ACCESSORY_BAR = "terminal_compact_accessory_bar"
         private const val KEY_TAB_MODE = "terminal_tab_mode"
         private const val KEY_APP_LOCK_ENABLED = "app_lock_enabled"
         private const val KEY_REQUIRE_AUTH_ON_CONNECT = "require_auth_on_connect"

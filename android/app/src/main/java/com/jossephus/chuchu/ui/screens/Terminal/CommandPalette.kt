@@ -59,14 +59,13 @@ fun CommandPalette(
     activeTabId: String?,
     focusedTabIndex: Int,
     onFocusedTabIndexChange: (Int) -> Unit,
-    accessoryItems: List<AccessoryKeyItem>,
+    accessoryLine1Items: List<AccessoryKeyItem>,
+    accessoryLine2Items: List<AccessoryKeyItem>,
     accessoryModifierState: ModifierState,
     onAccessoryAction: (AccessoryAction) -> Unit,
-    onChuchuKey: () -> Unit,
     chuchuKeyActive: Boolean,
-    onOpenFiles: () -> Unit,
-    onOpenSettings: () -> Unit,
     useSingleRowAccessoryBar: Boolean,
+    compactAccessoryBar: Boolean = false,
     onSelectTab: (String) -> Unit,
     onCloseTab: (String) -> Unit,
     onAddTab: () -> Unit,
@@ -251,14 +250,13 @@ fun CommandPalette(
         }
       }
       KeyboardAccessoryBar(
-          items = accessoryItems,
+          line1Items = accessoryLine1Items,
+          line2Items = accessoryLine2Items,
           modifierState = accessoryModifierState,
           onAction = onAccessoryAction,
-          onSettings = onOpenSettings,
-          onChuchuKey = onChuchuKey,
           chuchuKeyActive = chuchuKeyActive,
-          onOpenFiles = onOpenFiles,
           useSingleRow = useSingleRowAccessoryBar,
+          compact = compactAccessoryBar,
           modifier =
               Modifier.align(Alignment.BottomCenter)
                   .windowInsetsPadding(WindowInsets.safeDrawing)

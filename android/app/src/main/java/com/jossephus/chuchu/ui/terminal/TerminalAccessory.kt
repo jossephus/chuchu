@@ -1,5 +1,16 @@
 package com.jossephus.chuchu.ui.terminal
 
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import com.jossephus.chuchu.ui.theme.ChuSymbolsFontFamily
+
+enum class KeyWidth(val dp: Dp) {
+	Medium(48.dp);
+
+	fun toDp(): Dp = dp
+}
+
 enum class TerminalModifier {
     Ctrl,
     Alt,
@@ -103,12 +114,20 @@ sealed interface AccessoryAction {
     data class SendText(val text: String) : AccessoryAction
 
     data object Paste : AccessoryAction
+
+    data object Settings : AccessoryAction
+
+    data object ChuchuKey : AccessoryAction
+
+    data object OpenFiles : AccessoryAction
 }
 
 data class AccessoryKeyItem(
     val id: String,
     val label: String,
     val action: AccessoryAction,
+    val width: KeyWidth = KeyWidth.Medium,
+    val labelFontFamily: FontFamily? = null,
 )
 
 data class AccessoryDispatchResult(
@@ -143,6 +162,14 @@ object TerminalAccessoryDispatcher {
             modifierState = modifierState,
             shouldPaste = true,
         )
+
+        // UI actions are handled by the caller before reaching the dispatcher.
+        // These branches exist for exhaustive matching.
+        AccessoryAction.Settings,
+        AccessoryAction.ChuchuKey,
+        AccessoryAction.OpenFiles -> AccessoryDispatchResult(
+            modifierState = modifierState,
+        )
     }
 }
 
@@ -155,7 +182,7 @@ object TerminalAccessoryLayoutStore {
         AccessoryKeyItem("ctrl", "Ctrl", AccessoryAction.ToggleModifier(TerminalModifier.Ctrl)),
         AccessoryKeyItem("cmd", "Cmd", AccessoryAction.ToggleModifier(TerminalModifier.Cmd)),
         AccessoryKeyItem("alt", "Alt", AccessoryAction.ToggleModifier(TerminalModifier.Alt)),
-        AccessoryKeyItem("shift", "Shift", AccessoryAction.ToggleModifier(TerminalModifier.Shift)),
+        AccessoryKeyItem("shift", "Shft", AccessoryAction.ToggleModifier(TerminalModifier.Shift)),
         AccessoryKeyItem("up", TerminalSpecialKey.Up.label, AccessoryAction.SendSpecialKey(TerminalSpecialKey.Up)),
         AccessoryKeyItem("down", TerminalSpecialKey.Down.label, AccessoryAction.SendSpecialKey(TerminalSpecialKey.Down)),
         AccessoryKeyItem("left", TerminalSpecialKey.Left.label, AccessoryAction.SendSpecialKey(TerminalSpecialKey.Left)),
@@ -181,7 +208,10 @@ object TerminalAccessoryLayoutStore {
         AccessoryKeyItem("f10", TerminalSpecialKey.F10.label, AccessoryAction.SendSpecialKey(TerminalSpecialKey.F10)),
         AccessoryKeyItem("f11", TerminalSpecialKey.F11.label, AccessoryAction.SendSpecialKey(TerminalSpecialKey.F11)),
         AccessoryKeyItem("f12", TerminalSpecialKey.F12.label, AccessoryAction.SendSpecialKey(TerminalSpecialKey.F12)),
-        AccessoryKeyItem("paste", "Paste", AccessoryAction.Paste),
+        AccessoryKeyItem("paste", "⎘", AccessoryAction.Paste), // U+2398
+        AccessoryKeyItem("chuchu_key", "\u2318", AccessoryAction.ChuchuKey),
+        AccessoryKeyItem("open_files", "\ue5fe", AccessoryAction.OpenFiles, labelFontFamily = ChuSymbolsFontFamily),
+        AccessoryKeyItem("settings", "\u2699", AccessoryAction.Settings),
     )
 
     private val catalogById: Map<String, AccessoryKeyItem> = catalogItems.associateBy { it.id }
@@ -199,13 +229,37 @@ object TerminalAccessoryLayoutStore {
         "right",
         "enter",
         "space",
+        "chuchu_key",
+        "open_files",
+        "settings",
     )
+
+    private val defaultLayoutLine1Ids: List<String> = splitIntoTwoRows(defaultLayoutIds).first
+
+    private val defaultLayoutLine2Ids: List<String> = splitIntoTwoRows(defaultLayoutIds).second
 
     fun defaultLayout(): List<AccessoryKeyItem> = resolveLayout(defaultLayoutIds)
 
+    fun defaultLayoutLine1(): List<AccessoryKeyItem> = resolveLayout(defaultLayoutLine1Ids)
+
+    fun defaultLayoutLine2(): List<AccessoryKeyItem> = resolveLayout(defaultLayoutLine2Ids)
+
     fun defaultLayoutIds(): List<String> = defaultLayoutIds
 
+    fun defaultLayoutLine1Ids(): List<String> = defaultLayoutLine1Ids
+
+    fun defaultLayoutLine2Ids(): List<String> = defaultLayoutLine2Ids
+
     fun catalog(): List<AccessoryKeyItem> = catalogItems
+
+    /**
+     * Splits a list into two rows as evenly as possible.  The first row receives the extra item
+     * when the count is odd, so the second row is never larger than the first.
+     */
+    fun <T> splitIntoTwoRows(items: List<T>): Pair<List<T>, List<T>> {
+        val splitIndex = (items.size + 1) / 2
+        return items.take(splitIndex) to items.drop(splitIndex)
+    }
 
     fun resolveSelectedLayout(ids: List<String>): List<AccessoryKeyItem> =
         normalizeIds(ids).mapNotNull(catalogById::get)
