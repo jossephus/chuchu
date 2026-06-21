@@ -63,9 +63,9 @@ import com.jossephus.chuchu.ui.components.ChuCard
 import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.components.ChuSwitch
 import com.jossephus.chuchu.ui.components.ChuTextField
-import com.jossephus.chuchu.ui.terminal.AccessoryKeyItem
 import com.jossephus.chuchu.ui.terminal.KeyboardAccessoryBar
 import com.jossephus.chuchu.ui.terminal.ModifierState
+import com.jossephus.chuchu.ui.terminal.ResolvedAccessoryEntry
 import com.jossephus.chuchu.ui.terminal.TerminalAccessoryLayoutStore
 import com.jossephus.chuchu.ui.terminal.TerminalCustomKeyGroup
 import com.jossephus.chuchu.ui.theme.ChuColors
@@ -92,7 +92,7 @@ internal fun TerminalSettings(
     var tabModeExpanded by remember { mutableStateOf(false) }
     var tabModeAnchorBounds by remember { mutableStateOf<Rect?>(null) }
     var tabModeContainerBounds by remember { mutableStateOf<Rect?>(null) }
-    val selectedItems = remember(currentAccessoryLayoutIds) {
+    val selectedEntries = remember(currentAccessoryLayoutIds) {
         TerminalAccessoryLayoutStore.resolveSelectedLayout(currentAccessoryLayoutIds)
     }
     val density = LocalDensity.current
@@ -293,7 +293,7 @@ internal fun TerminalSettings(
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         ChuText("accessory keys", style = typography.label)
                         ChuText(
-                            if (selectedItems.isEmpty()) "no keys enabled" else "${selectedItems.size} keys enabled",
+                            if (selectedEntries.isEmpty()) "no keys enabled" else "${selectedEntries.size} keys enabled",
                             style = typography.body,
                             color = colors.textMuted,
                         )
@@ -331,7 +331,7 @@ internal fun TerminalSettings(
                     )
                 }
 
-                if (selectedItems.isEmpty()) {
+                if (selectedEntries.isEmpty()) {
                     ChuText(
                         "choose the accessory keys you want in the terminal bar.",
                         style = typography.body,
@@ -344,7 +344,7 @@ internal fun TerminalSettings(
                             .background(colors.surfaceVariant),
                     ) {
                         KeyboardAccessoryBar(
-                            items = selectedItems,
+                            entries = selectedEntries,
                             modifierState = ModifierState(),
                             onAction = {},
                             useSingleRow = accessoryBarSingleRow,
@@ -440,7 +440,7 @@ internal fun AccessoryLayoutEditorSheet(
     val typography = ChuTypography.current
     val density = LocalDensity.current
     val reorderStepPx = with(density) { 40.dp.toPx() }
-    val allItems = remember { TerminalAccessoryLayoutStore.catalog() }
+    val allEntries = remember { TerminalAccessoryLayoutStore.allCatalogEntries() }
     var draftSelectedIds by remember(selectedIds) {
         mutableStateOf(TerminalAccessoryLayoutStore.normalizeIds(selectedIds))
     }
@@ -448,15 +448,15 @@ internal fun AccessoryLayoutEditorSheet(
     var previewDragRemainderPx by remember { mutableFloatStateOf(0f) }
     var previewDragOffsetPx by remember { mutableFloatStateOf(0f) }
 
-    val selectedItems = remember(draftSelectedIds) {
+    val selectedEntries = remember(draftSelectedIds) {
         TerminalAccessoryLayoutStore.resolveSelectedLayout(draftSelectedIds)
     }
 
-    fun toggleItem(item: AccessoryKeyItem) {
-        draftSelectedIds = if (item.id in draftSelectedIds) {
-            draftSelectedIds.filterNot { it == item.id }
+    fun toggleEntry(entry: ResolvedAccessoryEntry) {
+        draftSelectedIds = if (entry.id in draftSelectedIds) {
+            draftSelectedIds.filterNot { it == entry.id }
         } else {
-            draftSelectedIds + item.id
+            draftSelectedIds + entry.id
         }
     }
 
@@ -547,13 +547,13 @@ internal fun AccessoryLayoutEditorSheet(
                         ) {
                             ChuText("preview", style = typography.label)
                             ChuText(
-                                if (selectedItems.isEmpty()) "0" else selectedItems.size.toString(),
+                                if (selectedEntries.isEmpty()) "0" else selectedEntries.size.toString(),
                                 style = typography.labelSmall,
                                 color = colors.textMuted,
                             )
                         }
 
-                        if (selectedItems.isEmpty()) {
+                        if (selectedEntries.isEmpty()) {
                             ChuText(
                                 "no accessory keys selected.",
                                 style = typography.body,
@@ -567,11 +567,11 @@ internal fun AccessoryLayoutEditorSheet(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            selectedItems.forEach { item ->
+                            selectedEntries.forEach { item ->
                                 key(item.id) {
                                     val isDragging = previewDraggingId == item.id
                                     PreviewKeyChip(
-                                        item = item,
+                                        entry = item,
                                         dragging = isDragging,
                                         modifier = Modifier.pointerInput(item.id) {
                                             detectDragGesturesAfterLongPress(
@@ -634,12 +634,12 @@ internal fun AccessoryLayoutEditorSheet(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    allItems.forEach { item ->
+                    allEntries.forEach { item ->
                         val selected = item.id in draftSelectedIds
                         AccessoryChooserRow(
-                            item = item,
+                            entry = item,
                             selected = selected,
-                            onClick = { toggleItem(item) },
+                            onClick = { toggleEntry(item) },
                         )
                     }
                 }
@@ -672,7 +672,7 @@ internal fun AccessoryLayoutEditorSheet(
 
 @Composable
 private fun PreviewKeyChip(
-    item: AccessoryKeyItem,
+    entry: ResolvedAccessoryEntry,
     dragging: Boolean,
     dragOffsetPx: Float,
     modifier: Modifier = Modifier,
@@ -687,22 +687,40 @@ private fun PreviewKeyChip(
             .padding(horizontal = 10.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center,
     ) {
-        ChuText(
-            text = item.label,
-            style = typography.label,
-            color = if (dragging) colors.accent else colors.textPrimary,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            ChuText(
+                text = entry.label,
+                style = typography.label,
+                color = if (dragging) colors.accent else colors.textPrimary,
+            )
+            if (entry is ResolvedAccessoryEntry.Group) {
+                ChuText(
+                    text = "▾",
+                    style = typography.labelSmall,
+                    color = if (dragging) colors.accent else colors.textMuted,
+                    modifier = Modifier.padding(start = 4.dp),
+                )
+            }
+        }
     }
 }
 
 @Composable
 private fun AccessoryChooserRow(
-    item: AccessoryKeyItem,
+    entry: ResolvedAccessoryEntry,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
+    val group = entry as? ResolvedAccessoryEntry.Group
+    val childCount = group?.group?.children?.size ?: 0
+    val description =
+        if (group != null) {
+            if (childCount > 0) "group · $childCount keys" else "group"
+        } else {
+            "key"
+        }
 
     Row(
         modifier = Modifier
@@ -727,10 +745,17 @@ private fun AccessoryChooserRow(
             )
         }
 
-        ChuText(
-            text = item.label,
-            style = typography.label,
-            color = colors.textPrimary,
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            ChuText(
+                text = entry.label,
+                style = typography.label,
+                color = colors.textPrimary,
+            )
+            ChuText(
+                text = description,
+                style = typography.labelSmall,
+                color = colors.textMuted,
+            )
+        }
     }
 }

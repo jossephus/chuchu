@@ -1561,7 +1561,7 @@ fun TerminalScreen(
                                 )
                             }
                             KeyboardAccessoryBar(
-                                items = accessoryLayout,
+                                entries = accessoryLayout,
                                 modifierState = modifierState,
                                 onAction = ::dispatchAccessoryAction,
                                 onSettings = onOpenSettings,
@@ -1656,7 +1656,7 @@ fun TerminalScreen(
                         activeTabId = activeTabId,
                         focusedTabIndex = focusedTabIndex,
                         onFocusedTabIndexChange = { focusedTabIndex = it },
-                        accessoryItems = accessoryLayout,
+                        accessoryEntries = accessoryLayout,
                         accessoryModifierState = modifierState,
                         onAccessoryAction = paletteAccessoryAction,
                         onChuchuKey = { chuchuKeys.togglePrefix() },

@@ -1,11 +1,18 @@
 package com.jossephus.chuchu.ui.terminal
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -49,7 +56,7 @@ private const val REPEAT_INTERVAL_MS = 50L
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun KeyboardAccessoryBar(
-    items: List<AccessoryKeyItem>,
+    entries: List<ResolvedAccessoryEntry>,
     modifierState: ModifierState,
     onAction: (AccessoryAction) -> Unit,
     onSettings: (() -> Unit)? = null,
@@ -63,21 +70,83 @@ fun KeyboardAccessoryBar(
 ) {
     val buttonHeight = 30.dp
     val buttonPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 3.dp, bottom = 3.dp)
+    var expandedGroupId by remember { mutableStateOf<String?>(null) }
+    val onChildAction: (AccessoryAction) -> Unit = { action ->
+        onAction(action)
+    }
 
-    if (useSingleRow) {
-        Row(
-            modifier = modifier
+    Column(modifier = modifier) {
+        expandedGroupId?.let { groupId ->
+            val expandedGroup =
+                entries.firstOrNull { it is ResolvedAccessoryEntry.Group && it.group.id == groupId }
+                    as? ResolvedAccessoryEntry.Group
+            if (expandedGroup != null) {
+                GroupPopover(
+                    group = expandedGroup.group,
+                    modifierState = modifierState,
+                    onAction = onChildAction,
+                    buttonHeight = buttonHeight,
+                    buttonPadding = buttonPadding,
+                    horizontalPadding = horizontalPadding,
+                )
+            }
+        }
+
+        if (useSingleRow) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = horizontalPadding, vertical = verticalPadding)
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                entries.forEach { entry ->
+                    AccessoryEntry(
+                        entry = entry,
+                        expanded = expandedGroupId == entry.id,
+                        modifierState = modifierState,
+                        onAction = onAction,
+                        onToggleGroup = { id ->
+                            expandedGroupId = if (expandedGroupId == id) null else id
+                        },
+                        buttonHeight = buttonHeight,
+                        buttonPadding = buttonPadding,
+                    )
+                }
+                FilesButton(
+                    onChuchuKey = onChuchuKey,
+                    chuchuKeyActive = chuchuKeyActive,
+                    onOpenFiles = onOpenFiles,
+                    buttonHeight = buttonHeight,
+                    buttonPadding = buttonPadding,
+                )
+                SettingsButton(
+                    onSettings = onSettings,
+                    buttonHeight = buttonHeight,
+                    buttonPadding = buttonPadding,
+                )
+            }
+            return
+        }
+
+        FlowRow(
+            modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = horizontalPadding, vertical = verticalPadding)
-                .horizontalScroll(rememberScrollState()),
+                .padding(horizontal = horizontalPadding, vertical = verticalPadding),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            maxLines = 2,
         ) {
-            items.forEach { item ->
-                AccessoryButton(
-                    item = item,
+            entries.forEach { entry ->
+                AccessoryEntry(
+                    entry = entry,
+                    expanded = expandedGroupId == entry.id,
                     modifierState = modifierState,
                     onAction = onAction,
+                    onToggleGroup = { id ->
+                        expandedGroupId = if (expandedGroupId == id) null else id
+                    },
                     buttonHeight = buttonHeight,
                     buttonPadding = buttonPadding,
                 )
@@ -95,37 +164,97 @@ fun KeyboardAccessoryBar(
                 buttonPadding = buttonPadding,
             )
         }
-        return
     }
+}
 
-    FlowRow(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = horizontalPadding, vertical = verticalPadding),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-        maxLines = 2,
+@Composable
+private fun GroupPopover(
+    group: AccessoryKeyGroup,
+    modifierState: ModifierState,
+    onAction: (AccessoryAction) -> Unit,
+    buttonHeight: Dp,
+    buttonPadding: PaddingValues,
+    horizontalPadding: Dp,
+) {
+    val colors = ChuColors.current
+    AnimatedVisibility(
+        visible = true,
+        enter = fadeIn() + expandVertically(),
+        exit = fadeOut() + shrinkVertically(),
     ) {
-        items.forEach { item ->
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = horizontalPadding, vertical = 4.dp)
+                .background(colors.surface)
+                .padding(horizontal = 6.dp, vertical = 6.dp)
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            group.children.forEach { child ->
+                AccessoryButton(
+                    item = child,
+                    modifierState = modifierState,
+                    onAction = onAction,
+                    buttonHeight = buttonHeight,
+                    buttonPadding = buttonPadding,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AccessoryEntry(
+    entry: ResolvedAccessoryEntry,
+    expanded: Boolean,
+    modifierState: ModifierState,
+    onAction: (AccessoryAction) -> Unit,
+    onToggleGroup: (String) -> Unit,
+    buttonHeight: Dp,
+    buttonPadding: PaddingValues,
+) {
+    when (entry) {
+        is ResolvedAccessoryEntry.Single ->
             AccessoryButton(
-                item = item,
+                item = entry.item,
                 modifierState = modifierState,
                 onAction = onAction,
                 buttonHeight = buttonHeight,
                 buttonPadding = buttonPadding,
             )
-        }
-        FilesButton(
-            onChuchuKey = onChuchuKey,
-            chuchuKeyActive = chuchuKeyActive,
-            onOpenFiles = onOpenFiles,
-            buttonHeight = buttonHeight,
-            buttonPadding = buttonPadding,
-        )
-        SettingsButton(
-            onSettings = onSettings,
-            buttonHeight = buttonHeight,
-            buttonPadding = buttonPadding,
+        is ResolvedAccessoryEntry.Group ->
+            GroupButton(
+                group = entry.group,
+                expanded = expanded,
+                onToggle = { onToggleGroup(entry.group.id) },
+                buttonHeight = buttonHeight,
+                buttonPadding = buttonPadding,
+            )
+    }
+}
+
+@Composable
+private fun GroupButton(
+    group: AccessoryKeyGroup,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    buttonHeight: Dp,
+    buttonPadding: PaddingValues,
+) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+    ChuButton(
+        onClick = onToggle,
+        variant = if (expanded) ChuButtonVariant.Filled else ChuButtonVariant.Outlined,
+        modifier = Modifier.height(buttonHeight),
+        contentPadding = buttonPadding,
+    ) {
+        ChuText(
+            group.label,
+            style = typography.label,
+            color = if (expanded) colors.onAccent else colors.textPrimary,
         )
     }
 }
