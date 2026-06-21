@@ -97,6 +97,12 @@ data class TerminalSnapshot(
     companion object {
         const val CELL_FLAG_HAS_GRAPHEME: Int = 0x40
         const val CELL_FLAG_SPACER: Int = 0x80
+        const val CELL_FLAG_BOLD: Int = 0x01
+        const val CELL_FLAG_ITALIC: Int = 0x02
+        const val CELL_FLAG_UNDERLINE: Int = 0x04
+        const val CELL_FLAG_INVERSE: Int = 0x08
+        const val CELL_FLAG_BLINK: Int = 0x10
+        const val CELL_FLAG_FAINT: Int = 0x20
         private const val HEADER_I32_COUNT = 14
         private const val CELL_SIZE_BYTES = 11
         private const val IMAGE_HEADER_BYTES = 52

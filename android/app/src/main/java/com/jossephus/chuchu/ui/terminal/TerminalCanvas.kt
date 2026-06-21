@@ -533,15 +533,27 @@ fun TerminalCanvas(
                 val rowEnd = rowStart + cols
                 while (i < rowEnd) {
                     val iSelected = hasSel && i in selStart..selEnd
-                    val bg = if (iSelected) selectionBackgroundArgb else snapshot.bgArgb[i]
+                    val iInverse = !iSelected &&
+                        (snapshot.flags[i].toInt() and TerminalSnapshot.CELL_FLAG_INVERSE) != 0
+                    val bg = when {
+                        iSelected -> selectionBackgroundArgb
+                        iInverse -> snapshot.fgArgb[i]
+                        else -> snapshot.bgArgb[i]
+                    }
                     var j = i + 1
                     while (j < rowEnd) {
                         val jSelected = hasSel && j in selStart..selEnd
-                        val nextBg = if (jSelected) selectionBackgroundArgb else snapshot.bgArgb[j]
-                        if (nextBg != bg) break
+                        val jInverse = !jSelected &&
+                            (snapshot.flags[j].toInt() and TerminalSnapshot.CELL_FLAG_INVERSE) != 0
+                        val nextBg = when {
+                            jSelected -> selectionBackgroundArgb
+                            jInverse -> snapshot.fgArgb[j]
+                            else -> snapshot.bgArgb[j]
+                        }
+                        if (nextBg != bg || jInverse != iInverse) break
                         j++
                     }
-                    if (iSelected || bg != defaultBg) {
+                    if (iSelected || bg != defaultBg || iInverse) {
                         bgPaint.color = bg
                         nCanvas.drawRect(
                             (i - rowStart) * cellWidth,
@@ -563,11 +575,16 @@ fun TerminalCanvas(
                         continue
                     }
 
-                    val fg = if (hasSel && i in selStart..selEnd && hasSelectionFg) {
-                        selectionForegroundArgb
-                    } else {
-                        snapshot.fgArgb[i]
+                    val firstFlags = snapshot.flags[i].toInt()
+                    val firstSelected = hasSel && i in selStart..selEnd
+                    val firstInverse = !firstSelected &&
+                        (firstFlags and TerminalSnapshot.CELL_FLAG_INVERSE) != 0
+                    val fg = when {
+                        firstSelected && hasSelectionFg -> selectionForegroundArgb
+                        firstInverse -> snapshot.bgArgb[i]
+                        else -> snapshot.fgArgb[i]
                     }
+                    val styleBits = firstFlags and TEXT_STYLE_MASK
                     val firstExtras = snapshot.graphemeExtras[i]
                     val firstGlyph = if (firstExtras == null || firstExtras.isEmpty()) null else snapshot.glyphAt(i)
                     val firstPaintChoice = if (firstGlyph == null) {
@@ -587,25 +604,34 @@ fun TerminalCanvas(
                         )
                     }
                     sb.setLength(0)
+                    if (firstGlyph == null) sb.appendCodePoint(cp) else sb.append(firstGlyph)
                     val startCol = i - rowStart
+                    var j = i + 1
 
-                    while (i < rowEnd) {
-                        val c = snapshot.codepoints[i]
-                        val nextFg = if (hasSel && i in selStart..selEnd && hasSelectionFg) {
-                            selectionForegroundArgb
-                        } else {
-                            snapshot.fgArgb[i]
+                    while (j < rowEnd) {
+                        val c = snapshot.codepoints[j]
+                        if (c == 0) break
+                        if (c == 32 && !snapshot.isSpacerContinuation(j)) break
+
+                        val jFlags = snapshot.flags[j].toInt()
+                        val jSelected = hasSel && j in selStart..selEnd
+                        val jInverse = !jSelected &&
+                            (jFlags and TerminalSnapshot.CELL_FLAG_INVERSE) != 0
+                        val nextFg = when {
+                            jSelected && hasSelectionFg -> selectionForegroundArgb
+                            jInverse -> snapshot.bgArgb[j]
+                            else -> snapshot.fgArgb[j]
                         }
-                        if (c == 0 || nextFg != fg) break
-                        if (c == 32 && !snapshot.isSpacerContinuation(i)) break
+                        if (nextFg != fg) break
+                        if ((jFlags and TEXT_STYLE_MASK) != styleBits) break
 
                         if (c == 32) {
-                            i++
+                            j++
                             continue
                         }
 
-                        val extras = snapshot.graphemeExtras[i]
-                        val glyph = if (extras == null || extras.isEmpty()) null else snapshot.glyphAt(i)
+                        val extras = snapshot.graphemeExtras[j]
+                        val glyph = if (extras == null || extras.isEmpty()) null else snapshot.glyphAt(j)
                         val nextPaintChoice = if (glyph == null) {
                             pickPaintChoice(
                                 codepoint = c,
@@ -624,12 +650,8 @@ fun TerminalCanvas(
                         }
                         if (nextPaintChoice != firstPaintChoice) break
 
-                        if (glyph == null) {
-                            sb.appendCodePoint(c)
-                        } else {
-                            sb.append(glyph)
-                        }
-                        i++
+                        if (glyph == null) sb.appendCodePoint(c) else sb.append(glyph)
+                        j++
                     }
 
                     val paint = paintForChoice(
@@ -639,7 +661,11 @@ fun TerminalCanvas(
                         emojiPaint = emojiTextPaint,
                     )
                     paint.color = fg
+                    paint.isFakeBoldText = (styleBits and TerminalSnapshot.CELL_FLAG_BOLD) != 0
+                    paint.isUnderlineText = (styleBits and TerminalSnapshot.CELL_FLAG_UNDERLINE) != 0
+                    paint.alpha = if ((styleBits and TerminalSnapshot.CELL_FLAG_FAINT) != 0) FAINT_TEXT_ALPHA else 255
                     nCanvas.drawText(sb.toString(), startCol * cellWidth, baseline, paint)
+                    i = j
                 }
             }
 
@@ -705,6 +731,9 @@ fun TerminalCanvas(
                             symbolsPaint = symbolsTextPaint,
                             emojiPaint = emojiTextPaint,
                         )
+                        paint.isFakeBoldText = false
+                        paint.isUnderlineText = false
+                        paint.alpha = 255
                         paint.color = cursorTextColorArgb
                         nCanvas.drawText(
                             glyph,
@@ -790,6 +819,13 @@ internal fun TerminalSnapshot.glyphAt(cellIndex: Int): String {
     for (cp in extras) builder.appendCodePoint(cp)
     return builder.toString()
 }
+
+private const val FAINT_TEXT_ALPHA: Int = 96
+
+private const val TEXT_STYLE_MASK: Int =
+    TerminalSnapshot.CELL_FLAG_BOLD or
+        TerminalSnapshot.CELL_FLAG_UNDERLINE or
+        TerminalSnapshot.CELL_FLAG_FAINT
 
 private const val PAINT_PRIMARY: Int = 0
 private const val PAINT_SYMBOLS: Int = 1
