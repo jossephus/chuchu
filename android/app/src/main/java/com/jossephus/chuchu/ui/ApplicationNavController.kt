@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -37,16 +38,20 @@ fun ApplicationNavController() {
     val context = LocalContext.current
     val application = context.applicationContext as Application
     val lifecycleOwner = LocalLifecycleOwner.current
-    var appUnlocked by remember { mutableStateOf(false) }
-    var unlockPromptRequested by remember { mutableStateOf(false) }
-    var appLockBlockedUntilToggle by remember { mutableStateOf(false) }
+    var appUnlocked by rememberSaveable { mutableStateOf(false) }
+    var unlockPromptRequested by rememberSaveable { mutableStateOf(false) }
+    var appLockBlockedUntilToggle by rememberSaveable { mutableStateOf(false) }
 
     DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
+        val observer = LifecycleEventObserver { source, event ->
             if (event == Lifecycle.Event.ON_STOP) {
-                appUnlocked = false
-                unlockPromptRequested = false
-                appLockBlockedUntilToggle = false
+                val isConfigChange =
+                    (source as? android.app.Activity)?.isChangingConfigurations == true
+                if (!isConfigChange) {
+                    appUnlocked = false
+                    unlockPromptRequested = false
+                    appLockBlockedUntilToggle = false
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
