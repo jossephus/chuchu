@@ -255,8 +255,6 @@ fun TerminalScreen(
     val tabs by vm.tabs.collectAsStateWithLifecycle()
     val activeTabId by vm.activeTabId.collectAsStateWithLifecycle()
     val activeTab by vm.activeTab.collectAsStateWithLifecycle()
-    val hosts by vm.hosts.collectAsStateWithLifecycle()
-    val hostsLoaded by vm.hostsLoaded.collectAsStateWithLifecycle()
     val activeTabForHost =
         remember(activeTab, hostId, openLocalShell) {
             if (openLocalShell) {
@@ -464,9 +462,6 @@ fun TerminalScreen(
                 }
             }
 
-            else -> {
-                showServerPicker = true
-            }
         }
     }
 
@@ -482,7 +477,9 @@ fun TerminalScreen(
         }
         val prepared = vm.prepareTabOpenForHost(hostId) ?: return@LaunchedEffect
         vm.refreshTailscaleStatus()
-        openPreparedTab(prepared.spec, prepared.requiresVerification, false)
+        // Biometric verification already happened in ApplicationNavController
+        // before navigating to this route — skip the redundant re-prompt.
+        openPreparedTab(prepared.spec, false, false)
     }
 
     // Strip mode: never auto-back from normal host-scoped empty state.
