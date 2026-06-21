@@ -28,7 +28,12 @@ const verbose_snapshot_perf_logs = false;
 //  12  viewport_scroll_y (screen.y of the content at viewport row 0; stable
 //      content coordinate that changes as the viewport scrolls, so the host
 //      can remap a content-tracking selection anchor across scrolls)
-const SNAPSHOT_HEADER_I32_COUNT = 13;
+//  13  app_handles_selection_drag (1 when the running app has enabled a
+//      drag-reporting mouse mode — DECSET 1002/1003 — so the host forwards
+//      long-press drag gestures to the app instead of starting a client-side
+//      grid selection. This is what lets tmux/zellij perform their own
+//      pane-scoped selection.)
+const SNAPSHOT_HEADER_I32_COUNT = 14;
 const SNAPSHOT_CELL_SIZE_BYTES = 11;
 // Flag bit set on a cell whose codepoint has additional grapheme codepoints
 // in the extras section.
@@ -39,6 +44,7 @@ const CELL_FLAG_HAS_GRAPHEME: u8 = 1 << 6;
 const CELL_FLAG_SPACER: u8 = 1 << 7;
 const IMAGE_HEADER_BYTES = 52;
 const MAX_KITTY_IMAGES = 64;
+const MAX_OSC52_CLIPBOARD_BYTES = 1024 * 1024;
 // Kitty Unicode graphics placeholder (U+10EEEE). These cells only mark where an
 // image is composited; we blank them so the raw glyph never shows through a gap
 // the image doesn't fully cover.
@@ -96,10 +102,18 @@ const MouseEncodingSize = struct {
     padding_right: u32 = 0,
 };
 
+fn appHandlesSelectionDrag(event: anytype) bool {
+    return switch (event) {
+        .button, .any => true,
+        else => false,
+    };
+}
+
 const ChuchuTerminal = struct {
     terminal: ghostty.Terminal,
     render_state: ghostty.RenderState = .empty,
-    stream: ghostty.TerminalStream,
+    stream_handler: ChuchuStreamHandler = undefined,
+    stream: ChuchuTerminalStream,
     cols: u16,
     rows: u16,
     cell_width: u32,
@@ -115,6 +129,9 @@ const ChuchuTerminal = struct {
     pwd: ?[]u8 = null,
     pwd_len: usize = 0,
     pwd_dirty: bool = false,
+    clipboard: ?[]u8 = null,
+    clipboard_len: usize = 0,
+    clipboard_dirty: bool = false,
     bell_count: u32 = 0,
     snapshot_buffer: std.ArrayListUnmanaged(u8) = .empty,
     snapshot_extras_scratch: std.ArrayListUnmanaged(u32) = .empty,
@@ -125,6 +142,33 @@ const ChuchuTerminal = struct {
     snapshot_perf_total_ns: u64 = 0,
     snapshot_perf_last_log_ns: i64 = 0,
 };
+
+const ChuchuStreamHandler = struct {
+    owner: *ChuchuTerminal,
+    inner: ghostty.TerminalStream.Handler,
+
+    pub fn deinit(self: *ChuchuStreamHandler) void {
+        self.inner.deinit();
+    }
+
+    pub fn vt(
+        self: *ChuchuStreamHandler,
+        comptime action: ChuchuTerminalStream.Action.Tag,
+        value: ChuchuTerminalStream.Action.Value(action),
+    ) void {
+        if (action == .clipboard_contents) {
+            self.clipboardContents(value.kind, value.data);
+        }
+        self.inner.vt(action, value);
+    }
+
+    fn clipboardContents(self: *ChuchuStreamHandler, _: u8, data: []const u8) void {
+        if (std.mem.eql(u8, data, "?")) return;
+        storeClipboardData(self.owner, data);
+    }
+};
+
+const ChuchuTerminalStream = ghostty.Stream(*ChuchuStreamHandler);
 
 fn chuchuFromHandle(handle: c.jlong) ?*ChuchuTerminal {
     if (handle == 0) return null;
@@ -253,6 +297,46 @@ fn updateString(storage: *?[]u8, storage_len: *usize, dirty: *bool, value: ?[:0]
     return true;
 }
 
+fn updateBytes(storage: *?[]u8, storage_len: *usize, dirty: *bool, bytes: []const u8) bool {
+    if (storage.* != null and storage_len.* == bytes.len) {
+        if (bytes.len == 0) return false;
+        if (std.mem.eql(u8, storage.*.?[0..bytes.len], bytes)) return false;
+    }
+
+    const new_buf = allocator.alloc(u8, bytes.len) catch return false;
+    if (bytes.len > 0) @memcpy(new_buf, bytes);
+
+    if (storage.*) |old| allocator.free(old);
+    storage.* = new_buf;
+    storage_len.* = bytes.len;
+    dirty.* = true;
+    return true;
+}
+
+fn decodeBase64Clipboard(data: []const u8) ?[]u8 {
+    const decoders = [_]std.base64.Base64Decoder{
+        std.base64.standard.Decoder,
+        std.base64.standard_no_pad.Decoder,
+    };
+    for (decoders) |decoder| {
+        const decoded_len = decoder.calcSizeForSlice(data) catch continue;
+        if (decoded_len > MAX_OSC52_CLIPBOARD_BYTES) return null;
+        const decoded = allocator.alloc(u8, decoded_len) catch return null;
+        decoder.decode(decoded, data) catch {
+            allocator.free(decoded);
+            continue;
+        };
+        return decoded;
+    }
+    return null;
+}
+
+fn storeClipboardData(terminal: *ChuchuTerminal, encoded: []const u8) void {
+    const decoded = decodeBase64Clipboard(encoded) orelse return;
+    defer allocator.free(decoded);
+    _ = updateBytes(&terminal.clipboard, &terminal.clipboard_len, &terminal.clipboard_dirty, decoded);
+}
+
 fn updateMetadata(terminal: *ChuchuTerminal) void {
     _ = updateString(&terminal.title, &terminal.title_len, &terminal.title_dirty, terminal.terminal.getTitle());
     _ = updateString(&terminal.pwd, &terminal.pwd_len, &terminal.pwd_dirty, terminal.terminal.getPwd());
@@ -356,6 +440,7 @@ export fn chuchu_create_terminal(cols: c.jint, rows: c.jint, max_scrollback: c.j
 
     terminal.* = .{
         .terminal = inner,
+        .stream_handler = undefined,
         .stream = undefined,
         .cols = init_cols,
         .rows = init_rows,
@@ -374,7 +459,11 @@ export fn chuchu_create_terminal(cols: c.jint, rows: c.jint, max_scrollback: c.j
         .title_changed = chuchuTitleChanged,
         .xtversion = chuchuXtversion,
     };
-    terminal.stream = ghostty.TerminalStream.initAlloc(allocator, handler);
+    terminal.stream_handler = .{
+        .owner = terminal,
+        .inner = handler,
+    };
+    terminal.stream = ChuchuTerminalStream.initAlloc(allocator, &terminal.stream_handler);
     enableGraphemeClusterMode(terminal);
 
     update_render_state(terminal);
@@ -389,6 +478,7 @@ export fn chuchu_destroy_terminal(handle: c.jlong) callconv(.c) void {
     terminal.pty_write_buffer.deinit(allocator);
     if (terminal.title) |buf| allocator.free(buf);
     if (terminal.pwd) |buf| allocator.free(buf);
+    if (terminal.clipboard) |buf| allocator.free(buf);
     terminal.render_state.deinit(allocator);
     terminal.stream.deinit();
     terminal.terminal.deinit(allocator);
@@ -491,6 +581,12 @@ export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativePollPwd
     _ = thiz;
     const value = chuchu_poll_pwd_ptr(handle) orelse return null;
     return jniNewStringUTF(env, value);
+}
+
+export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativePollClipboard(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong) callconv(.c) c.jbyteArray {
+    _ = thiz;
+    const bytes = chuchu_poll_clipboard(handle) orelse return null;
+    return jniByteArrayFromBytes(env, bytes);
 }
 
 export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeDrainBellCount(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong) callconv(.c) c.jint {
@@ -722,6 +818,11 @@ export fn chuchu_build_text_snapshot(handle: c.jlong, out_size: [*c]usize) callc
         break :blk @intCast(vp_top.screen.y);
     };
     writeIntLe(i32, buffer[0..base_total_size], 48, viewport_scroll_y);
+    // app_handles_selection_drag: 1 only for drag-reporting mouse modes
+    // (DECSET 1002/1003). Click-only mouse modes still allow the host to keep
+    // its own long-press selection behavior.
+    const app_handles_selection_drag: i32 = if (appHandlesSelectionDrag(terminal.terminal.flags.mouse_event)) 1 else 0;
+    writeIntLe(i32, buffer[0..base_total_size], 52, app_handles_selection_drag);
 
     terminal.snapshot_extras_scratch.clearRetainingCapacity();
     var extras_records: usize = 0;
@@ -1201,6 +1302,13 @@ export fn chuchu_poll_pwd_ptr(handle: c.jlong) callconv(.c) ?[*:0]const u8 {
     return if (terminal.pwd) |pwd| @ptrCast(pwd) else "";
 }
 
+fn chuchu_poll_clipboard(handle: c.jlong) ?[]const u8 {
+    const terminal = chuchuFromHandle(handle) orelse return null;
+    if (!terminal.clipboard_dirty) return null;
+    terminal.clipboard_dirty = false;
+    return if (terminal.clipboard) |clipboard| clipboard[0..terminal.clipboard_len] else &.{};
+}
+
 export fn chuchu_drain_bell_count(handle: c.jlong) callconv(.c) c.jint {
     const terminal = chuchuFromHandle(handle) orelse return 0;
     const count = terminal.bell_count;
@@ -1299,9 +1407,9 @@ export fn chuchu_scroll(handle: c.jlong, delta: c.jint, x: c.jfloat, y: c.jfloat
     const in_alt_screen = alt_screen or alt_screen_legacy or alt_screen_1049;
 
     // Check if mouse reporting is enabled (any mode other than none)
-    const mouse_captured = terminal.terminal.flags.mouse_event != .none;
+    const mouse_reporting_enabled = terminal.terminal.flags.mouse_event != .none;
 
-    if (in_alt_screen or mouse_captured) {
+    if (in_alt_screen or mouse_reporting_enabled) {
         // Send mouse scroll events to the application.
         // Negative delta = scroll up (older content) → button 4.
         // Positive delta = scroll down (newer content) → button 5.

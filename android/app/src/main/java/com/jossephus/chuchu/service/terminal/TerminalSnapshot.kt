@@ -46,6 +46,14 @@ data class TerminalSnapshot(
      * across snapshots to remap a content-tracking selection anchor.
      */
     val viewportScrollY: Int = 0,
+    /**
+     * True when the running app has enabled a drag-reporting mouse mode
+     * (DECSET 1002/1003). When set, the host forwards long-press drag
+     * gestures to the app so a multiplexer (tmux/zellij/...) can perform
+     * its own pane-scoped selection in copy mode instead of the host
+     * building a grid-wide client-side selection that crosses pane borders.
+     */
+    val appHandlesSelectionDrag: Boolean = false,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -61,7 +69,8 @@ data class TerminalSnapshot(
             flags.contentEquals(other.flags) &&
             graphemeExtrasEquals(graphemeExtras, other.graphemeExtras) &&
             images == other.images &&
-            viewportScrollY == other.viewportScrollY
+            viewportScrollY == other.viewportScrollY &&
+            appHandlesSelectionDrag == other.appHandlesSelectionDrag
     }
 
     override fun hashCode(): Int {
@@ -81,13 +90,14 @@ data class TerminalSnapshot(
         }
         result = 31 * result + images.hashCode()
         result = 31 * result + viewportScrollY
+        result = 31 * result + appHandlesSelectionDrag.hashCode()
         return result
     }
 
     companion object {
         const val CELL_FLAG_HAS_GRAPHEME: Int = 0x40
         const val CELL_FLAG_SPACER: Int = 0x80
-        private const val HEADER_I32_COUNT = 13
+        private const val HEADER_I32_COUNT = 14
         private const val CELL_SIZE_BYTES = 11
         private const val IMAGE_HEADER_BYTES = 52
 
@@ -126,6 +136,7 @@ data class TerminalSnapshot(
             val defaultFgB = wrapped.int
             val extrasOffset = wrapped.int
             val viewportScrollY = wrapped.int
+            val appHandlesSelectionDrag = wrapped.int == 1
 
             val cellCount = cols * rows
             val expectedSize = (HEADER_I32_COUNT * 4) + (cellCount * CELL_SIZE_BYTES)
@@ -213,6 +224,7 @@ data class TerminalSnapshot(
                 graphemeExtras = graphemeExtras,
                 images = images,
                 viewportScrollY = viewportScrollY,
+                appHandlesSelectionDrag = appHandlesSelectionDrag,
             )
 
             return snapshot

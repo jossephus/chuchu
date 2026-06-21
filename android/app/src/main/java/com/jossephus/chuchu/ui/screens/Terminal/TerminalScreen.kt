@@ -1215,6 +1215,7 @@ fun TerminalScreen(
                                     onResize = vm::onCanvasSizeChanged,
                                     onTap = requestInputFocus,
                                     onPrimaryClick = vm::onPrimaryMouseClick,
+                                    onAppSelectionDrag = vm::onAppSelectionDrag,
                                     onScroll = vm::onScroll,
                                     onZoom = { zoomFactor ->
                                         terminalFontSizeSp =

@@ -1,6 +1,8 @@
 package com.jossephus.chuchu.service.terminal
 
 import android.app.Application
+import android.content.ClipData
+import android.content.ClipboardManager
 import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.multiplexer.MultiplexerRegistry
@@ -34,6 +36,11 @@ class TerminalSessionRepository private constructor(application: Application) {
     private val hostKeyStore =
         HostKeyStore(appContext.getSharedPreferences("host_keys", Application.MODE_PRIVATE))
     private val tailscaleStatusChecker = TailscaleStatusChecker(appContext)
+    private val clipboard = appContext.getSystemService(ClipboardManager::class.java)
+
+    private fun publishTerminalClipboard(text: String) {
+        clipboard?.setPrimaryClip(ClipData.newPlainText("terminal clipboard", text))
+    }
 
     private val _tabs = MutableStateFlow<List<TabSession>>(emptyList())
     val tabs: StateFlow<List<TabSession>> = _tabs.asStateFlow()
@@ -168,6 +175,7 @@ class TerminalSessionRepository private constructor(application: Application) {
         preflightMutex.withLock {
             val engine =
                 TerminalSessionEngine(
+                    ::publishTerminalClipboard,
                     scope,
                     newLocalShellService(),
                     hostKeyStore,
@@ -199,6 +207,7 @@ class TerminalSessionRepository private constructor(application: Application) {
         val id = UUID.randomUUID().toString()
         val engine =
             TerminalSessionEngine(
+                ::publishTerminalClipboard,
                 scope,
                 newLocalShellService(),
                 hostKeyStore,

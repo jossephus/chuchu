@@ -18,6 +18,8 @@ import com.jossephus.chuchu.service.terminal.HostKeyPrompt
 import com.jossephus.chuchu.service.terminal.SessionState
 import com.jossephus.chuchu.service.terminal.TabSession
 import com.jossephus.chuchu.service.terminal.TabSpec
+import com.jossephus.chuchu.service.terminal.TerminalMouseAction
+import com.jossephus.chuchu.service.terminal.TerminalMouseButton
 import com.jossephus.chuchu.service.terminal.TerminalSessionRepository
 import com.jossephus.chuchu.ui.screens.Files.ConnectionTab
 import com.jossephus.chuchu.ui.screens.Files.FileBrowserEntry
@@ -644,23 +646,35 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun onPrimaryMouseClick(x: Float, y: Float) {
-        sessionRepository.sendMouseEvent(
-            action = GhosttyMouseAction.Press,
-            button = GhosttyMouseButton.Left,
-            mods = 0,
+        sendPrimaryMouseEvent(TerminalMouseAction.Press, x, y, anyButtonPressed = false, trackLastCell = false)
+        sendPrimaryMouseEvent(TerminalMouseAction.Release, x, y, anyButtonPressed = false, trackLastCell = false)
+    }
+
+    fun onAppSelectionDrag(action: Int, x: Float, y: Float) {
+        sendPrimaryMouseEvent(
+            action = action,
             x = x,
             y = y,
-            anyButtonPressed = false,
-            trackLastCell = false,
+            anyButtonPressed = action != TerminalMouseAction.Release,
+            trackLastCell = true,
         )
+    }
+
+    private fun sendPrimaryMouseEvent(
+        action: Int,
+        x: Float,
+        y: Float,
+        anyButtonPressed: Boolean,
+        trackLastCell: Boolean,
+    ) {
         sessionRepository.sendMouseEvent(
-            action = GhosttyMouseAction.Release,
-            button = GhosttyMouseButton.Left,
+            action = action,
+            button = TerminalMouseButton.Left,
             mods = 0,
             x = x,
             y = y,
-            anyButtonPressed = false,
-            trackLastCell = false,
+            anyButtonPressed = anyButtonPressed,
+            trackLastCell = trackLastCell,
         )
     }
 
@@ -741,15 +755,6 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 }
             }
     }
-}
-
-private object GhosttyMouseAction {
-    const val Release = 0
-    const val Press = 1
-}
-
-private object GhosttyMouseButton {
-    const val Left = 1
 }
 
 data class MultiplexerUiState(
