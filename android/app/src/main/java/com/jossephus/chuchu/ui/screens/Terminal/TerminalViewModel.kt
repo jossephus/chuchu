@@ -35,7 +35,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -692,16 +691,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     fun onPasteText(text: String) {
         if (text.isEmpty()) return
         sessionRepository.scrollToActive()
-        val chunkSize = 512
-        viewModelScope.launch {
-            var index = 0
-            while (index < text.length) {
-                val end = (index + chunkSize).coerceAtMost(text.length)
-                sessionRepository.writeText(text.substring(index, end))
-                index = end
-                delay(8)
-            }
-        }
+        sessionRepository.writePaste(text)
     }
 
     fun onFocusChanged(focused: Boolean) {
