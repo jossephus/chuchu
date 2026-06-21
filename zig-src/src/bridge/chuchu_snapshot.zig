@@ -300,7 +300,6 @@ fn updateString(storage: *?[]u8, storage_len: *usize, dirty: *bool, value: ?[:0]
 fn updateBytes(storage: *?[]u8, storage_len: *usize, dirty: *bool, bytes: []const u8) bool {
     if (storage.* != null and storage_len.* == bytes.len) {
         if (bytes.len == 0) return false;
-        if (std.mem.eql(u8, storage.*.?[0..bytes.len], bytes)) return false;
     }
 
     const new_buf = allocator.alloc(u8, bytes.len) catch return false;
