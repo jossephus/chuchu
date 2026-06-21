@@ -663,6 +663,7 @@ fun TerminalCanvas(
                     paint.color = fg
                     paint.isFakeBoldText = (styleBits and TerminalSnapshot.CELL_FLAG_BOLD) != 0
                     paint.isUnderlineText = (styleBits and TerminalSnapshot.CELL_FLAG_UNDERLINE) != 0
+                    paint.textSkewX = if ((styleBits and TerminalSnapshot.CELL_FLAG_ITALIC) != 0) -0.25f else 0f
                     paint.alpha = if ((styleBits and TerminalSnapshot.CELL_FLAG_FAINT) != 0) FAINT_TEXT_ALPHA else 255
                     nCanvas.drawText(sb.toString(), startCol * cellWidth, baseline, paint)
                     i = j
@@ -733,6 +734,7 @@ fun TerminalCanvas(
                         )
                         paint.isFakeBoldText = false
                         paint.isUnderlineText = false
+                        paint.textSkewX = 0f
                         paint.alpha = 255
                         paint.color = cursorTextColorArgb
                         nCanvas.drawText(
@@ -824,6 +826,7 @@ private const val FAINT_TEXT_ALPHA: Int = 96
 
 private const val TEXT_STYLE_MASK: Int =
     TerminalSnapshot.CELL_FLAG_BOLD or
+        TerminalSnapshot.CELL_FLAG_ITALIC or
         TerminalSnapshot.CELL_FLAG_UNDERLINE or
         TerminalSnapshot.CELL_FLAG_FAINT
 
