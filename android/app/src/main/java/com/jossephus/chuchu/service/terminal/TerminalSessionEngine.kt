@@ -302,6 +302,18 @@ class TerminalSessionEngine(
         }
     }
 
+    fun writePaste(text: String) {
+        scope.launch(dispatcher) {
+            if (handle == 0L) return@launch
+            if (text.isEmpty()) return@launch
+            val encoded = bridge.nativeEncodePaste(handle, text) ?: return@launch
+            if (encoded.isEmpty()) return@launch
+            try {
+                writeRemote(encoded)
+            } catch (_: Exception) {}
+        }
+    }
+
     fun setColorScheme(isDark: Boolean) {
         val scheme = if (isDark) 1 else 0
         pendingColorScheme = scheme

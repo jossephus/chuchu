@@ -545,6 +545,38 @@ export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeEncodeK
     return jniByteArrayFromBytes(env, writer.buffered());
 }
 
+export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeEncodePaste(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, data_jstring: c.jstring) callconv(.c) c.jbyteArray {
+    _ = thiz;
+    const terminal = chuchuFromHandle(handle) orelse return jniEmptyByteArray(env);
+    if (data_jstring == null) return jniEmptyByteArray(env);
+
+    const chars = env.*.*.GetStringUTFChars.?(env, data_jstring, null) orelse return jniEmptyByteArray(env);
+    defer env.*.*.ReleaseStringUTFChars.?(env, data_jstring, chars);
+    const data_len = std.mem.span(chars).len;
+    if (data_len == 0) return jniEmptyByteArray(env);
+
+    // encodePaste may need to mutate the data in place (stripping unsafe
+    // bytes and, for non-bracketed pastes, converting newlines to \r), so
+    // copy the JNI string into a mutable buffer before encoding.
+    const data_copy = allocator.alloc(u8, data_len) catch return jniEmptyByteArray(env);
+    defer allocator.free(data_copy);
+    @memcpy(data_copy, chars[0..data_len]);
+
+    const segments = ghostty.input.encodePaste(data_copy, ghostty.input.PasteOptions.fromTerminal(&terminal.terminal));
+    const total = segments[0].len + segments[1].len + segments[2].len;
+    if (total == 0) return jniEmptyByteArray(env);
+
+    const out = allocator.alloc(u8, total) catch return jniEmptyByteArray(env);
+    defer allocator.free(out);
+    var offset: usize = 0;
+    for (segments) |segment| {
+        @memcpy(out[offset..][0..segment.len], segment);
+        offset += segment.len;
+    }
+
+    return jniByteArrayFromBytes(env, out);
+}
+
 export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeEncodeMouse(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, action: c.jint, button: c.jint, mods: c.jint, x: c.jfloat, y: c.jfloat, any_button_pressed: c.jboolean, track_last_cell: c.jboolean) callconv(.c) c.jbyteArray {
     _ = thiz;
     const terminal = chuchuFromHandle(handle) orelse return jniEmptyByteArray(env);

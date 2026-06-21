@@ -339,6 +339,10 @@ class TerminalSessionRepository private constructor(application: Application) {
         activeEngine()?.writeText(text)
     }
 
+    fun writePaste(text: String) {
+        activeEngine()?.writePaste(text)
+    }
+
     fun sendFocusEvent(focused: Boolean) {
         activeEngine()?.sendFocusEvent(focused)
     }
