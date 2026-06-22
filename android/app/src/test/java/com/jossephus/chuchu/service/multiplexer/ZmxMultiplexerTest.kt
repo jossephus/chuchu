@@ -66,4 +66,20 @@ class ZmxMultiplexerTest {
             sessions,
         )
     }
+
+    @Test
+    fun parsesSessionListWithLeadingAndTrailingWhitespace() {
+        val sessions = ZmxMultiplexer.parseSessions(
+            "  name=main\tpid=123\tclients=1\tcreated=0\tstart_dir=/tmp\n " +
+                    "  name=work\tpid=456\tclients=0\tcreated=1\n ",
+        )
+
+        assertEquals(
+            listOf(
+                RemoteMultiplexerSession(name = "main", attached = true),
+                RemoteMultiplexerSession(name = "work", attached = false),
+            ),
+            sessions,
+        )
+    }
 }
