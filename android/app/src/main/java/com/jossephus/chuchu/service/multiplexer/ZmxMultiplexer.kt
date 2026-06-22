@@ -15,7 +15,7 @@ object ZmxMultiplexer : Multiplexer {
         output
             .lineSequence()
             .mapNotNull { line ->
-                val trimmed = line.trimEnd('\r')
+                val trimmed = line.trim()
                 if (trimmed.isBlank()) return@mapNotNull null
                 val fields = trimmed
                     .split('\t')
