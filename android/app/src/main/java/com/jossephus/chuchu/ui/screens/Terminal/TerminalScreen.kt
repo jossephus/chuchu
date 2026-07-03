@@ -80,7 +80,6 @@ import com.jossephus.chuchu.ui.screens.Files.formatFileSize
 import com.jossephus.chuchu.ui.screens.Terminal.TerminalTabMode
 import com.jossephus.chuchu.ui.terminal.AccessoryAction
 import com.jossephus.chuchu.ui.terminal.BuiltinCommand
-import com.jossephus.chuchu.ui.terminal.ChuchuHint
 import com.jossephus.chuchu.ui.terminal.ChuchuKeyBindings
 import com.jossephus.chuchu.ui.terminal.CustomActionModifier
 import com.jossephus.chuchu.ui.terminal.GhosttyKey
@@ -344,7 +343,7 @@ fun TerminalScreen(
     val builtinShortcuts by settingsRepo.builtinShortcuts.collectAsStateWithLifecycle()
     var fabFilteredActions by remember { mutableStateOf<List<TerminalCustomAction>?>(null) }
     val chuchuKeys =
-        remember(vm, tabMode, currentTerminalCustomKeyGroups, builtinShortcuts) {
+        remember(vm, tabMode, currentTerminalCustomKeyGroups, builtinShortcuts, showCustomActionsFab) {
             val isStrip = tabMode == TerminalTabMode.Strip
             val builtinCommandHandlers: Map<BuiltinCommand, () -> Unit> = mapOf(
                 BuiltinCommand.Tabs to {
@@ -366,50 +365,18 @@ fun TerminalScreen(
                 BuiltinCommand.Actions to { settingsRepo.setShowCustomActionsFab(!showCustomActionsFab) },
                 BuiltinCommand.Settings to { onOpenSettings() },
             )
-            // Build builtin hints and handlers in one pass over the enum so order is
-            // deterministic (enum order), not JSON-map iteration order. First binding
-            // for a key wins (settings already prevents duplicates).
-            val builtinHints = mutableListOf<ChuchuHint>()
-            val builtinHandlers = mutableMapOf<Char, () -> Unit>()
-            BuiltinCommand.entries.forEach { command ->
-                val shortcut = builtinShortcuts[command.id]?.takeIf { it.isNotEmpty() } ?: return@forEach
-                val handler = builtinCommandHandlers[command] ?: return@forEach
-                val keyChar = shortcut.first().lowercaseChar()
-                if (keyChar in builtinHandlers) return@forEach
-                builtinHandlers[keyChar] = handler
-                builtinHints += ChuchuHint(key = shortcut, description = command.label)
-            }
-            val builtinKeys = builtinHandlers.keys.toSet()
-            val customHints = mutableListOf<ChuchuHint>()
-            val customHandlers = mutableMapOf<Char, () -> Unit>()
-            val seenShortcuts = builtinKeys.toMutableSet()
-            val shortcutActionsMap = mutableMapOf<Char, MutableList<TerminalCustomAction>>()
-            currentTerminalCustomKeyGroups.forEach { group ->
-                group.actions.forEach { action ->
-                    val shortcut = action.shortcut?.takeIf { it.length == 1 } ?: return@forEach
-                    val keyChar = shortcut.first().lowercaseChar()
-                    if (keyChar in builtinKeys) return@forEach
-                    shortcutActionsMap.getOrPut(keyChar) { mutableListOf() }.add(action)
-                }
-            }
-            shortcutActionsMap.forEach { (keyChar, actions) ->
-                if (!seenShortcuts.add(keyChar)) return@forEach
-                customHints += ChuchuHint(key = keyChar.toString(), description = "[${actions.joinToString(", ") { it.label }}]")
-                customHandlers[keyChar] = {
-                    if (actions.size == 1) {
-                        val decoded = decodeCustomActionValue(actions.first().payload)
-                        val rawText = decoded.text +
-                            if (CustomActionModifier.Enter in decoded.modifiers) "\n" else ""
-                        val actionModifierState = modifierStateForCustomAction(decoded.modifiers)
-                        vm.dispatchTextWithModifierState(rawText, actionModifierState)
-                    } else {
-                        fabFilteredActions = actions
-                    }
-                }
-            }
-            ChuchuKeyBindings(
-                hints = builtinHints + customHints,
-                handlers = builtinHandlers + customHandlers,
+            ChuchuKeyBindings.build(
+                builtinShortcuts = builtinShortcuts,
+                builtinCommandHandlers = builtinCommandHandlers,
+                customGroups = currentTerminalCustomKeyGroups,
+                onDispatchAction = { action ->
+                    val decoded = decodeCustomActionValue(action.payload)
+                    val rawText = decoded.text +
+                        if (CustomActionModifier.Enter in decoded.modifiers) "\n" else ""
+                    val actionModifierState = modifierStateForCustomAction(decoded.modifiers)
+                    vm.dispatchTextWithModifierState(rawText, actionModifierState)
+                },
+                onSelectAmongActions = { actions -> fabFilteredActions = actions },
             )
         }
     val multiplexerState by vm.multiplexerState.collectAsStateWithLifecycle()

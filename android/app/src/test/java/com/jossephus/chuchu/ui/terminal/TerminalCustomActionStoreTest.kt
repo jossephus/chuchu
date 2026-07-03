@@ -11,7 +11,7 @@ import org.junit.Test
  * text — including the delimiter characters the old format choked on (`::`, `|`, `=`, newlines,
  * quotes) and the embedded `[[chu_mods:...]]` marker — round-trips losslessly.
  *
- * Pure Kotlin + org.json, so this runs as a plain JUnit test.
+ * Pure Kotlin + kotlinx.serialization, so this runs as a plain JUnit test.
  */
 class TerminalCustomActionStoreTest {
 

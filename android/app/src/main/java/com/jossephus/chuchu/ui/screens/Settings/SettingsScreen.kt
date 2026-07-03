@@ -74,6 +74,7 @@ fun SettingsScreen(
     var selectedCategory by remember { mutableStateOf(SettingsCategory.General) }
     var showAccessoryEditor by remember { mutableStateOf(false) }
     var showCustomActionEditor by remember { mutableStateOf(false) }
+    var showChuchuCommandsEditor by remember { mutableStateOf(false) }
     var showBackupSheet by remember { mutableStateOf(false) }
 
     BackHandler(enabled = true) {
@@ -83,6 +84,7 @@ fun SettingsScreen(
                 showBackupSheet = false
             }
             showCustomActionEditor -> showCustomActionEditor = false
+            showChuchuCommandsEditor -> showChuchuCommandsEditor = false
             showAccessoryEditor -> showAccessoryEditor = false
             else -> onBack()
         }
@@ -174,7 +176,7 @@ fun SettingsScreen(
                         showCustomActionsFab = showCustomActionsFab,
                         onShowCustomActionsFabChanged = onShowCustomActionsFabChanged,
                         builtinShortcuts = builtinShortcuts,
-                        onBuiltinShortcutsChanged = onBuiltinShortcutsChanged,
+                        onEditChuchuCommands = { showChuchuCommandsEditor = true },
                         currentTabMode = currentTabMode,
                         onTabModeChanged = onTabModeChanged,
                     )
@@ -197,6 +199,16 @@ fun SettingsScreen(
             initialGroups = currentTerminalCustomKeyGroups,
             onSave = onTerminalCustomActionsChanged,
             onDismiss = { showCustomActionEditor = false },
+        )
+
+        ChuchuCommandsEditorSheet(
+            visible = showChuchuCommandsEditor,
+            builtinShortcuts = builtinShortcuts,
+            onSave = {
+                onBuiltinShortcutsChanged(it)
+                showChuchuCommandsEditor = false
+            },
+            onDismiss = { showChuchuCommandsEditor = false },
         )
 
         if (backupViewModel != null) {

@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
     id("kotlin-kapt")
 }
 
@@ -87,15 +88,13 @@ dependencies {
     implementation(libs.room.ktx)
     kapt(libs.room.compiler)
     implementation(libs.navigation.compose)
+    implementation(libs.kotlinx.serialization.json)
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.4")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
     implementation("androidx.biometric:biometric:1.2.0-alpha05")
     implementation("androidx.fragment:fragment-ktx:1.8.2")
     testImplementation(libs.junit)
-    // Real org.json on the unit-test classpath: android.jar ships a stub that throws
-    // "not mocked", so tests exercising JSON (de)serialization need the actual impl.
-    testImplementation("org.json:json:20240303")
     androidTestImplementation(libs.androidx.junit)
     implementation(libs.androidx.compose.foundation)
     androidTestImplementation(libs.androidx.espresso.core)

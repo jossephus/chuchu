@@ -7,8 +7,8 @@ import org.junit.Test
  * Round-trip and contract tests for [BuiltinShortcutStore].
  *
  * JSON storage means any key char survives — including the `:`, `,`, `;` that the
- * old inline delimited format could not (review finding F3). Pure Kotlin + org.json,
- * so this runs as a plain JUnit test.
+ * old inline delimited format could not (review finding F3). Pure Kotlin +
+ * kotlinx.serialization, so this runs as a plain JUnit test.
  */
 class BuiltinShortcutStoreTest {
 

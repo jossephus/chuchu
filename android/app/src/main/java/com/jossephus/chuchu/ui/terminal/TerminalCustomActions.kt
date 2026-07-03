@@ -1,17 +1,22 @@
 package com.jossephus.chuchu.ui.terminal
 
-import org.json.JSONArray
-import org.json.JSONException
-import org.json.JSONObject
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
+@Serializable
 data class TerminalCustomAction(
     val label: String,
     val payload: String,
     val shortcut: String? = null,
 )
 
+@Serializable
 data class TerminalCustomKeyGroup(
-    val keyLabel: String,
+    @SerialName("key") val keyLabel: String,
     val actions: List<TerminalCustomAction>,
 )
 
@@ -73,6 +78,10 @@ fun modifierStateForCustomAction(modifiers: Set<CustomActionModifier>): Modifier
 }
 
 object TerminalCustomActionStore {
+    // encodeDefaults is left at its default (false) so a null `shortcut` is omitted
+    // from the JSON, matching the previous conditional-put behavior.
+    private val json = Json { ignoreUnknownKeys = true }
+
     private val defaultGroups: List<TerminalCustomKeyGroup> = listOf(
         TerminalCustomKeyGroup(
             keyLabel = "qv",
@@ -108,25 +117,8 @@ object TerminalCustomActionStore {
         if (raw == null) return defaultGroups
         if (raw.isBlank()) return emptyList()
         val parsed = try {
-            val array = JSONArray(raw)
-            (0 until array.length()).mapNotNull { groupIndex ->
-                val groupObj = array.optJSONObject(groupIndex) ?: return@mapNotNull null
-                val keyLabel = groupObj.optString("key").trim()
-                if (keyLabel.isEmpty()) return@mapNotNull null
-                val actionsArray = groupObj.optJSONArray("actions") ?: return@mapNotNull null
-                val actions = (0 until actionsArray.length()).mapNotNull { actionIndex ->
-                    val actionObj = actionsArray.optJSONObject(actionIndex)
-                        ?: return@mapNotNull null
-                    val label = actionObj.optString("label").trim()
-                    val payload = actionObj.optString("payload")
-                    if (label.isEmpty() || payload.isEmpty()) return@mapNotNull null
-                    val shortcut = actionObj.optString("shortcut").trim().takeIf { it.isNotEmpty() }
-                    TerminalCustomAction(label = label, payload = payload, shortcut = shortcut)
-                }
-                if (actions.isEmpty()) return@mapNotNull null
-                TerminalCustomKeyGroup(keyLabel = keyLabel, actions = actions)
-            }
-        } catch (_: JSONException) {
+            json.decodeFromString<List<TerminalCustomKeyGroup>>(raw)
+        } catch (_: SerializationException) {
             // Migration: actions saved before the JSON switch used a delimited
             // "keyLabel=label::payload|..." string. The shortcut field is new, so
             // legacy entries never carried one — split on the first "::" only, which
@@ -167,20 +159,6 @@ object TerminalCustomActionStore {
     fun serialize(groups: List<TerminalCustomKeyGroup>): String {
         val normalized = normalize(groups)
         if (normalized.isEmpty()) return ""
-        val array = JSONArray()
-        normalized.forEach { group ->
-            val actionsArray = JSONArray()
-            group.actions.forEach { action ->
-                val actionObj = JSONObject()
-                actionObj.put("label", action.label)
-                actionObj.put("payload", action.payload)
-                if (action.shortcut != null) {
-                    actionObj.put("shortcut", action.shortcut)
-                }
-                actionsArray.put(actionObj)
-            }
-            array.put(JSONObject().put("key", group.keyLabel).put("actions", actionsArray))
-        }
-        return array.toString()
+        return json.encodeToString(normalized)
     }
 }
