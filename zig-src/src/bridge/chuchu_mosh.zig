@@ -37,6 +37,16 @@ fn jniDupString(env: *c.JNIEnv, s: c.jstring) ?[]u8 {
     return allocator.dupe(u8, std.mem.span(chars)) catch null;
 }
 
+fn clientFromHandle(handle: c.jlong) *anyopaque {
+    const raw_handle: u64 = @bitCast(handle);
+    return @ptrFromInt(@as(usize, @truncate(raw_handle)));
+}
+
+fn handleFromClient(client: *anyopaque) c.jlong {
+    const raw_ptr: u64 = @intCast(@intFromPtr(client));
+    return @bitCast(raw_ptr);
+}
+
 // ---------------------------------------------------------------------------
 // NativeMoshBridge JNI exports
 // ---------------------------------------------------------------------------
@@ -61,7 +71,7 @@ export fn Java_com_jossephus_chuchu_service_mosh_NativeMoshBridge_nativeCreate(
         logError("mosh_client_create failed rc={d}", .{rc});
         return 0;
     }
-    return @bitCast(@as(u64, @intFromPtr(handle)));
+    return handleFromClient(handle.?);
 }
 
 export fn Java_com_jossephus_chuchu_service_mosh_NativeMoshBridge_nativeStart(
@@ -71,7 +81,7 @@ export fn Java_com_jossephus_chuchu_service_mosh_NativeMoshBridge_nativeStart(
 ) callconv(.c) c.jint {
     _ = env;
     _ = thiz;
-    const raw: *anyopaque = @ptrFromInt(@as(usize, @bitCast(handle)));
+    const raw = clientFromHandle(handle);
     return mosh.ffi.mosh_client_start(raw);
 }
 
@@ -82,7 +92,7 @@ export fn Java_com_jossephus_chuchu_service_mosh_NativeMoshBridge_nativeSendInpu
     j_data: c.jbyteArray,
 ) callconv(.c) c.jint {
     _ = thiz;
-    const raw: *anyopaque = @ptrFromInt(@as(usize, @bitCast(handle)));
+    const raw = clientFromHandle(handle);
 
     if (j_data == null) return mosh.ffi.mosh_client_send_input(raw, null, 0);
 
@@ -106,7 +116,7 @@ export fn Java_com_jossephus_chuchu_service_mosh_NativeMoshBridge_nativeResize(
 ) callconv(.c) c.jint {
     _ = env;
     _ = thiz;
-    const raw: *anyopaque = @ptrFromInt(@as(usize, @bitCast(handle)));
+    const raw = clientFromHandle(handle);
     return mosh.ffi.mosh_client_resize(raw, cols, rows);
 }
 
@@ -117,7 +127,7 @@ export fn Java_com_jossephus_chuchu_service_mosh_NativeMoshBridge_nativeMaintena
 ) callconv(.c) c.jint {
     _ = env;
     _ = thiz;
-    const raw: *anyopaque = @ptrFromInt(@as(usize, @bitCast(handle)));
+    const raw = clientFromHandle(handle);
     return mosh.ffi.mosh_client_maintenance_tick(raw);
 }
 
@@ -128,7 +138,7 @@ export fn Java_com_jossephus_chuchu_service_mosh_NativeMoshBridge_nativePumpNetw
 ) callconv(.c) c.jint {
     _ = env;
     _ = thiz;
-    const raw: *anyopaque = @ptrFromInt(@as(usize, @bitCast(handle)));
+    const raw = clientFromHandle(handle);
     return mosh.ffi.mosh_client_pump_network(raw);
 }
 
@@ -143,7 +153,7 @@ export fn Java_com_jossephus_chuchu_service_mosh_NativeMoshBridge_nativePollOutp
     j_out_meta: c.jlongArray,
 ) callconv(.c) c.jint {
     _ = thiz;
-    const raw: *anyopaque = @ptrFromInt(@as(usize, @bitCast(handle)));
+    const raw = clientFromHandle(handle);
 
     var out_buf: [*c]u8 = null;
     var cap: usize = 0;
@@ -200,7 +210,7 @@ export fn Java_com_jossephus_chuchu_service_mosh_NativeMoshBridge_nativePollStat
     j_out_state: c.jlongArray,
 ) callconv(.c) c.jint {
     _ = thiz;
-    const raw: *anyopaque = @ptrFromInt(@as(usize, @bitCast(handle)));
+    const raw = clientFromHandle(handle);
 
     var runtime_state: mosh.types.RuntimeState = undefined;
     const rc = mosh.ffi.mosh_client_poll_state(raw, &runtime_state);
@@ -229,7 +239,7 @@ export fn Java_com_jossephus_chuchu_service_mosh_NativeMoshBridge_nativeStop(
 ) callconv(.c) c.jint {
     _ = env;
     _ = thiz;
-    const raw: *anyopaque = @ptrFromInt(@as(usize, @bitCast(handle)));
+    const raw = clientFromHandle(handle);
     return mosh.ffi.mosh_client_stop(raw);
 }
 
@@ -241,6 +251,6 @@ export fn Java_com_jossephus_chuchu_service_mosh_NativeMoshBridge_nativeDestroy(
     _ = env;
     _ = thiz;
     if (handle == 0) return 0;
-    const raw: *anyopaque = @ptrFromInt(@as(usize, @bitCast(handle)));
+    const raw = clientFromHandle(handle);
     return mosh.ffi.mosh_client_destroy(raw);
 }
