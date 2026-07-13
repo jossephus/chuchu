@@ -4,4 +4,5 @@ enum class Transport {
     SSH,
     TailscaleSSH,
     Mosh,
+    LocalShell,
 }

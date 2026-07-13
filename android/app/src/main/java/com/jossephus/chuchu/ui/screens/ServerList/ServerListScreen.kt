@@ -65,6 +65,8 @@ fun ServerListScreen(
     searchQuery: String,
     onSearchChange: (String) -> Unit,
     onAddServer: () -> Unit,
+    localShellEnabled: Boolean,
+    onOpenLocalShell: () -> Unit,
     onEditServer: (Long) -> Unit,
     onConnectServer: (Long) -> Unit,
     onDeleteServer: (Long) -> Unit,
@@ -76,23 +78,43 @@ fun ServerListScreen(
     val sessionRepo = remember(application) { TerminalSessionRepository.getInstance(application) }
     val connectedHostIds by sessionRepo.connectedHostIds.collectAsStateWithLifecycle()
     val openTabs by sessionRepo.tabs.collectAsStateWithLifecycle()
-    val hasActiveSession = openTabs.isNotEmpty()
+    val hasOpenLocalShell = openTabs.any { it.spec.transport == Transport.LocalShell }
 
     var selectedHostId by remember { mutableStateOf<Long?>(null) }
     var pendingConnectHostId by remember { mutableStateOf<Long?>(null) }
+    var pendingLocalShell by remember { mutableStateOf(false) }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) {
         val hostId = pendingConnectHostId
+        val openLocalShell = pendingLocalShell
         pendingConnectHostId = null
-        if (hostId != null) {
-            onConnectServer(hostId)
+        pendingLocalShell = false
+        when {
+            openLocalShell -> onOpenLocalShell()
+            hostId != null -> onConnectServer(hostId)
         }
     }
     LaunchedEffect(hosts, selectedHostId) {
         val selected_id = selectedHostId
         if (selected_id != null && hosts.none { it.id == selected_id }) {
             selectedHostId = null
+        }
+    }
+
+    fun needsNotificationPermission(): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) != PackageManager.PERMISSION_GRANTED
+
+    fun openLocalShellWithPermission() {
+        if (needsNotificationPermission()) {
+            pendingLocalShell = true
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            onOpenLocalShell()
         }
     }
 
@@ -131,12 +153,19 @@ fun ServerListScreen(
 
             SectionHeader("HOSTS")
 
-            if (hosts.isEmpty()) {
-                EmptyState()
-            } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (localShellEnabled) {
+                    item(key = "local-shell") {
+                        LocalShellCard(
+                            isOpen = hasOpenLocalShell,
+                            onOpen = { openLocalShellWithPermission() },
+                        )
+                    }
+                }
+                if (hosts.isEmpty()) {
+                    item(key = "empty") { EmptyState() }
+                } else {
                     items(hosts, key = { it.id }) { host ->
-                        val targetSessionKey = "host:${host.id}"
                         val isConnected = host.id in connectedHostIds
                         HostCard(
                             host = host,
@@ -163,26 +192,11 @@ fun ServerListScreen(
                             },
                             onConnect = {
                                 selectedHostId = null
-                                val canNavigate = true
-                                if (canNavigate) {
-                                    val needsNotificationPermission =
-                                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                                            ContextCompat.checkSelfPermission(
-                                                context,
-                                                Manifest.permission.POST_NOTIFICATIONS,
-                                            ) != PackageManager.PERMISSION_GRANTED
-                                    if (needsNotificationPermission) {
-                                        pendingConnectHostId = host.id
-                                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                    } else {
-                                        onConnectServer(host.id)
-                                    }
+                                if (needsNotificationPermission()) {
+                                    pendingConnectHostId = host.id
+                                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                                 } else {
-                                    Toast.makeText(
-                                        context,
-                                        "Disconnect current session first",
-                                        Toast.LENGTH_SHORT,
-                                    ).show()
+                                    onConnectServer(host.id)
                                 }
                             },
                             onDisconnect = {
@@ -200,23 +214,17 @@ fun ServerListScreen(
             }
         }
 
-        Column(
+        ChuButton(
+            onClick = onAddServer,
+            variant = ChuButtonVariant.Filled,
+            bracketed = true,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .windowInsetsPadding(WindowInsets.safeDrawing)
-                .padding(16.dp),
-            horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+                .padding(16.dp)
+                .height(44.dp),
         ) {
-            ChuButton(
-                onClick = onAddServer,
-                variant = ChuButtonVariant.Filled,
-                bracketed = true,
-                modifier = Modifier.height(44.dp),
-            ) {
-                ChuText("+ add server", style = typography.label, color = colors.onAccent)
-            }
-
+            ChuText("+ add server", style = typography.label, color = colors.onAccent)
         }
 
     }
@@ -258,6 +266,64 @@ private fun EmptyState() {
                 style = typography.bodySmall,
                 color = colors.textSecondary,
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun LocalShellCard(
+    isOpen: Boolean,
+    onOpen: () -> Unit,
+) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+
+    ChuCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(114.dp)
+            .combinedClickable(onClick = onOpen),
+        background = colors.surfaceVariant,
+        border = if (isOpen) colors.success else colors.border,
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ChuText(
+                        if (isOpen) "● " else "○ ",
+                        style = typography.title,
+                        color = if (isOpen) colors.success else colors.textMuted,
+                    )
+                    ChuText("local shell", style = typography.title)
+                }
+                TuiBadge(text = "android", color = colors.accentSecondary)
+            }
+            Spacer(modifier = Modifier.height(2.dp))
+            ChuText(
+                "> this device · app sandbox",
+                style = typography.body,
+                color = colors.textSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                ChuButton(
+                    onClick = onOpen,
+                    variant = ChuButtonVariant.Outlined,
+                    bracketed = true,
+                    borderColor = colors.accentSecondary,
+                    contentDescription = "Open local shell",
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                ) {
+                    ChuText("open", style = typography.label, color = colors.accentSecondary)
+                }
+            }
         }
     }
 }

@@ -97,7 +97,7 @@ fun TerminalTabStrip(
         ) {
             tabs.forEach { tab ->
                 val isActive = tab.id == activeTabId
-                val alias = terminalTabAlias(tab)
+                val alias = terminalTabDisplayLabel(tab)
                 val title by remember(tab) {
                     tab.sessionState.map { it.title?.takeIf(String::isNotBlank) }
                 }.collectAsStateWithLifecycle(initialValue = null)

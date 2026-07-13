@@ -215,14 +215,21 @@ class AccessoryLogicTest {
     // ── Layout store ──────────────────────────────────────────────────────
 
     @Test
-    fun `defaultLayout includes expected keys`() {
-        val layout = TerminalAccessoryLayoutStore.defaultLayout()
+    fun `defaultEntries includes expected keys`() {
+        val layout = TerminalAccessoryLayoutStore.defaultEntries()
         val ids = layout.map { it.id }
         assertTrue("escape" in ids)
         assertTrue("up" in ids)
         assertTrue("down" in ids)
         assertTrue("ctrl" in ids)
         assertTrue("cmd" in ids)
+    }
+
+    @Test
+    fun `defaultEntries does not include the digits group by default`() {
+        val layout = TerminalAccessoryLayoutStore.defaultEntries()
+        val ids = layout.map { it.id }
+        assertFalse("digits" in ids)
     }
 
     @Test
@@ -234,20 +241,67 @@ class AccessoryLogicTest {
     }
 
     @Test
-    fun `resolveSelectedLayout returns items for valid ids`() {
-        val items = TerminalAccessoryLayoutStore.resolveSelectedLayout(
+    fun `normalizeIds keeps composite group ids`() {
+        val result = TerminalAccessoryLayoutStore.normalizeIds(
+            listOf("digits", "escape", "digits", "bogus"),
+        )
+        assertEquals(listOf("digits", "escape"), result)
+    }
+
+    @Test
+    fun `resolveSelectedLayout returns entries for valid ids`() {
+        val entries = TerminalAccessoryLayoutStore.resolveSelectedLayout(
             listOf("escape", "ctrl", "up"),
         )
-        assertEquals(3, items.size)
-        assertEquals("escape", items[0].id)
-        assertEquals("ctrl", items[1].id)
-        assertEquals("up", items[2].id)
+        assertEquals(3, entries.size)
+        assertEquals("escape", entries[0].id)
+        assertEquals("ctrl", entries[1].id)
+        assertEquals("up", entries[2].id)
+        assertTrue(entries.all { it is ResolvedAccessoryEntry.Single })
+    }
+
+    @Test
+    fun `resolveSelectedLayout returns a Group entry for a composite id`() {
+        val entries = TerminalAccessoryLayoutStore.resolveSelectedLayout(listOf("digits"))
+        assertEquals(1, entries.size)
+        val group = entries.first()
+        assertTrue("digits must resolve to a Group", group is ResolvedAccessoryEntry.Group)
+        assertEquals("0-9", group.label)
     }
 
     @Test
     fun `resolveSelectedLayout with empty list returns empty`() {
-        val items = TerminalAccessoryLayoutStore.resolveSelectedLayout(emptyList())
-        assertTrue(items.isEmpty())
+        val entries = TerminalAccessoryLayoutStore.resolveSelectedLayout(emptyList())
+        assertTrue(entries.isEmpty())
+    }
+
+    // ── Composite groups ──────────────────────────────────────────────────
+
+    @Test
+    fun `compositeGroups exposes digits`() {
+        val ids = TerminalAccessoryLayoutStore.compositeGroups().map { it.id }
+        assertTrue("digits" in ids)
+    }
+
+    @Test
+    fun `digits group has ten children 0 through 9`() {
+        val digits = TerminalAccessoryLayoutStore.compositeGroups().first { it.id == "digits" }
+        assertEquals(10, digits.children.size)
+        val labels = digits.children.joinToString("") { it.label }
+        assertEquals("0123456789", labels)
+        digits.children.forEach { child ->
+            val text = (child.action as? AccessoryAction.SendText)?.text
+            assertEquals(child.label, text)
+        }
+    }
+
+    @Test
+    fun `allCatalogEntries includes singles and groups`() {
+        val entries = TerminalAccessoryLayoutStore.allCatalogEntries()
+        val hasSingle = entries.any { it is ResolvedAccessoryEntry.Single }
+        val hasGroup = entries.any { it is ResolvedAccessoryEntry.Group }
+        assertTrue("catalog must include single keys", hasSingle)
+        assertTrue("catalog must include composite groups", hasGroup)
     }
 
     // ── Paste action convenience ──────────────────────────────────────────

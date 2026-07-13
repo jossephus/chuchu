@@ -54,11 +54,17 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
@@ -66,6 +72,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.model.AuthMethod
+import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.terminal.SessionStatus
 import com.jossephus.chuchu.service.terminal.TabSpec
 import com.jossephus.chuchu.ui.components.ChuButton
@@ -92,6 +99,9 @@ import com.jossephus.chuchu.ui.terminal.TerminalCanvas
 import com.jossephus.chuchu.ui.terminal.TerminalCustomAction
 import com.jossephus.chuchu.ui.terminal.TerminalCustomKeyGroup
 import com.jossephus.chuchu.ui.terminal.TerminalInputView
+import com.jossephus.chuchu.ui.terminal.TerminalSelection
+import com.jossephus.chuchu.ui.terminal.TerminalSelectionHandle
+import com.jossephus.chuchu.ui.terminal.TerminalSelectionState
 import com.jossephus.chuchu.ui.terminal.TerminalSpecialKey
 import com.jossephus.chuchu.ui.terminal.decodeCustomActionValue
 import com.jossephus.chuchu.ui.terminal.modifierStateForCustomAction
@@ -279,16 +289,24 @@ fun TerminalScreen(
     onOpenSettings: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    openLocalShell: Boolean = false,
 ) {
     val sessionState by vm.sessionState.collectAsStateWithLifecycle()
     val tabs by vm.tabs.collectAsStateWithLifecycle()
     val activeTabId by vm.activeTabId.collectAsStateWithLifecycle()
     val activeTab by vm.activeTab.collectAsStateWithLifecycle()
-    val hosts by vm.hosts.collectAsStateWithLifecycle()
-    val hostsLoaded by vm.hostsLoaded.collectAsStateWithLifecycle()
     val activeTabForHost =
-        remember(activeTab, hostId) { activeTab?.takeIf { it.spec.hostId == hostId } }
+        remember(activeTab, hostId, openLocalShell) {
+            if (openLocalShell) {
+                activeTab?.takeIf {
+                    it.spec.hostId == null && it.spec.transport == Transport.LocalShell
+                }
+            } else {
+                activeTab?.takeIf { it.spec.hostId == hostId }
+            }
+        }
     val selectedTab by vm.selectedTab.collectAsStateWithLifecycle()
+    val filesSupported = activeTab?.spec?.transport != Transport.LocalShell
     val fileBrowserState by vm.fileBrowserState.collectAsStateWithLifecycle()
     val hostKeyPrompt by vm.hostKeyPrompt.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -300,8 +318,6 @@ fun TerminalScreen(
     val screenInsetsModifier = modifier.windowInsetsPadding(WindowInsets.safeDrawing)
     var lastSessionStatus by remember { mutableStateOf<SessionStatus?>(null) }
     val settingsRepo = remember(context) { SettingsRepository.getInstance(context) }
-    val terminalPrefs =
-        remember(context) { context.getSharedPreferences("chuchu_terminal", Context.MODE_PRIVATE) }
     val currentTheme by settingsRepo.themeName.collectAsStateWithLifecycle()
     val themeMode by settingsRepo.themeMode.collectAsStateWithLifecycle()
     val lightThemeName by settingsRepo.lightThemeName.collectAsStateWithLifecycle()
@@ -315,6 +331,7 @@ fun TerminalScreen(
     val useSingleRowAccessoryBar by settingsRepo.accessoryBarSingleRow.collectAsStateWithLifecycle()
     val currentTerminalCustomKeyGroups by
         settingsRepo.terminalCustomKeyGroups.collectAsStateWithLifecycle()
+    val settingsFontSize by settingsRepo.terminalFontSize.collectAsStateWithLifecycle()
 
     val accessoryLayout =
         remember(currentAccessoryLayoutIds) {
@@ -323,21 +340,31 @@ fun TerminalScreen(
     val ghosttyTheme =
         remember(context, resolvedThemeName) { GhosttyThemeRegistry.getTheme(context, resolvedThemeName) }
     val isDarkTheme = (ghosttyTheme?.background ?: colors.background).luminance() < 0.5f
-    var selectedText by remember { mutableStateOf<String?>(null) }
-    var hasSelectionActive by remember { mutableStateOf(false) }
-    var selectionAnchorOffset by remember { mutableStateOf(Offset.Zero) }
-    var selectionResetKey by remember { mutableStateOf(0) }
+    var selection by remember { mutableStateOf<TerminalSelection?>(null) }
+    var selectionState by remember { mutableStateOf<TerminalSelectionState?>(null) }
     var showPassphrasePrompt by remember { mutableStateOf(false) }
     var passphraseInput by remember { mutableStateOf("") }
     var pendingTabSpec by remember { mutableStateOf<TabSpec?>(null) }
     var passphraseFromPicker by remember { mutableStateOf(false) }
     var showTabSheet by remember { mutableStateOf(false) }
-    var showServerPicker by remember { mutableStateOf(false) }
     var showGlobalTabManager by remember { mutableStateOf(false) }
-    var hasSeenTabsForHost by remember(hostId) { mutableStateOf(false) }
+    var hasSeenTabsForHost by remember(hostId, openLocalShell) { mutableStateOf(false) }
     var focusedTabIndex by remember { mutableStateOf(0) }
+    var localShellFilesMessage by remember { mutableStateOf<String?>(null) }
     var terminalFontSizeSp by remember {
-        mutableStateOf(terminalPrefs.getFloat("terminal_font_size_sp", 14f).coerceAtLeast(0.1f))
+        mutableStateOf(
+            settingsFontSize.coerceIn(
+                SettingsRepository.MIN_TERMINAL_FONT_SIZE,
+                SettingsRepository.MAX_TERMINAL_FONT_SIZE,
+            ),
+        )
+    }
+    LaunchedEffect(settingsFontSize) {
+        terminalFontSizeSp =
+            settingsFontSize.coerceIn(
+                SettingsRepository.MIN_TERMINAL_FONT_SIZE,
+                SettingsRepository.MAX_TERMINAL_FONT_SIZE,
+            )
     }
     val showCustomActionsFab by settingsRepo.showCustomActionsFab.collectAsStateWithLifecycle()
     val builtinShortcuts by settingsRepo.builtinShortcuts.collectAsStateWithLifecycle()
@@ -382,16 +409,49 @@ fun TerminalScreen(
     val multiplexerState by vm.multiplexerState.collectAsStateWithLifecycle()
 
     LaunchedEffect(terminalFontSizeSp) {
-        terminalPrefs.edit().putFloat("terminal_font_size_sp", terminalFontSizeSp).apply()
+        settingsRepo.setTerminalFontSize(terminalFontSizeSp)
     }
 
+    LaunchedEffect(openLocalShell) {
+        if (!openLocalShell) return@LaunchedEffect
+        showPassphrasePrompt = false
+        passphraseInput = ""
+        pendingTabSpec = null
+        passphraseFromPicker = false
+        val existing = vm.selectLocalShellTab()
+        if (existing != null) {
+            return@LaunchedEffect
+        }
+        vm.openTab(
+            TabSpec(
+                hostId = null,
+                displayName = "local shell",
+                host = "localhost",
+                username = "android",
+                authMethod = AuthMethod.None,
+                transport = Transport.LocalShell,
+            )
+        )
+    }
+
+
     val hasTabsForHost =
-        remember(tabs, hostId) {
-            if (hostId == null) false else tabs.any { it.spec.hostId == hostId }
+        remember(tabs, hostId, openLocalShell) {
+            when {
+                openLocalShell ->
+                    tabs.any { it.spec.hostId == null && it.spec.transport == Transport.LocalShell }
+                hostId != null -> tabs.any { it.spec.hostId == hostId }
+                else -> false
+            }
         }
     val tabsForHost =
-        remember(tabs, hostId) {
-            if (hostId == null) emptyList() else tabs.filter { it.spec.hostId == hostId }
+        remember(tabs, hostId, openLocalShell) {
+            when {
+                openLocalShell ->
+                    tabs.filter { it.spec.hostId == null && it.spec.transport == Transport.LocalShell }
+                hostId != null -> tabs.filter { it.spec.hostId == hostId }
+                else -> emptyList()
+            }
         }
     val activeHostCount =
         remember(tabs) {
@@ -454,30 +514,37 @@ fun TerminalScreen(
                 }
             }
 
-            else -> {
-                showServerPicker = true
-            }
         }
     }
 
-    LaunchedEffect(hostId) {
+    LaunchedEffect(hostId, openLocalShell) {
         showPassphrasePrompt = false
         passphraseInput = ""
         pendingTabSpec = null
         passphraseFromPicker = false
-        if (hostId == null) return@LaunchedEffect
+        if (hostId == null || openLocalShell) return@LaunchedEffect
         val existing = vm.selectTabForHost(hostId)
         if (existing != null) {
             return@LaunchedEffect
         }
         val prepared = vm.prepareTabOpenForHost(hostId) ?: return@LaunchedEffect
         vm.refreshTailscaleStatus()
-        openPreparedTab(prepared.spec, prepared.requiresVerification, false)
+        // Biometric verification already happened in ApplicationNavController
+        // before navigating to this route — skip the redundant re-prompt.
+        openPreparedTab(prepared.spec, false, false)
     }
 
-    // Strip mode: never auto-back from host-scoped empty state.
-    // Classic mode: back when all tabs for the current host are gone.
-    LaunchedEffect(hostId, hasTabsForHost, tabMode) {
+    // Strip mode: never auto-back from normal host-scoped empty state.
+    // Local-shell routes still close when their local tab is gone.
+    LaunchedEffect(hostId, hasTabsForHost, openLocalShell, tabMode) {
+        if (openLocalShell) {
+            if (hasTabsForHost) {
+                hasSeenTabsForHost = true
+            } else if (hasSeenTabsForHost) {
+                onBack()
+            }
+            return@LaunchedEffect
+        }
         if (tabMode == TerminalTabMode.Strip) return@LaunchedEffect
         if (hostId == null) return@LaunchedEffect
         if (hasTabsForHost) {
@@ -543,6 +610,21 @@ fun TerminalScreen(
                 visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth(),
             )
+        }
+    }
+
+    fun showLocalShellFilesUnsupported() {
+        val message = "Files are not supported for local shell"
+        localShellFilesMessage = message
+        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+    }
+
+    LaunchedEffect(filesSupported, selectedTab) {
+        if (filesSupported) {
+            localShellFilesMessage = null
+        }
+        if (!filesSupported && selectedTab == ConnectionTab.Files) {
+            vm.selectConnectionTab(ConnectionTab.Terminal)
         }
     }
 
@@ -710,8 +792,14 @@ fun TerminalScreen(
             if (snapshot != null) {
                 var modifierState by remember { mutableStateOf(ModifierState()) }
                 val inputViewRef = remember { mutableStateOf<TerminalInputView?>(null) }
+                var menuSize by remember { mutableStateOf(IntSize.Zero) }
                 val clipboard = remember {
                     context.getSystemService(ClipboardManager::class.java)
+                }
+                LaunchedEffect(sessionState.handle, activeTabId) {
+                    selection = null
+                    selectionState = null
+                    menuSize = IntSize.Zero
                 }
 
                 fun pasteClipboard(): Boolean {
@@ -722,10 +810,8 @@ fun TerminalScreen(
                     val text = clip.getItemAt(0).coerceToText(context).toString()
                     if (text.isNotEmpty()) {
                         vm.onPasteText(modifierState.applyToText(text))
-                        selectedText = null
-                        hasSelectionActive = false
-                        selectionAnchorOffset = Offset.Zero
-                        selectionResetKey += 1
+                        selection = null
+                        selectionState = null
                         return true
                     }
                     return false
@@ -822,13 +908,11 @@ fun TerminalScreen(
                     }
 
                     fun copySelection() {
-                        val text = selectedText ?: return
+                        val text = selectionState?.text ?: return
                         clipboard?.setPrimaryClip(ClipData.newPlainText("terminal selection", text))
                         Toast.makeText(context, "Copied selection", Toast.LENGTH_SHORT).show()
-                        selectedText = null
-                        hasSelectionActive = false
-                        selectionAnchorOffset = Offset.Zero
-                        selectionResetKey += 1
+                        selection = null
+                        selectionState = null
                     }
 
                     val importFileLauncher =
@@ -979,7 +1063,7 @@ fun TerminalScreen(
                         modifier =
                             Modifier.fillMaxSize()
                                 .blur(
-                                    if (showTabSheet || showGlobalTabManager || showServerPicker) 10.dp
+                                    if (showTabSheet || showGlobalTabManager) 10.dp
                                     else 0.dp
                                 )
                                 .imePadding()
@@ -1026,7 +1110,7 @@ fun TerminalScreen(
                                     }
                                 }
                             }
-                        } else if (selectedTab == ConnectionTab.Files) {
+                        } else if (selectedTab == ConnectionTab.Files && filesSupported) {
                             FileBrowserScreen(
                                 state = fileBrowserState,
                                 onGoUp = vm::goUpDirectory,
@@ -1173,22 +1257,24 @@ fun TerminalScreen(
                                             ?: colors.accent.copy(alpha = 0.45f),
                                     selectionForegroundColor =
                                         ghosttyTheme?.selectionForeground ?: colors.onAccent,
-                                    selectionResetKey = selectionResetKey,
+                                    selection = selection,
+                                    onSelectionChange = { selection = it },
                                     terminalHandle = sessionState.handle,
                                     modifier = Modifier.fillMaxSize(),
                                     onResize = vm::onCanvasSizeChanged,
                                     onTap = requestInputFocus,
                                     onPrimaryClick = vm::onPrimaryMouseClick,
+                                    onAppSelectionDrag = vm::onAppSelectionDrag,
                                     onScroll = vm::onScroll,
                                     onZoom = { zoomFactor ->
                                         terminalFontSizeSp =
-                                            (terminalFontSizeSp * zoomFactor).coerceAtLeast(0.1f)
+                                            (terminalFontSizeSp * zoomFactor)
+                                                .coerceIn(
+                                                    SettingsRepository.MIN_TERMINAL_FONT_SIZE,
+                                                    SettingsRepository.MAX_TERMINAL_FONT_SIZE,
+                                                )
                                     },
-                                    onSelectionChanged = { active, text, anchorX, anchorY ->
-                                        hasSelectionActive = active
-                                        selectedText = text
-                                        selectionAnchorOffset = Offset(anchorX, anchorY)
-                                    },
+                                    onSelectionChanged = { state -> selectionState = state },
                                 )
 
                                 Row(
@@ -1213,25 +1299,68 @@ fun TerminalScreen(
                                     }
                                 }
 
-                                if (hasSelectionActive) {
-                                    val menuOffsetX =
-                                        with(density) { selectionAnchorOffset.x.toDp() }
-                                    val menuOffsetY =
-                                        with(density) {
-                                            (selectionAnchorOffset.y - 44f)
-                                                .toDp()
-                                                .coerceAtLeast(0.dp)
-                                        }
+                                val selState = selectionState
+                                if (selState != null) {
+                                    val sel = selection
+                                    val isAnchorStart = sel != null && sel.anchorIndex <= sel.focusIndex
+                                    TerminalSelectionHandle(
+                                        tipX = selState.startOffset.x,
+                                        tipY = selState.startOffset.y + selState.cellHeightPx / 2f,
+                                        color = colors.accent,
+                                        borderColor = colors.background,
+                                        cellWidthPx = selState.cellWidthPx,
+                                        cellHeightPx = selState.cellHeightPx,
+                                        cols = selState.cols,
+                                        startCellProvider = {
+                                            val s = selection
+                                            if (s != null) minOf(s.anchorIndex, s.focusIndex) else 0
+                                        },
+                                        onDragToCell = { newCell ->
+                                            selection = selection?.withStart(newCell, updateAnchor = isAnchorStart)
+                                        },
+                                    )
+                                    TerminalSelectionHandle(
+                                        tipX = selState.endOffset.x,
+                                        tipY = selState.endOffset.y - selState.cellHeightPx / 2f,
+                                        color = colors.accent,
+                                        borderColor = colors.background,
+                                        cellWidthPx = selState.cellWidthPx,
+                                        cellHeightPx = selState.cellHeightPx,
+                                        cols = selState.cols,
+                                        startCellProvider = {
+                                            val s = selection
+                                            if (s != null) maxOf(s.anchorIndex, s.focusIndex) else 0
+                                        },
+                                        onDragToCell = { newCell ->
+                                            selection = selection?.withEnd(newCell, updateAnchor = !isAnchorStart)
+                                        },
+                                    )
+
+                                    val menuGapPx = with(density) { 8.dp.toPx() }
+                                    val selLeft = selState.boundsLeft
+                                    val selRight = selState.boundsRight
+                                    val selTop = selState.boundsTop
+                                    val selBottom = selState.boundsBottom
+                                    val centerX = (selLeft + selRight) / 2f
+                                    val menuWidth = menuSize.width.coerceAtLeast(1)
+                                    val menuHeight = menuSize.height.coerceAtLeast(1)
+                                    val maxMenuX = (selState.canvasWidthPx - menuWidth).coerceAtLeast(0)
+                                    val menuX = (centerX - menuWidth / 2f).toInt().coerceIn(0, maxMenuX)
+                                    val aboveY = (selTop - menuHeight - menuGapPx).toInt()
+                                    val belowY = (selBottom + menuGapPx).toInt()
+                                    val maxMenuY = (selState.canvasHeightPx - menuHeight).coerceAtLeast(0)
+                                    val menuY = if (aboveY >= 0) aboveY else belowY.coerceIn(0, maxMenuY)
                                     Row(
                                         modifier =
-                                            Modifier.offset(x = menuOffsetX, y = menuOffsetY)
+                                            Modifier.offset { IntOffset(menuX, menuY) }
+                                                .onGloballyPositioned { menuSize = it.size }
                                                 .background(colors.background)
                                                 .border(1.dp, colors.border)
                                                 .padding(horizontal = 4.dp, vertical = 2.dp),
                                         horizontalArrangement = Arrangement.spacedBy(2.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
-                                        if (!selectedText.isNullOrEmpty()) {
+                                        if (!selState.text.isNullOrEmpty()) {
                                             ChuButton(
                                                 onClick = ::copySelection,
                                                 variant = ChuButtonVariant.Ghost,
@@ -1481,8 +1610,19 @@ fun TerminalScreen(
                                     )
                                 }
                             }
+                            localShellFilesMessage?.let { message ->
+                                ChuText(
+                                    text = message,
+                                    style = typography.labelSmall,
+                                    color = colors.textSecondary,
+                                    modifier =
+                                        Modifier.fillMaxWidth()
+                                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                                            .semantics { liveRegion = LiveRegionMode.Polite },
+                                )
+                            }
                             KeyboardAccessoryBar(
-                                items = accessoryLayout,
+                                entries = accessoryLayout,
                                 modifierState = modifierState,
                                 onAction = ::dispatchAccessoryAction,
                                 onSettings = onOpenSettings,
@@ -1491,7 +1631,13 @@ fun TerminalScreen(
                                     requestInputFocus()
                                 },
                                 chuchuKeyActive = chuchuKeys.isPrefixActive,
-                                onOpenFiles = { vm.selectConnectionTab(ConnectionTab.Files) },
+                                onOpenFiles = {
+                                    if (filesSupported) {
+                                        vm.selectConnectionTab(ConnectionTab.Files)
+                                    } else {
+                                        showLocalShellFilesUnsupported()
+                                    }
+                                },
                                 useSingleRow = useSingleRowAccessoryBar,
                                 modifier = Modifier.padding(bottom = 2.dp),
                             )
@@ -1571,14 +1717,18 @@ fun TerminalScreen(
                         activeTabId = activeTabId,
                         focusedTabIndex = focusedTabIndex,
                         onFocusedTabIndexChange = { focusedTabIndex = it },
-                        accessoryItems = accessoryLayout,
+                        accessoryEntries = accessoryLayout,
                         accessoryModifierState = modifierState,
                         onAccessoryAction = paletteAccessoryAction,
                         onChuchuKey = { chuchuKeys.togglePrefix() },
                         chuchuKeyActive = chuchuKeys.isPrefixActive,
                         onOpenFiles = {
-                            vm.selectConnectionTab(ConnectionTab.Files)
-                            showTabSheet = false
+                            if (filesSupported) {
+                                vm.selectConnectionTab(ConnectionTab.Files)
+                                showTabSheet = false
+                            } else {
+                                showLocalShellFilesUnsupported()
+                            }
                         },
                         onOpenSettings = onOpenSettings,
                         useSingleRowAccessoryBar = useSingleRowAccessoryBar,
@@ -1647,28 +1797,11 @@ fun TerminalScreen(
         }
     }
 
-    BackHandler(enabled = showServerPicker) { showServerPicker = false }
     BackHandler(enabled = showGlobalTabManager) { showGlobalTabManager = false }
 
     // Strip mode overlays — hoisted outside the when block so they are
     // available from disconnected, error, connecting, and connected states.
     if (tabMode == TerminalTabMode.Strip) {
-        TerminalServerPicker(
-            visible = showServerPicker,
-            hosts = hosts,
-            loaded = hostsLoaded,
-            onHostSelected = { host ->
-                showServerPicker = false
-                pickerScope.launch(Dispatchers.IO) {
-                    val prepared = vm.prepareTabOpen(host)
-                    withContext(Dispatchers.Main) {
-                        openPreparedTab(prepared.spec, prepared.requiresVerification, true)
-                    }
-                }
-            },
-            onDismiss = { showServerPicker = false },
-        )
-
         TerminalTabManager(
             visible = showGlobalTabManager,
             tabs = tabs,

@@ -23,19 +23,33 @@ data class TabSpec(
     val multiplexerCreateIfMissing: Boolean = true,
 ) {
     val sessionKey: String
-        get() = hostId?.let { "host:$it" } ?: "${transport.name}:$username@$host:$port"
+        get() =
+            when (transport) {
+                Transport.LocalShell -> "local-shell"
+                else -> hostId?.let { "host:$it" } ?: "${transport.name}:$username@$host:$port"
+            }
 
     val notificationLabel: String
         get() {
+            if (transport == Transport.LocalShell) {
+                return displayName.takeIf { it.isNotBlank() } ?: "local shell"
+            }
             val target = "$username@$host:$port"
             return if (displayName.isNotBlank()) "$displayName  ·  $target" else target
         }
 
     val tabLabel: String
-        get() = displayName.takeIf { it.isNotBlank() } ?: "$username@$host"
+        get() =
+            when (transport) {
+                Transport.LocalShell -> displayName.takeIf { it.isNotBlank() } ?: "local shell"
+                else -> displayName.takeIf { it.isNotBlank() } ?: "$username@$host"
+            }
 
     val usesRuntimeMultiplexer: Boolean
-        get() = multiplexer?.runtimeSupported == true && transport != Transport.Mosh
+        get() =
+            multiplexer?.runtimeSupported == true &&
+                transport != Transport.Mosh &&
+                transport != Transport.LocalShell
 
     companion object {
         fun fromHostProfile(
@@ -56,7 +70,11 @@ data class TabSpec(
             keyPassphrase = keyPassphrase,
             transport = host.transport,
             postConnectCommand = host.postConnectCommand,
-            multiplexer = host.multiplexer?.takeIf { it.runtimeSupported && host.transport != Transport.Mosh },
+            multiplexer = host.multiplexer?.takeIf {
+                it.runtimeSupported &&
+                    host.transport != Transport.Mosh &&
+                    host.transport != Transport.LocalShell
+            },
         )
     }
 }

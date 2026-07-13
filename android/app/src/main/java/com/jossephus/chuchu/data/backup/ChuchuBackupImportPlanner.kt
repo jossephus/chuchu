@@ -3,6 +3,7 @@ package com.jossephus.chuchu.data.backup
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.HostProfile
 import com.jossephus.chuchu.model.SshKey
+import com.jossephus.chuchu.model.Transport
 
 object ChuchuBackupImportPlanner {
     @Throws(BackupFormatException::class)
@@ -11,7 +12,8 @@ object ChuchuBackupImportPlanner {
         existingKeys: List<SshKey>,
         existingHosts: List<HostProfile>,
     ): BackupImportPlan {
-        validatePayload(payload)
+        val importableHosts = payload.hosts.filterNot { it.transport == Transport.LocalShell }
+        validatePayload(payload, importableHosts)
 
         val usedKeyNames = existingKeys.map { it.name }.toMutableSet()
         val keyActions = mutableListOf<KeyImportAction>()
@@ -39,7 +41,7 @@ object ChuchuBackupImportPlanner {
         }
 
         val usedHostNames = existingHosts.map { it.name }.toMutableSet()
-        val hostActions = payload.hosts.map { backupHost ->
+        val hostActions = importableHosts.map { backupHost ->
             val localKeyId = backupHost.keyId?.let { exportedKeyId ->
                 when (val ref = keyRefs[exportedKeyId]) {
                     is KeyReference.Existing -> ref.localId
@@ -67,7 +69,7 @@ object ChuchuBackupImportPlanner {
     }
 
     @Throws(BackupFormatException::class)
-    private fun validatePayload(payload: BackupPayload) {
+    private fun validatePayload(payload: BackupPayload, importableHosts: List<BackupHostProfile>) {
         val keyIds = mutableSetOf<Long>()
         payload.keys.forEach { key ->
             if (key.id <= 0L) throw BackupFormatException("Invalid SSH key id")
@@ -78,7 +80,7 @@ object ChuchuBackupImportPlanner {
         }
 
         val hostIds = mutableSetOf<Long>()
-        payload.hosts.forEach { host ->
+        importableHosts.forEach { host ->
             if (host.id <= 0L) throw BackupFormatException("Invalid host id")
             if (!hostIds.add(host.id)) throw BackupFormatException("Duplicate host id")
             if (host.name.isBlank()) throw BackupFormatException("Host name is required")

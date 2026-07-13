@@ -18,6 +18,8 @@ import com.jossephus.chuchu.service.terminal.HostKeyPrompt
 import com.jossephus.chuchu.service.terminal.SessionState
 import com.jossephus.chuchu.service.terminal.TabSession
 import com.jossephus.chuchu.service.terminal.TabSpec
+import com.jossephus.chuchu.service.terminal.TerminalMouseAction
+import com.jossephus.chuchu.service.terminal.TerminalMouseButton
 import com.jossephus.chuchu.service.terminal.TerminalSessionRepository
 import com.jossephus.chuchu.ui.screens.Files.ConnectionTab
 import com.jossephus.chuchu.ui.screens.Files.FileBrowserEntry
@@ -35,7 +37,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -108,6 +109,18 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
 
     fun selectTabForHost(hostId: Long?): TabSession? {
         val existing = sessionRepository.tabsForHost(hostId)
+        if (existing.isEmpty()) return null
+        val activeId = sessionRepository.activeTabId.value
+        val target = existing.firstOrNull { it.id == activeId } ?: existing.last()
+        sessionRepository.selectTab(target.id)
+        return target
+    }
+
+    fun selectLocalShellTab(): TabSession? {
+        val existing =
+            sessionRepository.tabs.value.filter {
+                it.spec.hostId == null && it.spec.transport == Transport.LocalShell
+            }
         if (existing.isEmpty()) return null
         val activeId = sessionRepository.activeTabId.value
         val target = existing.firstOrNull { it.id == activeId } ?: existing.last()
@@ -632,23 +645,35 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun onPrimaryMouseClick(x: Float, y: Float) {
-        sessionRepository.sendMouseEvent(
-            action = GhosttyMouseAction.Press,
-            button = GhosttyMouseButton.Left,
-            mods = 0,
+        sendPrimaryMouseEvent(TerminalMouseAction.Press, x, y, anyButtonPressed = false, trackLastCell = false)
+        sendPrimaryMouseEvent(TerminalMouseAction.Release, x, y, anyButtonPressed = false, trackLastCell = false)
+    }
+
+    fun onAppSelectionDrag(action: Int, x: Float, y: Float) {
+        sendPrimaryMouseEvent(
+            action = action,
             x = x,
             y = y,
-            anyButtonPressed = false,
-            trackLastCell = false,
+            anyButtonPressed = action != TerminalMouseAction.Release,
+            trackLastCell = true,
         )
+    }
+
+    private fun sendPrimaryMouseEvent(
+        action: Int,
+        x: Float,
+        y: Float,
+        anyButtonPressed: Boolean,
+        trackLastCell: Boolean,
+    ) {
         sessionRepository.sendMouseEvent(
-            action = GhosttyMouseAction.Release,
-            button = GhosttyMouseButton.Left,
+            action = action,
+            button = TerminalMouseButton.Left,
             mods = 0,
             x = x,
             y = y,
-            anyButtonPressed = false,
-            trackLastCell = false,
+            anyButtonPressed = anyButtonPressed,
+            trackLastCell = trackLastCell,
         )
     }
 
@@ -680,16 +705,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     fun onPasteText(text: String) {
         if (text.isEmpty()) return
         sessionRepository.scrollToActive()
-        val chunkSize = 512
-        viewModelScope.launch {
-            var index = 0
-            while (index < text.length) {
-                val end = (index + chunkSize).coerceAtMost(text.length)
-                sessionRepository.writeText(text.substring(index, end))
-                index = end
-                delay(8)
-            }
-        }
+        sessionRepository.writePaste(text)
     }
 
     fun onFocusChanged(focused: Boolean) {
@@ -729,15 +745,6 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 }
             }
     }
-}
-
-private object GhosttyMouseAction {
-    const val Release = 0
-    const val Press = 1
-}
-
-private object GhosttyMouseButton {
-    const val Left = 1
 }
 
 data class MultiplexerUiState(

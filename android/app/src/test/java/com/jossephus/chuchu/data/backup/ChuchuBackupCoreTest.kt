@@ -251,6 +251,7 @@ class ChuchuBackupCoreTest {
         name: String = "server",
         keyId: Long? = 1L,
         authMethod: AuthMethod = AuthMethod.KeyWithPassphrase,
+        transport: Transport = Transport.Mosh,
     ): HostProfile = HostProfile(
         id = id,
         name = name,
@@ -260,7 +261,7 @@ class ChuchuBackupCoreTest {
         password = "saved-password",
         keyId = keyId,
         keyPassphrase = "key-passphrase",
-        transport = Transport.Mosh,
+        transport = transport,
         authMethod = authMethod,
         requireAuthOnConnect = true,
         postConnectCommand = "echo hello",

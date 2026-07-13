@@ -25,7 +25,15 @@ const verbose_snapshot_perf_logs = false;
 //   9  default_fg_g
 //  10  default_fg_b
 //  11  extras_offset (byte offset to grapheme extras section, 0 if none)
-const SNAPSHOT_HEADER_I32_COUNT = 12;
+//  12  viewport_scroll_y (screen.y of the content at viewport row 0; stable
+//      content coordinate that changes as the viewport scrolls, so the host
+//      can remap a content-tracking selection anchor across scrolls)
+//  13  app_handles_selection_drag (1 when the running app has enabled a
+//      drag-reporting mouse mode — DECSET 1002/1003 — so the host forwards
+//      long-press drag gestures to the app instead of starting a client-side
+//      grid selection. This is what lets tmux/zellij perform their own
+//      pane-scoped selection.)
+const SNAPSHOT_HEADER_I32_COUNT = 14;
 const SNAPSHOT_CELL_SIZE_BYTES = 11;
 // Flag bit set on a cell whose codepoint has additional grapheme codepoints
 // in the extras section.
@@ -34,8 +42,13 @@ const CELL_FLAG_HAS_GRAPHEME: u8 = 1 << 6;
 // These are serialized with codepoint=32 but should not force a shaping
 // run break between neighboring glyph cells.
 const CELL_FLAG_SPACER: u8 = 1 << 7;
-const IMAGE_HEADER_BYTES = 44;
+const IMAGE_HEADER_BYTES = 52;
 const MAX_KITTY_IMAGES = 64;
+const MAX_OSC52_CLIPBOARD_BYTES = 1024 * 1024;
+// Kitty Unicode graphics placeholder (U+10EEEE). These cells only mark where an
+// image is composited; we blank them so the raw glyph never shows through a gap
+// the image doesn't fully cover.
+const KITTY_PLACEHOLDER_CP: u32 = 0x10EEEE;
 const DeviceAttributes = blk: {
     const device_attributes_opt = @FieldType(ghostty.TerminalStream.Handler.Effects, "device_attributes");
     const device_attributes_fn = @typeInfo(device_attributes_opt).optional.child;
@@ -49,8 +62,14 @@ const ImageFreeMode = enum(c_int) {
 };
 
 const PlacementInfo = struct {
-    dest_x: i32,
-    dest_y: i32,
+    // Cell-grid position; Kotlin derives the pixel origin as cell*cellSize +
+    // cell_*_offset. dest_w/dest_h are libghostty's *scaled* image size that
+    // cell_*_offset centers — use them straight (rendered.dest_width for virtual,
+    // grid*cell for direct); recomputing as grid_cols*cell shifts it ~1px.
+    cell_col: i32,
+    cell_row: i32,
+    cell_x_offset: u32,
+    cell_y_offset: u32,
     dest_w: u32,
     dest_h: u32,
     src_x: u32,
@@ -83,10 +102,18 @@ const MouseEncodingSize = struct {
     padding_right: u32 = 0,
 };
 
+fn appHandlesSelectionDrag(event: anytype) bool {
+    return switch (event) {
+        .button, .any => true,
+        else => false,
+    };
+}
+
 const ChuchuTerminal = struct {
     terminal: ghostty.Terminal,
     render_state: ghostty.RenderState = .empty,
-    stream: ghostty.TerminalStream,
+    stream_handler: ChuchuStreamHandler = undefined,
+    stream: ChuchuTerminalStream,
     cols: u16,
     rows: u16,
     cell_width: u32,
@@ -102,6 +129,9 @@ const ChuchuTerminal = struct {
     pwd: ?[]u8 = null,
     pwd_len: usize = 0,
     pwd_dirty: bool = false,
+    clipboard: ?[]u8 = null,
+    clipboard_len: usize = 0,
+    clipboard_dirty: bool = false,
     bell_count: u32 = 0,
     snapshot_buffer: std.ArrayListUnmanaged(u8) = .empty,
     snapshot_extras_scratch: std.ArrayListUnmanaged(u32) = .empty,
@@ -112,6 +142,33 @@ const ChuchuTerminal = struct {
     snapshot_perf_total_ns: u64 = 0,
     snapshot_perf_last_log_ns: i64 = 0,
 };
+
+const ChuchuStreamHandler = struct {
+    owner: *ChuchuTerminal,
+    inner: ghostty.TerminalStream.Handler,
+
+    pub fn deinit(self: *ChuchuStreamHandler) void {
+        self.inner.deinit();
+    }
+
+    pub fn vt(
+        self: *ChuchuStreamHandler,
+        comptime action: ChuchuTerminalStream.Action.Tag,
+        value: ChuchuTerminalStream.Action.Value(action),
+    ) void {
+        if (action == .clipboard_contents) {
+            self.clipboardContents(value.kind, value.data);
+        }
+        self.inner.vt(action, value);
+    }
+
+    fn clipboardContents(self: *ChuchuStreamHandler, _: u8, data: []const u8) void {
+        if (std.mem.eql(u8, data, "?")) return;
+        storeClipboardData(self.owner, data);
+    }
+};
+
+const ChuchuTerminalStream = ghostty.Stream(*ChuchuStreamHandler);
 
 fn chuchuFromHandle(handle: c.jlong) ?*ChuchuTerminal {
     if (handle == 0) return null;
@@ -240,6 +297,45 @@ fn updateString(storage: *?[]u8, storage_len: *usize, dirty: *bool, value: ?[:0]
     return true;
 }
 
+fn updateBytes(storage: *?[]u8, storage_len: *usize, dirty: *bool, bytes: []const u8) bool {
+    if (storage.* != null and storage_len.* == bytes.len) {
+        if (bytes.len == 0) return false;
+    }
+
+    const new_buf = allocator.alloc(u8, bytes.len) catch return false;
+    if (bytes.len > 0) @memcpy(new_buf, bytes);
+
+    if (storage.*) |old| allocator.free(old);
+    storage.* = new_buf;
+    storage_len.* = bytes.len;
+    dirty.* = true;
+    return true;
+}
+
+fn decodeBase64Clipboard(data: []const u8) ?[]u8 {
+    const decoders = [_]std.base64.Base64Decoder{
+        std.base64.standard.Decoder,
+        std.base64.standard_no_pad.Decoder,
+    };
+    for (decoders) |decoder| {
+        const decoded_len = decoder.calcSizeForSlice(data) catch continue;
+        if (decoded_len > MAX_OSC52_CLIPBOARD_BYTES) return null;
+        const decoded = allocator.alloc(u8, decoded_len) catch return null;
+        decoder.decode(decoded, data) catch {
+            allocator.free(decoded);
+            continue;
+        };
+        return decoded;
+    }
+    return null;
+}
+
+fn storeClipboardData(terminal: *ChuchuTerminal, encoded: []const u8) void {
+    const decoded = decodeBase64Clipboard(encoded) orelse return;
+    defer allocator.free(decoded);
+    _ = updateBytes(&terminal.clipboard, &terminal.clipboard_len, &terminal.clipboard_dirty, decoded);
+}
+
 fn updateMetadata(terminal: *ChuchuTerminal) void {
     _ = updateString(&terminal.title, &terminal.title_len, &terminal.title_dirty, terminal.terminal.getTitle());
     _ = updateString(&terminal.pwd, &terminal.pwd_len, &terminal.pwd_dirty, terminal.terminal.getPwd());
@@ -343,6 +439,7 @@ export fn chuchu_create_terminal(cols: c.jint, rows: c.jint, max_scrollback: c.j
 
     terminal.* = .{
         .terminal = inner,
+        .stream_handler = undefined,
         .stream = undefined,
         .cols = init_cols,
         .rows = init_rows,
@@ -361,7 +458,11 @@ export fn chuchu_create_terminal(cols: c.jint, rows: c.jint, max_scrollback: c.j
         .title_changed = chuchuTitleChanged,
         .xtversion = chuchuXtversion,
     };
-    terminal.stream = ghostty.TerminalStream.initAlloc(allocator, handler);
+    terminal.stream_handler = .{
+        .owner = terminal,
+        .inner = handler,
+    };
+    terminal.stream = ChuchuTerminalStream.initAlloc(allocator, &terminal.stream_handler);
     enableGraphemeClusterMode(terminal);
 
     update_render_state(terminal);
@@ -376,6 +477,7 @@ export fn chuchu_destroy_terminal(handle: c.jlong) callconv(.c) void {
     terminal.pty_write_buffer.deinit(allocator);
     if (terminal.title) |buf| allocator.free(buf);
     if (terminal.pwd) |buf| allocator.free(buf);
+    if (terminal.clipboard) |buf| allocator.free(buf);
     terminal.render_state.deinit(allocator);
     terminal.stream.deinit();
     terminal.terminal.deinit(allocator);
@@ -480,6 +582,12 @@ export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativePollPwd
     return jniNewStringUTF(env, value);
 }
 
+export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativePollClipboard(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong) callconv(.c) c.jbyteArray {
+    _ = thiz;
+    const bytes = chuchu_poll_clipboard(handle) orelse return null;
+    return jniByteArrayFromBytes(env, bytes);
+}
+
 export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeDrainBellCount(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong) callconv(.c) c.jint {
     _ = env;
     _ = thiz;
@@ -530,6 +638,38 @@ export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeEncodeK
     };
     ghostty.input.encodeKey(&writer, event, ghostty.input.KeyEncodeOptions.fromTerminal(&terminal.terminal)) catch return jniEmptyByteArray(env);
     return jniByteArrayFromBytes(env, writer.buffered());
+}
+
+export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeEncodePaste(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, data_jstring: c.jstring) callconv(.c) c.jbyteArray {
+    _ = thiz;
+    const terminal = chuchuFromHandle(handle) orelse return jniEmptyByteArray(env);
+    if (data_jstring == null) return jniEmptyByteArray(env);
+
+    const chars = env.*.*.GetStringUTFChars.?(env, data_jstring, null) orelse return jniEmptyByteArray(env);
+    defer env.*.*.ReleaseStringUTFChars.?(env, data_jstring, chars);
+    const data_len = std.mem.span(chars).len;
+    if (data_len == 0) return jniEmptyByteArray(env);
+
+    // encodePaste may need to mutate the data in place (stripping unsafe
+    // bytes and, for non-bracketed pastes, converting newlines to \r), so
+    // copy the JNI string into a mutable buffer before encoding.
+    const data_copy = allocator.alloc(u8, data_len) catch return jniEmptyByteArray(env);
+    defer allocator.free(data_copy);
+    @memcpy(data_copy, chars[0..data_len]);
+
+    const segments = ghostty.input.encodePaste(data_copy, ghostty.input.PasteOptions.fromTerminal(&terminal.terminal));
+    const total = segments[0].len + segments[1].len + segments[2].len;
+    if (total == 0) return jniEmptyByteArray(env);
+
+    const out = allocator.alloc(u8, total) catch return jniEmptyByteArray(env);
+    defer allocator.free(out);
+    var offset: usize = 0;
+    for (segments) |segment| {
+        @memcpy(out[offset..][0..segment.len], segment);
+        offset += segment.len;
+    }
+
+    return jniByteArrayFromBytes(env, out);
 }
 
 export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeEncodeMouse(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, action: c.jint, button: c.jint, mods: c.jint, x: c.jfloat, y: c.jfloat, any_button_pressed: c.jboolean, track_last_cell: c.jboolean) callconv(.c) c.jbyteArray {
@@ -659,11 +799,15 @@ fn resolvedCodepoint(render_cell: ghostty.RenderState.Cell) u32 {
     // character (e.g. keycaps would lose the digit and ZWJ chains could
     // degrade to U+200D as the visible codepoint).
     const cp = render_cell.raw.codepoint();
+    if (cp == KITTY_PLACEHOLDER_CP) return 32;
     return if (cp == 0) 32 else cp;
 }
 
 fn cellHasExtras(render_cell: ghostty.RenderState.Cell) bool {
     if (render_cell.raw.wide == .spacer_tail or render_cell.raw.wide == .spacer_head) return false;
+    // Placeholder cells carry row/column diacritics as grapheme extras; drop
+    // them so the combining marks aren't painted (see KITTY_PLACEHOLDER_CP).
+    if (render_cell.raw.codepoint() == KITTY_PLACEHOLDER_CP) return false;
     return render_cell.raw.content_tag == .codepoint_grapheme and render_cell.grapheme.len > 0;
 }
 
@@ -696,6 +840,20 @@ export fn chuchu_build_text_snapshot(handle: c.jlong, out_size: [*c]usize) callc
     writeIntLe(i32, buffer[0..base_total_size], 40, terminal.render_state.colors.foreground.b);
     // extras_offset gets patched after we know whether extras exist.
     writeIntLe(i32, buffer[0..base_total_size], 44, 0);
+    // viewport_scroll_y: stable screen.y of the content currently at
+    // viewport row 0. The host subtracts this across snapshots to remap a
+    // selection anchor that must track content, not screen position.
+    const viewport_scroll_y: i32 = blk: {
+        const pages = &terminal.terminal.screens.active.pages;
+        const vp_top = pages.pointFromPin(.screen, pages.getTopLeft(.viewport)) orelse break :blk 0;
+        break :blk @intCast(vp_top.screen.y);
+    };
+    writeIntLe(i32, buffer[0..base_total_size], 48, viewport_scroll_y);
+    // app_handles_selection_drag: 1 only for drag-reporting mouse modes
+    // (DECSET 1002/1003). Click-only mouse modes still allow the host to keep
+    // its own long-press selection behavior.
+    const app_handles_selection_drag: i32 = if (appHandlesSelectionDrag(terminal.terminal.flags.mouse_event)) 1 else 0;
+    writeIntLe(i32, buffer[0..base_total_size], 52, app_handles_selection_drag);
 
     terminal.snapshot_extras_scratch.clearRetainingCapacity();
     var extras_records: usize = 0;
@@ -1021,8 +1179,11 @@ export fn chuchu_build_image_snapshot(handle: c.jlong, out_size: [*c]usize) call
             };
         }
         placements[count] = .{
-            .dest_x = viewport.col * @as(i32, @intCast(terminal.cell_width)) + @as(i32, @intCast(placement.x_offset)),
-            .dest_y = viewport.row * @as(i32, @intCast(terminal.cell_height)) + @as(i32, @intCast(placement.y_offset)),
+            .cell_col = viewport.col,
+            .cell_row = viewport.row,
+            .cell_x_offset = placement.x_offset,
+            .cell_y_offset = placement.y_offset,
+            // Direct placement: image fills its whole cell grid (no aspect-fit).
             .dest_w = grid_size.cols * terminal.cell_width,
             .dest_h = grid_size.rows * terminal.cell_height,
             .src_x = rect.x,
@@ -1064,8 +1225,13 @@ export fn chuchu_build_image_snapshot(handle: c.jlong, out_size: [*c]usize) call
 
             const prepared = prepareImageData(virtual_placement.image_id, image) orelse continue;
             placements[count] = .{
-                .dest_x = @as(i32, @intCast(viewport.viewport.x)) * @as(i32, @intCast(terminal.cell_width)) + @as(i32, @intCast(rendered.offset_x)),
-                .dest_y = @as(i32, @intCast(viewport.viewport.y)) * @as(i32, @intCast(terminal.cell_height)) + @as(i32, @intCast(rendered.offset_y)),
+                .cell_col = @intCast(viewport.viewport.x),
+                .cell_row = @intCast(viewport.viewport.y),
+                // Virtual placement: libghostty aspect-fits the image into the
+                // grid and centers it via offset_x/offset_y; dest_width/height is
+                // the resulting scaled size the offsets are measured against.
+                .cell_x_offset = rendered.offset_x,
+                .cell_y_offset = rendered.offset_y,
                 .dest_w = rendered.dest_width,
                 .dest_h = rendered.dest_height,
                 .src_x = rendered.source_x,
@@ -1101,17 +1267,19 @@ export fn chuchu_build_image_snapshot(handle: c.jlong, out_size: [*c]usize) call
     writeIntLe(i32, buf[0..total], 0, @intCast(count));
     var offset: usize = 4;
     for (placements[0..count]) |p| {
-        writeIntLe(i32, buf[0..total], offset + 0, p.dest_x);
-        writeIntLe(i32, buf[0..total], offset + 4, p.dest_y);
-        writeIntLe(u32, buf[0..total], offset + 8, p.dest_w);
-        writeIntLe(u32, buf[0..total], offset + 12, p.dest_h);
-        writeIntLe(u32, buf[0..total], offset + 16, p.src_x);
-        writeIntLe(u32, buf[0..total], offset + 20, p.src_y);
-        writeIntLe(u32, buf[0..total], offset + 24, p.src_w);
-        writeIntLe(u32, buf[0..total], offset + 28, p.src_h);
-        writeIntLe(u32, buf[0..total], offset + 32, p.img_w);
-        writeIntLe(u32, buf[0..total], offset + 36, p.img_h);
-        writeIntLe(u32, buf[0..total], offset + 40, @intCast(p.data_len));
+        writeIntLe(i32, buf[0..total], offset + 0, p.cell_col);
+        writeIntLe(i32, buf[0..total], offset + 4, p.cell_row);
+        writeIntLe(u32, buf[0..total], offset + 8, p.cell_x_offset);
+        writeIntLe(u32, buf[0..total], offset + 12, p.cell_y_offset);
+        writeIntLe(u32, buf[0..total], offset + 16, p.dest_w);
+        writeIntLe(u32, buf[0..total], offset + 20, p.dest_h);
+        writeIntLe(u32, buf[0..total], offset + 24, p.src_x);
+        writeIntLe(u32, buf[0..total], offset + 28, p.src_y);
+        writeIntLe(u32, buf[0..total], offset + 32, p.src_w);
+        writeIntLe(u32, buf[0..total], offset + 36, p.src_h);
+        writeIntLe(u32, buf[0..total], offset + 40, p.img_w);
+        writeIntLe(u32, buf[0..total], offset + 44, p.img_h);
+        writeIntLe(u32, buf[0..total], offset + 48, @intCast(p.data_len));
         @memcpy(buf[offset + IMAGE_HEADER_BYTES .. offset + IMAGE_HEADER_BYTES + p.data_len], p.data_ptr[0..p.data_len]);
         offset += IMAGE_HEADER_BYTES + p.data_len;
         switch (p.free_mode) {
@@ -1163,6 +1331,13 @@ export fn chuchu_poll_pwd_ptr(handle: c.jlong) callconv(.c) ?[*:0]const u8 {
     if (!terminal.pwd_dirty) return null;
     terminal.pwd_dirty = false;
     return if (terminal.pwd) |pwd| @ptrCast(pwd) else "";
+}
+
+fn chuchu_poll_clipboard(handle: c.jlong) ?[]const u8 {
+    const terminal = chuchuFromHandle(handle) orelse return null;
+    if (!terminal.clipboard_dirty) return null;
+    terminal.clipboard_dirty = false;
+    return if (terminal.clipboard) |clipboard| clipboard[0..terminal.clipboard_len] else &.{};
 }
 
 export fn chuchu_drain_bell_count(handle: c.jlong) callconv(.c) c.jint {
@@ -1232,6 +1407,24 @@ export fn chuchu_resize(handle: c.jlong, cols: c.jint, rows: c.jint, cell_width:
     terminal.cell_height = @intCast(clampI32(cell_height, 1, 1));
     terminal.terminal.width_px = @as(u32, new_cols) * terminal.cell_width;
     terminal.terminal.height_px = @as(u32, new_rows) * terminal.cell_height;
+
+    terminal.terminal.modes.set(.synchronized_output, false);
+
+    // Emit a DEC 2048 in-band size report on resize. TUIs like Textual disable
+    // their SIGWINCH fallback once mode 2048 is on and rely on this report.
+    // Report form: ESC [ 48 ; rows ; cols ; height_px ; width_px t
+    if (terminal.terminal.modes.get(.in_band_size_reports)) {
+        var report_buf: [64]u8 = undefined;
+        if (std.fmt.bufPrint(&report_buf, "\x1b[48;{d};{d};{d};{d}t", .{
+            new_rows,
+            new_cols,
+            @as(u32, new_rows) * terminal.cell_height,
+            @as(u32, new_cols) * terminal.cell_width,
+        })) |report| {
+            appendPtyWrite(terminal, report);
+        } else |_| {}
+    }
+
     update_render_state(terminal);
 }
 
@@ -1245,9 +1438,9 @@ export fn chuchu_scroll(handle: c.jlong, delta: c.jint, x: c.jfloat, y: c.jfloat
     const in_alt_screen = alt_screen or alt_screen_legacy or alt_screen_1049;
 
     // Check if mouse reporting is enabled (any mode other than none)
-    const mouse_captured = terminal.terminal.flags.mouse_event != .none;
+    const mouse_reporting_enabled = terminal.terminal.flags.mouse_event != .none;
 
-    if (in_alt_screen or mouse_captured) {
+    if (in_alt_screen or mouse_reporting_enabled) {
         // Send mouse scroll events to the application.
         // Negative delta = scroll up (older content) → button 4.
         // Positive delta = scroll down (newer content) → button 5.
@@ -1319,6 +1512,22 @@ fn viewportCellToPin(terminal: *ChuchuTerminal, vp_x: u32, vp_y: u32) ?ghostty.P
     } });
 }
 
+/// Resolve an absolute screen-space cell index (screen.y * cols + screen.x)
+/// to a pin, without adding the viewport top offset. Used for content-tracking
+/// selections that span off-screen scrollback.
+fn screenCellToPin(terminal: *ChuchuTerminal, screen_cell: i64) ?ghostty.Pin {
+    if (screen_cell < 0) return null;
+    const cols: i64 = @intCast(terminal.render_state.cols);
+    if (cols <= 0) return null;
+    const screen_x: u32 = @intCast(@rem(screen_cell, cols));
+    const screen_y: u32 = @intCast(@divTrunc(screen_cell, cols));
+    const pages = &terminal.terminal.screens.active.pages;
+    return pages.pin(.{ .screen = .{
+        .x = @as(u16, @intCast(screen_x)),
+        .y = @intCast(screen_y),
+    } });
+}
+
 fn selectionTextFromPins(
     terminal: *ChuchuTerminal,
     start_pin: ghostty.Pin,
@@ -1352,6 +1561,30 @@ export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeFormatS
 
     const start_pin = viewportCellToPin(terminal, start_x, start_y) orelse return null;
     const end_pin = viewportCellToPin(terminal, end_x, end_y) orelse return null;
+
+    const text = selectionTextFromPins(terminal, start_pin, end_pin, allocator) catch return null;
+    defer allocator.free(text);
+    return jniNewStringUTF(env, text.ptr);
+}
+
+/// Like nativeFormatSelectionRange but takes absolute screen-space cell
+/// indices (screen.y * cols + screen.x) instead of viewport-space ones.
+/// Used for content-tracking selections that span off-screen scrollback —
+/// the host converts viewport-space to screen-space via viewportScrollY so
+/// the full selected range (including scrolled-away content) is extracted.
+export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeFormatSelectionScreenRange(
+    env: *c.JNIEnv,
+    thiz: c.jobject,
+    handle: c.jlong,
+    start_screen_cell: c.jint,
+    end_screen_cell: c.jint,
+) callconv(.c) c.jstring {
+    _ = thiz;
+    const terminal = chuchuFromHandle(handle) orelse return null;
+    if (terminal.render_state.cols <= 0) return null;
+
+    const start_pin = screenCellToPin(terminal, start_screen_cell) orelse return null;
+    const end_pin = screenCellToPin(terminal, end_screen_cell) orelse return null;
 
     const text = selectionTextFromPins(terminal, start_pin, end_pin, allocator) catch return null;
     defer allocator.free(text);

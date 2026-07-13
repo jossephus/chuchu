@@ -45,6 +45,7 @@ fun SettingsScreen(
     currentFont: String,
     appLockEnabled: Boolean,
     requireAuthOnConnect: Boolean,
+    localShellEnabled: Boolean,
     currentAccessoryLayoutIds: List<String>,
     accessoryBarSingleRow: Boolean,
     currentTerminalCustomKeyGroups: List<TerminalCustomKeyGroup>,
@@ -62,8 +63,11 @@ fun SettingsScreen(
     onFontSelected: (String) -> Unit,
     onAppLockEnabledChanged: (Boolean) -> Unit,
     onRequireAuthOnConnectChanged: (Boolean) -> Unit,
+    onLocalShellEnabledChanged: (Boolean) -> Unit,
     onAccessoryLayoutChanged: (List<String>) -> Unit,
     onAccessoryBarSingleRowChanged: (Boolean) -> Unit,
+    currentTerminalFontSize: Float = 14f,
+    onTerminalFontSizeChanged: (Float) -> Unit = {},
     onTerminalCustomActionsChanged: (List<TerminalCustomKeyGroup>) -> Unit,
     backupViewModel: SettingsBackupViewModel? = null,
     onBack: () -> Unit,
@@ -171,6 +175,8 @@ fun SettingsScreen(
                         onEditAccessoryLayout = { showAccessoryEditor = true },
                         accessoryBarSingleRow = accessoryBarSingleRow,
                         onAccessoryBarSingleRowChanged = onAccessoryBarSingleRowChanged,
+                        currentTerminalFontSize = currentTerminalFontSize,
+                        onTerminalFontSizeChanged = onTerminalFontSizeChanged,
                         currentTerminalCustomKeyGroups = currentTerminalCustomKeyGroups,
                         onEditCustomActions = { showCustomActionEditor = true },
                         showCustomActionsFab = showCustomActionsFab,
@@ -179,6 +185,8 @@ fun SettingsScreen(
                         onEditChuchuCommands = { showChuchuCommandsEditor = true },
                         currentTabMode = currentTabMode,
                         onTabModeChanged = onTabModeChanged,
+                        localShellEnabled = localShellEnabled,
+                        onLocalShellEnabledChanged = onLocalShellEnabledChanged,
                     )
                 }
             }
@@ -290,7 +298,6 @@ private fun GeneralSettings(
             onClick = onOpenBackup,
             variant = ChuButtonVariant.Outlined,
             bracketed = true,
-            modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
         ) {
             ChuText("manage", style = typography.label)

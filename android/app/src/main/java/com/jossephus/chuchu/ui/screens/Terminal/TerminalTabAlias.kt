@@ -1,7 +1,18 @@
 package com.jossephus.chuchu.ui.screens.Terminal
 
+import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.terminal.TabSession
 import kotlin.math.abs
+
+internal fun terminalTabDisplayLabel(tab: TabSession): String =
+    if (tab.spec.transport == Transport.LocalShell) tab.spec.tabLabel else terminalTabAlias(tab)
+
+internal fun terminalTabEndpointLabel(tab: TabSession): String =
+    if (tab.spec.transport == Transport.LocalShell) {
+        "this device · app sandbox"
+    } else {
+        "${tab.spec.username}@${tab.spec.host}:${tab.spec.port}"
+    }
 
 internal fun terminalTabAlias(tab: TabSession): String {
     val adjectives =

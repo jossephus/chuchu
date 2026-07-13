@@ -6,8 +6,10 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 data class ImagePlacement(
-    val destX: Int,
-    val destY: Int,
+    val cellCol: Int,
+    val cellRow: Int,
+    val cellXOffset: Int,
+    val cellYOffset: Int,
     val destW: Int,
     val destH: Int,
     val srcX: Int,
@@ -38,6 +40,20 @@ data class TerminalSnapshot(
      */
     val graphemeExtras: Map<Int, IntArray> = emptyMap(),
     val images: List<ImagePlacement> = emptyList(),
+    /**
+     * Stable screen.y of the content currently at viewport row 0. Changes
+     * monotonically as the viewport scrolls, so the host can subtract it
+     * across snapshots to remap a content-tracking selection anchor.
+     */
+    val viewportScrollY: Int = 0,
+    /**
+     * True when the running app has enabled a drag-reporting mouse mode
+     * (DECSET 1002/1003). When set, the host forwards long-press drag
+     * gestures to the app so a multiplexer (tmux/zellij/...) can perform
+     * its own pane-scoped selection in copy mode instead of the host
+     * building a grid-wide client-side selection that crosses pane borders.
+     */
+    val appHandlesSelectionDrag: Boolean = false,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -52,7 +68,9 @@ data class TerminalSnapshot(
             bgArgb.contentEquals(other.bgArgb) &&
             flags.contentEquals(other.flags) &&
             graphemeExtrasEquals(graphemeExtras, other.graphemeExtras) &&
-            images == other.images
+            images == other.images &&
+            viewportScrollY == other.viewportScrollY &&
+            appHandlesSelectionDrag == other.appHandlesSelectionDrag
     }
 
     override fun hashCode(): Int {
@@ -71,15 +89,23 @@ data class TerminalSnapshot(
             acc + key + arr.contentHashCode()
         }
         result = 31 * result + images.hashCode()
+        result = 31 * result + viewportScrollY
+        result = 31 * result + appHandlesSelectionDrag.hashCode()
         return result
     }
 
     companion object {
         const val CELL_FLAG_HAS_GRAPHEME: Int = 0x40
         const val CELL_FLAG_SPACER: Int = 0x80
-        private const val HEADER_I32_COUNT = 12
+        const val CELL_FLAG_BOLD: Int = 0x01
+        const val CELL_FLAG_ITALIC: Int = 0x02
+        const val CELL_FLAG_UNDERLINE: Int = 0x04
+        const val CELL_FLAG_INVERSE: Int = 0x08
+        const val CELL_FLAG_BLINK: Int = 0x10
+        const val CELL_FLAG_FAINT: Int = 0x20
+        private const val HEADER_I32_COUNT = 14
         private const val CELL_SIZE_BYTES = 11
-        private const val IMAGE_HEADER_BYTES = 44
+        private const val IMAGE_HEADER_BYTES = 52
 
         private fun graphemeExtrasEquals(
             a: Map<Int, IntArray>,
@@ -115,6 +141,8 @@ data class TerminalSnapshot(
             val defaultFgG = wrapped.int
             val defaultFgB = wrapped.int
             val extrasOffset = wrapped.int
+            val viewportScrollY = wrapped.int
+            val appHandlesSelectionDrag = wrapped.int == 1
 
             val cellCount = cols * rows
             val expectedSize = (HEADER_I32_COUNT * 4) + (cellCount * CELL_SIZE_BYTES)
@@ -201,6 +229,8 @@ data class TerminalSnapshot(
                 flags = flags,
                 graphemeExtras = graphemeExtras,
                 images = images,
+                viewportScrollY = viewportScrollY,
+                appHandlesSelectionDrag = appHandlesSelectionDrag,
             )
 
             return snapshot
@@ -216,8 +246,10 @@ data class TerminalSnapshot(
             val images = ArrayList<ImagePlacement>(count)
             for (i in 0 until count) {
                 if (wrapped.remaining() < IMAGE_HEADER_BYTES) break
-                val destX = wrapped.int
-                val destY = wrapped.int
+                val cellCol = wrapped.int
+                val cellRow = wrapped.int
+                val cellXOffset = wrapped.int
+                val cellYOffset = wrapped.int
                 val destW = wrapped.int
                 val destH = wrapped.int
                 val srcX = wrapped.int
@@ -249,8 +281,10 @@ data class TerminalSnapshot(
                 wrapped.position(wrapped.position() + dataLen)
 
                 images += ImagePlacement(
-                    destX = destX,
-                    destY = destY,
+                    cellCol = cellCol,
+                    cellRow = cellRow,
+                    cellXOffset = cellXOffset,
+                    cellYOffset = cellYOffset,
                     destW = destW,
                     destH = destH,
                     srcX = srcX,

@@ -46,9 +46,9 @@ import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.terminal.AccessoryAction
-import com.jossephus.chuchu.ui.terminal.AccessoryKeyItem
 import com.jossephus.chuchu.ui.terminal.KeyboardAccessoryBar
 import com.jossephus.chuchu.ui.terminal.ModifierState
+import com.jossephus.chuchu.ui.terminal.ResolvedAccessoryEntry
 import com.jossephus.chuchu.ui.terminal.TerminalCanvas
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
@@ -59,7 +59,7 @@ fun CommandPalette(
     activeTabId: String?,
     focusedTabIndex: Int,
     onFocusedTabIndexChange: (Int) -> Unit,
-    accessoryItems: List<AccessoryKeyItem>,
+    accessoryEntries: List<ResolvedAccessoryEntry>,
     accessoryModifierState: ModifierState,
     onAccessoryAction: (AccessoryAction) -> Unit,
     onChuchuKey: () -> Unit,
@@ -85,7 +85,7 @@ fun CommandPalette(
   val context = LocalContext.current
   val view = LocalView.current
   val keyboardController = LocalSoftwareKeyboardController.current
-  val entries = remember(tabs) { tabs.map { it to terminalTabAlias(it) } }
+  val entries = remember(tabs) { tabs.map { it to terminalTabDisplayLabel(it) } }
   val maxIndex = (entries.size - 1).coerceAtLeast(0)
   LaunchedEffect(entries.size) { onFocusedTabIndexChange(focusedTabIndex.coerceIn(0, maxIndex)) }
   LaunchedEffect(activeTabId, entries) {
@@ -213,7 +213,7 @@ fun CommandPalette(
                     onPrimaryClick = { _, _ -> },
                     onScroll = { _, _, _ -> },
                     onZoom = {},
-                    onSelectionChanged = { _, _, _, _ -> },
+                    onSelectionChanged = {},
                     modifier = Modifier.fillMaxSize(),
                 )
               }
@@ -251,7 +251,7 @@ fun CommandPalette(
         }
       }
       KeyboardAccessoryBar(
-          items = accessoryItems,
+          entries = accessoryEntries,
           modifierState = accessoryModifierState,
           onAction = onAccessoryAction,
           onSettings = onOpenSettings,

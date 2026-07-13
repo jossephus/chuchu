@@ -1,5 +1,6 @@
 package com.jossephus.chuchu.service.terminal
 
+import android.content.ClipData
 import android.util.Log
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.MultiplexerType
@@ -16,8 +17,10 @@ import com.jossephus.chuchu.service.ssh.HostKeyStore
 import com.jossephus.chuchu.service.ssh.NativeSshService
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
 import java.util.concurrent.Executors
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -62,7 +65,9 @@ data class HostKeyPrompt(
 )
 
 class TerminalSessionEngine(
+    private val publishClipboardText: (String) -> Unit,
     private val scope: CoroutineScope,
+    private val localShellService: NativeLocalShellService,
     private val hostKeyStore: HostKeyStore,
     private val tailscaleStatusChecker: TailscaleStatusChecker,
 ) {
@@ -83,7 +88,7 @@ class TerminalSessionEngine(
     ) {
         fun multiplexerStartupCommand(): String? {
             val type = multiplexer ?: return null
-            if (!type.runtimeSupported || transport == Transport.Mosh) return null
+            if (!type.runtimeSupported || transport == Transport.Mosh || transport == Transport.LocalShell) return null
             val sessionName = multiplexerSessionName?.takeIf { it.isNotBlank() } ?: return null
             val runtime = MultiplexerRegistry.forType(type) ?: return null
             return runtime.launchCommand(
@@ -201,7 +206,11 @@ class TerminalSessionEngine(
                     )
                 return@launch
             }
-            if (transport != Transport.Mosh && !nativeSsh.isAvailable()) {
+            if (
+                transport != Transport.Mosh &&
+                    transport != Transport.LocalShell &&
+                    !nativeSsh.isAvailable()
+            ) {
                 _state.value =
                     SessionState(
                         status = SessionStatus.Error,
@@ -219,7 +228,7 @@ class TerminalSessionEngine(
                     )
                 return@launch
             }
-            if (username.isBlank()) {
+            if (transport != Transport.LocalShell && username.isBlank()) {
                 _state.value =
                     SessionState(
                         status = SessionStatus.Error,
@@ -254,6 +263,14 @@ class TerminalSessionEngine(
                 requestSnapshot(force = true)
                 startReadLoop()
                 sendStartupCommand(params)
+            } catch (e: LinkageError) {
+                Log.e("TerminalSession", "Connect failed", e)
+                _state.value =
+                    SessionState(
+                        status = SessionStatus.Error,
+                        sessionKey = sessionKey,
+                        error = "Native terminal backend unavailable: ${e.message}",
+                    )
             } catch (e: Exception) {
                 Log.e("TerminalSession", "Connect failed", e)
                 _state.value =
@@ -284,6 +301,18 @@ class TerminalSessionEngine(
             if (text.isEmpty()) return@launch
             try {
                 writeRemote(text.toByteArray(Charsets.UTF_8))
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun writePaste(text: String) {
+        scope.launch(dispatcher) {
+            if (handle == 0L) return@launch
+            if (text.isEmpty()) return@launch
+            val encoded = bridge.nativeEncodePaste(handle, text) ?: return@launch
+            if (encoded.isEmpty()) return@launch
+            try {
+                writeRemote(encoded)
             } catch (_: Exception) {}
         }
     }
@@ -366,6 +395,9 @@ class TerminalSessionEngine(
                 screenHeight = newScreenHeight
                 if (handle != 0L) {
                     bridge.nativeResize(handle, cols, rows, cellWidth, cellHeight)
+                    // Flush pty output from the resize (e.g. the DEC 2048 in-band
+                    // size report) so Textual-based TUIs detect the resize.
+                    flushPtyWrites()
                     bridge.nativeSetMouseEncodingSize(
                         handle,
                         screenWidth,
@@ -377,12 +409,16 @@ class TerminalSessionEngine(
                         0,
                         0,
                     )
-                    resizeRemote(cols, rows, screenWidth, screenHeight)
+                    resizeRemote(cols, rows, ptyWidthPx(), ptyHeightPx())
                     requestSnapshot(force = true)
                 }
             } catch (e: Exception) {
                 Log.e("TerminalSession", "Resize failed", e)
-                if (!disconnectRequested && lastConnectionParams != null) {
+                val shouldReconnect =
+                    !disconnectRequested &&
+                        lastConnectionParams != null &&
+                        lastConnectionParams?.transport != Transport.LocalShell
+                if (shouldReconnect) {
                     scheduleReconnect("Connection interrupted: ${e.message ?: "resize failed"}")
                 } else {
                     _state.value =
@@ -426,7 +462,8 @@ class TerminalSessionEngine(
     suspend fun sftpWriteChunk(data: ByteArray): Int =
         withContext(dispatcher) { nativeSsh.sftpWriteChunk(data) }
 
-    suspend fun sftpCloseWrite() = withContext(dispatcher) { nativeSsh.sftpCloseWrite() }
+    suspend fun sftpCloseWrite() =
+        withContext(dispatcher) { nativeSsh.sftpCloseWrite() }
 
     suspend fun sftpReadFile(path: String, maxBytes: Int): ByteArray =
         withContext(dispatcher) { nativeSsh.sftpReadFile(path, maxBytes) }
@@ -443,7 +480,7 @@ class TerminalSessionEngine(
         val type = params.multiplexer ?: return MultiplexerAvailability.Available
         val multiplexer = MultiplexerRegistry.forType(type)
             ?: return MultiplexerAvailability.UnsupportedMultiplexer(type)
-        if (params.transport == Transport.Mosh) {
+        if (params.transport == Transport.Mosh || params.transport == Transport.LocalShell) {
             return MultiplexerAvailability.UnsupportedTransport(params.transport)
         }
         return runCatching {
@@ -479,8 +516,8 @@ class TerminalSessionEngine(
             val type = spec.multiplexer ?: throw IllegalStateException("No multiplexer selected")
             val multiplexer = MultiplexerRegistry.forType(type)
                 ?: throw IllegalStateException("${type.label} is not supported yet")
-            if (spec.transport == Transport.Mosh) {
-                throw IllegalStateException("${type.label} is not supported for Mosh connections")
+            if (spec.transport == Transport.Mosh || spec.transport == Transport.LocalShell) {
+                throw IllegalStateException("${type.label} is not supported for ${spec.transport} connections")
             }
             val result = runMultiplexerCommand(spec.toConnectionParams(), multiplexer.listSessionsCommand())
             if (!result.isSuccess) {
@@ -496,8 +533,8 @@ class TerminalSessionEngine(
         val type = spec.multiplexer ?: MultiplexerRegistry.defaultType
         val multiplexer = MultiplexerRegistry.forType(type)
             ?: throw IllegalStateException("${type.label} is not supported yet")
-        if (spec.transport == Transport.Mosh) {
-            throw IllegalStateException("${type.label} is not supported for Mosh connections")
+        if (spec.transport == Transport.Mosh || spec.transport == Transport.LocalShell) {
+            throw IllegalStateException("${type.label} is not supported for ${spec.transport} connections")
         }
         when (val availability = checkMultiplexerAvailability(spec.copy(multiplexer = type))) {
             MultiplexerAvailability.Available -> Unit
@@ -533,6 +570,7 @@ class TerminalSessionEngine(
             readJob = null
             nativeSsh.close()
             moshService.close()
+            localShellService.close()
             if (handle != 0L) {
                 bridge.nativeDestroy(handle)
                 handle = 0L
@@ -603,16 +641,35 @@ class TerminalSessionEngine(
     private fun startReadLoop() {
         readJob =
             scope.launch(dispatcher) {
+                val transport = lastConnectionParams?.transport
+                var failed = false
                 try {
-                    if (lastConnectionParams?.transport == Transport.Mosh) {
-                        startMoshReadLoop()
-                    } else {
-                        startSshReadLoop()
+                    when (transport) {
+                        Transport.Mosh -> startMoshReadLoop()
+                        Transport.LocalShell -> startLocalShellReadLoop()
+                        else -> startSshReadLoop()
                     }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
+                    failed = true
                     Log.e("TerminalSession", "Read loop failed", e)
+                    if (transport == Transport.LocalShell && !disconnectRequested) {
+                        _state.value =
+                            _state.value.copy(
+                                status = SessionStatus.Error,
+                                error = "Local shell failed: ${e.message}",
+                            )
+                    }
                 }
-                scheduleReconnect("Connection interrupted")
+                if (transport == Transport.LocalShell) {
+                    localShellService.close()
+                    if (!disconnectRequested && !failed) {
+                        _state.value = _state.value.copy(status = SessionStatus.Disconnected)
+                    }
+                } else {
+                    scheduleReconnect("Connection interrupted")
+                }
             }
     }
 
@@ -631,18 +688,39 @@ class TerminalSessionEngine(
                 continue
             }
             lastActivityMs = System.currentTimeMillis()
-            if (handle == 0L) continue
-            val wasImageLoading = bridge.nativeIsImageLoading(handle)
-            flushPtyWrites()
-            bridge.nativeWriteRemote(handle, chunk)
-            flushPtyWrites()
-            val isImageLoading = bridge.nativeIsImageLoading(handle)
-            when {
-                wasImageLoading && !isImageLoading -> {
-                    requestSnapshot(force = true)
-                }
-                !isImageLoading -> requestSnapshot()
+            feedRemoteChunk(chunk)
+        }
+    }
+
+    private suspend fun startLocalShellReadLoop() {
+        val buf = ByteArray(65536)
+        var lastActivityMs = System.currentTimeMillis()
+        while (currentCoroutineContext().isActive) {
+            val chunk = localShellService.read(buf.size)
+            if (chunk == null) {
+                break
             }
+            if (chunk.isEmpty()) {
+                delay(idleReadDelayMs(System.currentTimeMillis() - lastActivityMs))
+                continue
+            }
+            lastActivityMs = System.currentTimeMillis()
+            feedRemoteChunk(chunk)
+        }
+    }
+
+    private fun feedRemoteChunk(chunk: ByteArray) {
+        if (handle == 0L) return
+        val wasImageLoading = bridge.nativeIsImageLoading(handle)
+        flushPtyWrites()
+        bridge.nativeWriteRemote(handle, chunk)
+        flushPtyWrites()
+        val isImageLoading = bridge.nativeIsImageLoading(handle)
+        when {
+            wasImageLoading && !isImageLoading -> {
+                requestSnapshot(force = true)
+            }
+            !isImageLoading -> requestSnapshot()
         }
     }
 
@@ -673,7 +751,7 @@ class TerminalSessionEngine(
                 when (event.eventType) {
                     MoshEventType.HostBytes.code -> {
                         if (event.payload.isNotEmpty() && handle != 0L) {
-                            bridge.nativeWriteRemote(handle, event.payload)
+                            feedRemoteChunk(event.payload)
                         }
                     }
                     MoshEventType.Resize.code -> {
@@ -724,13 +802,19 @@ class TerminalSessionEngine(
         }
         nativeSsh.close()
         moshService.close()
+        localShellService.close()
         handle = bridge.nativeCreate(cols, rows, 1000)
         applyTerminalOptions()
 
         when (params.transport) {
             Transport.Mosh -> establishMoshConnection(params, username)
+            Transport.LocalShell -> establishLocalShellConnection()
             else -> establishSshConnection(params, username)
         }
+    }
+
+    private fun establishLocalShellConnection() {
+        localShellService.start(cols, rows, screenWidth, screenHeight)
     }
 
     private fun establishSshConnection(params: ConnectionParams, username: String) {
@@ -747,9 +831,9 @@ class TerminalSessionEngine(
         )
         val startupCommand = params.multiplexerStartupCommand()?.trim().orEmpty()
         if (startupCommand.isNotEmpty()) {
-            nativeSsh.openExecPty(startupCommand, cols, rows, screenWidth, screenHeight)
+            nativeSsh.openExecPty(startupCommand, cols, rows, ptyWidthPx(), ptyHeightPx())
         } else {
-            nativeSsh.openShell(cols, rows, screenWidth, screenHeight)
+            nativeSsh.openShell(cols, rows, ptyWidthPx(), ptyHeightPx())
         }
     }
 
@@ -772,7 +856,7 @@ class TerminalSessionEngine(
         val execOpened = runCatching { nativeSsh.openExec(moshCommand) }.getOrDefault(false)
         if (!execOpened) {
             Log.w("TerminalSession", "MOSH: exec channel unavailable, falling back to shell")
-            nativeSsh.openShell(cols, rows, screenWidth, screenHeight)
+            nativeSsh.openShell(cols, rows, ptyWidthPx(), ptyHeightPx())
             val fallback = "$moshCommand\n"
             nativeSsh.write(fallback.toByteArray(Charsets.UTF_8))
         }
@@ -1020,10 +1104,20 @@ class TerminalSessionEngine(
     }
 
     private fun writeRemote(data: ByteArray) {
-        if (lastConnectionParams?.transport == Transport.Mosh) {
-            moshService.sendInput(data)
-        } else {
-            nativeSsh.write(data)
+        when (lastConnectionParams?.transport) {
+            Transport.Mosh -> moshService.sendInput(data)
+            Transport.LocalShell -> localShellService.write(data)
+            else -> nativeSsh.write(data)
+        }
+    }
+
+    private fun publishClipboard(text: String) {
+        scope.launch(Dispatchers.Main.immediate) {
+            runCatching {
+                publishClipboardText(text)
+            }.onFailure { error ->
+                Log.w("TerminalSession", "OSC 52 clipboard update failed", error)
+            }
         }
     }
 
@@ -1068,12 +1162,21 @@ class TerminalSessionEngine(
         }
     }
 
+    // Pixel size reported to the remote pty (ws_xpixel/ypixel): the integer grid
+    // extent (cols*cellW x rows*cellH), not the full canvas — apps derive
+    // px-per-cell as ws_xpixel/cols, so the canvas would misplace Kitty graphics.
+    // Falls back to the canvas before the first real cell size.
+    private fun ptyWidthPx(): Int = if (cellWidth > 0) cols * cellWidth else screenWidth
+    private fun ptyHeightPx(): Int = if (cellHeight > 0) rows * cellHeight else screenHeight
+
     private fun resizeRemote(cols: Int, rows: Int, widthPx: Int, heightPx: Int) {
-        if (lastConnectionParams?.transport == Transport.Mosh) {
-            Log.d("TerminalSession", "MOSH: resizeRemote ${cols}x${rows}")
-            moshService.resize(cols, rows)
-        } else {
-            nativeSsh.resize(cols, rows, widthPx, heightPx)
+        when (lastConnectionParams?.transport) {
+            Transport.Mosh -> {
+                Log.d("TerminalSession", "MOSH: resizeRemote ${cols}x${rows}")
+                moshService.resize(cols, rows)
+            }
+            Transport.LocalShell -> localShellService.resize(cols, rows, widthPx, heightPx)
+            else -> nativeSsh.resize(cols, rows, widthPx, heightPx)
         }
     }
 
@@ -1131,12 +1234,16 @@ class TerminalSessionEngine(
             val snap = TerminalSnapshot.fromByteBuffer(raw, images)
             val nextTitle = bridge.nativePollTitle(handle)
             val nextPwd = bridge.nativePollPwd(handle)
+            val nextClipboard = bridge.nativePollClipboard(handle)
             val bellCount = bridge.nativeDrainBellCount(handle)
             if (nextTitle != null) {
                 title = nextTitle
             }
             if (nextPwd != null) {
                 pwd = nextPwd
+            }
+            if (nextClipboard != null) {
+                publishClipboard(nextClipboard.toString(Charsets.UTF_8))
             }
             _state.value =
                 _state.value.copy(

@@ -111,6 +111,27 @@ data class AccessoryKeyItem(
     val action: AccessoryAction,
 )
 
+data class AccessoryKeyGroup(
+    val id: String,
+    val label: String,
+    val children: List<AccessoryKeyItem>,
+)
+
+sealed interface ResolvedAccessoryEntry {
+    val id: String
+    val label: String
+
+    data class Single(val item: AccessoryKeyItem) : ResolvedAccessoryEntry {
+        override val id: String get() = item.id
+        override val label: String get() = item.label
+    }
+
+    data class Group(val group: AccessoryKeyGroup) : ResolvedAccessoryEntry {
+        override val id: String get() = group.id
+        override val label: String get() = group.label
+    }
+}
+
 data class AccessoryDispatchResult(
     val modifierState: ModifierState,
     val text: String? = null,
@@ -184,7 +205,22 @@ object TerminalAccessoryLayoutStore {
         AccessoryKeyItem("paste", "Paste", AccessoryAction.Paste),
     )
 
+    private val compositeGroups: List<AccessoryKeyGroup> = listOf(
+        AccessoryKeyGroup(
+            id = "digits",
+            label = "0-9",
+            children = (0..9).map { d ->
+                AccessoryKeyItem(
+                    id = "digit_$d",
+                    label = d.toString(),
+                    action = AccessoryAction.SendText(d.toString()),
+                )
+            },
+        ),
+    )
+
     private val catalogById: Map<String, AccessoryKeyItem> = catalogItems.associateBy { it.id }
+    private val compositeGroupById: Map<String, AccessoryKeyGroup> = compositeGroups.associateBy { it.id }
 
     private val defaultLayoutIds: List<String> = listOf(
         "escape",
@@ -201,31 +237,31 @@ object TerminalAccessoryLayoutStore {
         "space",
     )
 
-    fun defaultLayout(): List<AccessoryKeyItem> = resolveLayout(defaultLayoutIds)
+    fun defaultEntries(): List<ResolvedAccessoryEntry> = resolveSelectedLayout(defaultLayoutIds)
 
     fun defaultLayoutIds(): List<String> = defaultLayoutIds
 
     fun catalog(): List<AccessoryKeyItem> = catalogItems
 
-    fun resolveSelectedLayout(ids: List<String>): List<AccessoryKeyItem> =
-        normalizeIds(ids).mapNotNull(catalogById::get)
+    fun compositeGroups(): List<AccessoryKeyGroup> = compositeGroups
+
+    fun allCatalogEntries(): List<ResolvedAccessoryEntry> =
+        compositeGroups.map { ResolvedAccessoryEntry.Group(it) } +
+            catalogItems.map { ResolvedAccessoryEntry.Single(it) }
+
+    fun resolveSelectedLayout(ids: List<String>): List<ResolvedAccessoryEntry> =
+        normalizeIds(ids).mapNotNull { id ->
+            catalogById[id]?.let { ResolvedAccessoryEntry.Single(it) }
+                ?: compositeGroupById[id]?.let { ResolvedAccessoryEntry.Group(it) }
+        }
 
     fun normalizeIds(ids: List<String>): List<String> {
         val seen = LinkedHashSet<String>()
         ids.forEach { id ->
-            if (catalogById.containsKey(id)) {
+            if (catalogById.containsKey(id) || compositeGroupById.containsKey(id)) {
                 seen += id
             }
         }
         return seen.toList()
-    }
-
-    private fun resolveLayout(ids: List<String>): List<AccessoryKeyItem> {
-        val resolved = ids.mapNotNull(catalogById::get)
-        return if (resolved.isEmpty()) {
-            defaultLayoutIds.mapNotNull(catalogById::get)
-        } else {
-            resolved
-        }
     }
 }

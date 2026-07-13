@@ -214,8 +214,8 @@ fun TerminalTabManager(
                         itemsIndexed(entries, key = { _, tab -> tab.id }) { idx, tab ->
                             val isActive = tab.id == activeTabId
                             val isFocused = idx == focusedTabIndex
-                            val label = terminalTabAlias(tab)
-                            val userHost = "${tab.spec.username}@${tab.spec.host}:${tab.spec.port}"
+                            val label = terminalTabDisplayLabel(tab)
+                            val userHost = terminalTabEndpointLabel(tab)
                             val rowState by remember(tab) {
                                 tab.sessionState
                                     .map { TabRowState(it.status, it.title, it.pwd) }
