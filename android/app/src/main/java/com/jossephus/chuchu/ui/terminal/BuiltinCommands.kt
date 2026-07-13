@@ -46,12 +46,18 @@ object BuiltinShortcutStore {
 
     fun normalize(shortcuts: Map<String, String>): Map<String, String> {
         val result = mutableMapOf<String, String>()
-        shortcuts.forEach { (id, key) ->
-            if (BuiltinCommand.fromId(id) != null) {
-                // Lowercase so the stored key, the settings conflict check, the hint
-                // label, and runtime matching (which lowercases) all agree.
-                result[id] = key.takeLast(1).lowercase()
-            }
+        val seen = mutableSetOf<String>()
+        // Iterate in enum order so the command that keeps a contested key is the same one
+        // ChuchuKeyBindings.build would give it to. Unknown ids fall out.
+        BuiltinCommand.entries.forEach { command ->
+            val key = shortcuts[command.id] ?: return@forEach
+            // Lowercase so the stored key, the settings conflict check, the hint label,
+            // and runtime matching (which lowercases) all agree.
+            val normalized = key.trim().takeLast(1).lowercase()
+            // A key already claimed by an earlier command is blanked rather than kept:
+            // keeping it would show the command as bound in settings while build() drops it.
+            result[command.id] =
+                if (normalized.isEmpty() || seen.add(normalized)) normalized else ""
         }
         return result
     }

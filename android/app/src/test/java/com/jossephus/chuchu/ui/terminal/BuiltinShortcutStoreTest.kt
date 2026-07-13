@@ -50,6 +50,36 @@ class BuiltinShortcutStoreTest {
     }
 
     @Test
+    fun `surrounding whitespace is trimmed rather than kept as a space key`() {
+        assertEquals(mapOf("tabs" to "t"), BuiltinShortcutStore.normalize(mapOf("tabs" to " t ")))
+    }
+
+    @Test
+    fun `duplicate key is kept by the earlier command in enum order`() {
+        // Tabs precedes Close, so Tabs keeps "t" and Close is blanked.
+        assertEquals(
+            mapOf("tabs" to "t", "close" to ""),
+            BuiltinShortcutStore.normalize(mapOf("close" to "t", "tabs" to "t")),
+        )
+    }
+
+    @Test
+    fun `case-variant duplicate keys collide`() {
+        assertEquals(
+            mapOf("tabs" to "t", "close" to ""),
+            BuiltinShortcutStore.normalize(mapOf("tabs" to "T", "close" to "t")),
+        )
+    }
+
+    @Test
+    fun `several commands may be hidden at once`() {
+        assertEquals(
+            mapOf("tabs" to "", "close" to ""),
+            BuiltinShortcutStore.normalize(mapOf("tabs" to "", "close" to "")),
+        )
+    }
+
+    @Test
     fun `null returns defaults`() {
         assertEquals(BuiltinShortcutStore.defaults, BuiltinShortcutStore.parse(null))
     }

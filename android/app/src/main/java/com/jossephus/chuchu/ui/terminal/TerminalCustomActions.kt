@@ -102,8 +102,15 @@ object TerminalCustomActionStore {
                 val payload = action.payload
                 if (label.isEmpty() || payload.isEmpty()) return@mapNotNull null
                 // Lowercase so the stored shortcut matches runtime key matching
-                // (which lowercases) and the chuchu hint display.
-                val shortcut = action.shortcut?.trim()?.takeIf { it.isNotEmpty() }?.lowercase()
+                // (which lowercases) and the chuchu hint display. Clamped to one char
+                // because ChuchuKeyBindings only binds single-char shortcuts; a longer
+                // value would persist and display but never fire. takeLast matches the
+                // editor field, so typing and normalizing agree on which char wins.
+                val shortcut = action.shortcut
+                    ?.trim()
+                    ?.takeLast(1)
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.lowercase()
                 TerminalCustomAction(label = label, payload = payload, shortcut = shortcut)
             }
             if (actions.isEmpty()) return@forEach
