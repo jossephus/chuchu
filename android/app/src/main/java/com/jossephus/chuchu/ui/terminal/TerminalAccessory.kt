@@ -222,7 +222,7 @@ object TerminalAccessoryLayoutStore {
         AccessoryKeyItem("f10", TerminalSpecialKey.F10.label, AccessoryAction.SendSpecialKey(TerminalSpecialKey.F10)),
         AccessoryKeyItem("f11", TerminalSpecialKey.F11.label, AccessoryAction.SendSpecialKey(TerminalSpecialKey.F11)),
         AccessoryKeyItem("f12", TerminalSpecialKey.F12.label, AccessoryAction.SendSpecialKey(TerminalSpecialKey.F12)),
-        AccessoryKeyItem("paste", "Paste", AccessoryAction.Paste),
+        AccessoryKeyItem("paste", "⎘", AccessoryAction.Paste), // U+2398
         AccessoryKeyItem("chuchu_key", "⌘", AccessoryAction.ChuchuKey),
         AccessoryKeyItem("open_files", "", AccessoryAction.OpenFiles, labelFontFamily = ChuSymbolsFontFamily),
         AccessoryKeyItem("settings", "⚙", AccessoryAction.Settings),
