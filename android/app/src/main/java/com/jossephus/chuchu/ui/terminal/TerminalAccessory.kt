@@ -1,5 +1,8 @@
 package com.jossephus.chuchu.ui.terminal
 
+import androidx.compose.ui.text.font.FontFamily
+import com.jossephus.chuchu.ui.theme.ChuSymbolsFontFamily
+
 enum class TerminalModifier {
     Ctrl,
     Alt,
@@ -103,12 +106,22 @@ sealed interface AccessoryAction {
     data class SendText(val text: String) : AccessoryAction
 
     data object Paste : AccessoryAction
+
+    /** Opens the settings screen. Handled by the host screen, not the dispatcher. */
+    data object Settings : AccessoryAction
+
+    /** Toggles the chuchu prefix. Handled by the host screen, not the dispatcher. */
+    data object ChuchuKey : AccessoryAction
+
+    /** Switches to the file browser tab. Handled by the host screen, not the dispatcher. */
+    data object OpenFiles : AccessoryAction
 }
 
 data class AccessoryKeyItem(
     val id: String,
     val label: String,
     val action: AccessoryAction,
+    val labelFontFamily: FontFamily? = null,
 )
 
 data class AccessoryKeyGroup(
@@ -164,6 +177,13 @@ object TerminalAccessoryDispatcher {
             modifierState = modifierState,
             shouldPaste = true,
         )
+
+        // Screen-level actions are intercepted by the host before reaching the dispatcher.
+        AccessoryAction.Settings,
+        AccessoryAction.ChuchuKey,
+        AccessoryAction.OpenFiles -> AccessoryDispatchResult(
+            modifierState = modifierState,
+        )
     }
 }
 
@@ -203,7 +223,24 @@ object TerminalAccessoryLayoutStore {
         AccessoryKeyItem("f11", TerminalSpecialKey.F11.label, AccessoryAction.SendSpecialKey(TerminalSpecialKey.F11)),
         AccessoryKeyItem("f12", TerminalSpecialKey.F12.label, AccessoryAction.SendSpecialKey(TerminalSpecialKey.F12)),
         AccessoryKeyItem("paste", "Paste", AccessoryAction.Paste),
+        AccessoryKeyItem("chuchu_key", "⌘", AccessoryAction.ChuchuKey),
+        AccessoryKeyItem("open_files", "", AccessoryAction.OpenFiles, labelFontFamily = ChuSymbolsFontFamily),
+        AccessoryKeyItem("settings", "⚙", AccessoryAction.Settings),
     )
+
+    /**
+     * Keys that used to be fixed trailing buttons on the bar, before they became ordinary catalog
+     * entries the user can reorder or remove.
+     */
+    private val screenActionIds: List<String> = listOf("chuchu_key", "open_files", "settings")
+
+    /**
+     * Appends any missing screen-action key to a saved layout. Layouts stored before those keys
+     * entered the catalog do not list them, and without this they would disappear from the bar on
+     * upgrade — taking the only route to settings with them. Callers must apply this exactly once.
+     */
+    fun backfillScreenActions(ids: List<String>): List<String> =
+        ids + screenActionIds.filterNot { it in ids }
 
     private val compositeGroups: List<AccessoryKeyGroup> = listOf(
         AccessoryKeyGroup(
@@ -235,9 +272,22 @@ object TerminalAccessoryLayoutStore {
         "right",
         "enter",
         "space",
+        "chuchu_key",
+        "open_files",
+        "settings",
     )
 
     fun defaultEntries(): List<ResolvedAccessoryEntry> = resolveSelectedLayout(defaultLayoutIds)
+
+    /**
+     * Splits entries into two rows as evenly as possible. The first row takes the extra entry when
+     * the count is odd, so the second row is never the longer one. Only the termux-style bar uses
+     * this; the default bar lets [FlowRow] wrap.
+     */
+    fun <T> splitIntoTwoRows(items: List<T>): Pair<List<T>, List<T>> {
+        val splitIndex = (items.size + 1) / 2
+        return items.take(splitIndex) to items.drop(splitIndex)
+    }
 
     fun defaultLayoutIds(): List<String> = defaultLayoutIds
 

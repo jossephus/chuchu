@@ -311,4 +311,87 @@ class AccessoryLogicTest {
         val item = TerminalAccessoryLayoutStore.catalog().first { it.id == "paste" }
         assertTrue(item.action is AccessoryAction.Paste)
     }
+
+    // ── Screen actions ────────────────────────────────────────────────────
+
+    @Test
+    fun `screen actions are catalog keys so they can be reordered or removed`() {
+        val ids = TerminalAccessoryLayoutStore.catalog().map { it.id }
+        assertTrue("catalog must contain chuchu_key", "chuchu_key" in ids)
+        assertTrue("catalog must contain open_files", "open_files" in ids)
+        assertTrue("catalog must contain settings", "settings" in ids)
+    }
+
+    @Test
+    fun `default layout offers the screen actions`() {
+        val ids = TerminalAccessoryLayoutStore.defaultLayoutIds()
+        assertTrue("chuchu_key" in ids)
+        assertTrue("open_files" in ids)
+        assertTrue("settings" in ids)
+    }
+
+    @Test
+    fun `open_files renders with the symbol font`() {
+        val item = TerminalAccessoryLayoutStore.catalog().first { it.id == "open_files" }
+        assertTrue(item.action is AccessoryAction.OpenFiles)
+        assertNotNull("open_files label needs the symbol font to render", item.labelFontFamily)
+    }
+
+    @Test
+    fun `dispatching a screen action leaves terminal state untouched`() {
+        // The host screen intercepts these; reaching the dispatcher must be a no-op, and in
+        // particular must not clear sticky modifiers.
+        val sticky = ModifierState(ctrl = true)
+        listOf(
+            AccessoryAction.Settings,
+            AccessoryAction.ChuchuKey,
+            AccessoryAction.OpenFiles,
+        ).forEach { action ->
+            val result = TerminalAccessoryDispatcher.dispatch(action, sticky)
+            assertEquals(sticky, result.modifierState)
+            assertNull(result.text)
+            assertNull(result.specialKey)
+            assertFalse(result.shouldPaste)
+            assertFalse(result.suppressImeInput)
+        }
+    }
+
+    // ── Layout migration ──────────────────────────────────────────────────
+
+    @Test
+    fun `backfill appends screen actions missing from a saved layout`() {
+        val saved = listOf("escape", "tab", "ctrl")
+        val migrated = TerminalAccessoryLayoutStore.backfillScreenActions(saved)
+        assertEquals(listOf("escape", "tab", "ctrl", "chuchu_key", "open_files", "settings"), migrated)
+    }
+
+    @Test
+    fun `backfill keeps screen actions the layout already places`() {
+        val saved = listOf("settings", "escape", "chuchu_key", "open_files")
+        val migrated = TerminalAccessoryLayoutStore.backfillScreenActions(saved)
+        assertEquals("an already-migrated layout must be left alone", saved, migrated)
+    }
+
+    // ── Termux-style two-row split ────────────────────────────────────────
+
+    @Test
+    fun `two-row split never leaves the bottom row longer than the top`() {
+        val (top, bottom) = TerminalAccessoryLayoutStore.splitIntoTwoRows(listOf(1, 2, 3, 4, 5))
+        assertEquals(listOf(1, 2, 3), top)
+        assertEquals(listOf(4, 5), bottom)
+    }
+
+    @Test
+    fun `two-row split halves an even layout`() {
+        val (top, bottom) = TerminalAccessoryLayoutStore.splitIntoTwoRows(listOf(1, 2, 3, 4))
+        assertEquals(listOf(1, 2), top)
+        assertEquals(listOf(3, 4), bottom)
+    }
+
+    @Test
+    fun `two-row split handles an empty layout`() {
+        val (top, bottom) = TerminalAccessoryLayoutStore.splitIntoTwoRows(emptyList<String>())
+        assertTrue(top.isEmpty())
+        assertTrue(bottom.isEmpty())
+    }
 }

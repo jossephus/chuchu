@@ -122,6 +122,7 @@ fun ApplicationNavController() {
             val requireAuthOnConnect by settingsRepo.requireAuthOnConnect.collectAsStateWithLifecycle()
             val accessoryLayoutIds by settingsRepo.accessoryLayoutIds.collectAsStateWithLifecycle()
             val accessoryBarSingleRow by settingsRepo.accessoryBarSingleRow.collectAsStateWithLifecycle()
+            val termuxStyleAccessoryBar by settingsRepo.termuxStyleAccessoryBar.collectAsStateWithLifecycle()
             val customKeyGroups by settingsRepo.terminalCustomKeyGroups.collectAsStateWithLifecycle()
             val tabMode by settingsRepo.terminalTabMode.collectAsStateWithLifecycle()
             val localShellEnabled by settingsRepo.localShellEnabled.collectAsStateWithLifecycle()
@@ -136,6 +137,7 @@ fun ApplicationNavController() {
                 localShellEnabled = localShellEnabled,
                 currentAccessoryLayoutIds = accessoryLayoutIds,
                 accessoryBarSingleRow = accessoryBarSingleRow,
+                termuxStyleAccessoryBar = termuxStyleAccessoryBar,
                 currentTerminalCustomKeyGroups = customKeyGroups,
                 currentTabMode = tabMode,
                 onTabModeChanged = settingsRepo::setTerminalTabMode,
@@ -150,6 +152,7 @@ fun ApplicationNavController() {
                 onLocalShellEnabledChanged = settingsRepo::setLocalShellEnabled,
                 onAccessoryLayoutChanged = settingsRepo::setAccessoryLayoutIds,
                 onAccessoryBarSingleRowChanged = settingsRepo::setAccessoryBarSingleRow,
+                onTermuxStyleAccessoryBarChanged = settingsRepo::setTermuxStyleAccessoryBar,
                 currentTerminalFontSize = terminalFontSize,
                 onTerminalFontSizeChanged = settingsRepo::setTerminalFontSize,
                 onTerminalCustomActionsChanged = settingsRepo::setTerminalCustomKeyGroups,

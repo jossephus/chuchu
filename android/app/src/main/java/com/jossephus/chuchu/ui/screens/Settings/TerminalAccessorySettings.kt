@@ -78,6 +78,8 @@ internal fun TerminalSettings(
     onEditAccessoryLayout: () -> Unit,
     accessoryBarSingleRow: Boolean,
     onAccessoryBarSingleRowChanged: (Boolean) -> Unit,
+    termuxStyleAccessoryBar: Boolean,
+    onTermuxStyleAccessoryBarChanged: (Boolean) -> Unit,
     currentTerminalFontSize: Float = 14f,
     onTerminalFontSizeChanged: (Float) -> Unit = {},
     currentTerminalCustomKeyGroups: List<TerminalCustomKeyGroup>,
@@ -331,6 +333,28 @@ internal fun TerminalSettings(
                     )
                 }
 
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        ChuText("termux-style accessory bar", style = typography.label)
+                        ChuText(
+                            "equal-width keys, no borders, tighter spacing",
+                            style = typography.bodySmall,
+                            color = colors.textMuted,
+                        )
+                    }
+                    ChuSwitch(
+                        checked = termuxStyleAccessoryBar,
+                        onCheckedChange = onTermuxStyleAccessoryBarChanged,
+                    )
+                }
+
                 if (selectedEntries.isEmpty()) {
                     ChuText(
                         "choose the accessory keys you want in the terminal bar.",
@@ -348,6 +372,7 @@ internal fun TerminalSettings(
                             modifierState = ModifierState(),
                             onAction = {},
                             useSingleRow = accessoryBarSingleRow,
+                            termuxStyle = termuxStyleAccessoryBar,
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }

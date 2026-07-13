@@ -37,6 +37,9 @@ class SettingsRepository(context: Context) {
     private val _accessoryBarSingleRow = MutableStateFlow(prefs.getBoolean(KEY_ACCESSORY_BAR_SINGLE_ROW, false))
     val accessoryBarSingleRow: StateFlow<Boolean> = _accessoryBarSingleRow.asStateFlow()
 
+    private val _termuxStyleAccessoryBar = MutableStateFlow(prefs.getBoolean(KEY_TERMUX_STYLE_ACCESSORY_BAR, false))
+    val termuxStyleAccessoryBar: StateFlow<Boolean> = _termuxStyleAccessoryBar.asStateFlow()
+
     private val _appLockEnabled = MutableStateFlow(prefs.getBoolean(KEY_APP_LOCK_ENABLED, false))
     val appLockEnabled: StateFlow<Boolean> = _appLockEnabled.asStateFlow()
 
@@ -93,6 +96,11 @@ class SettingsRepository(context: Context) {
         _accessoryBarSingleRow.value = enabled
     }
 
+    fun setTermuxStyleAccessoryBar(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_TERMUX_STYLE_ACCESSORY_BAR, enabled).apply()
+        _termuxStyleAccessoryBar.value = enabled
+    }
+
     fun setTerminalTabMode(mode: TerminalTabMode) {
         prefs.edit().putString(KEY_TAB_MODE, mode.name).apply()
         _terminalTabMode.value = mode
@@ -144,13 +152,38 @@ class SettingsRepository(context: Context) {
 
     private fun loadAccessoryLayoutIds(): List<String> {
         val stored = prefs.getString(KEY_ACCESSORY_LAYOUT, null)
-            ?: return TerminalAccessoryLayoutStore.defaultLayoutIds()
+        if (stored == null) {
+            markScreenActionsBackfilled()
+            return TerminalAccessoryLayoutStore.defaultLayoutIds()
+        }
         if (stored.isBlank()) {
+            markScreenActionsBackfilled()
             return emptyList()
         }
-        return TerminalAccessoryLayoutStore.normalizeIds(
+        val ids = TerminalAccessoryLayoutStore.normalizeIds(
             stored.split(',').map(String::trim).filter(String::isNotEmpty),
         )
+        return backfillScreenActions(ids)
+    }
+
+    /**
+     * Runs the screen-action backfill once, then records that it happened so a user who later
+     * removes those keys on purpose does not get them back on the next launch.
+     */
+    private fun backfillScreenActions(ids: List<String>): List<String> {
+        if (prefs.getBoolean(KEY_ACCESSORY_SCREEN_ACTIONS_BACKFILLED, false)) {
+            return ids
+        }
+        val migrated = TerminalAccessoryLayoutStore.backfillScreenActions(ids)
+        prefs.edit()
+            .putString(KEY_ACCESSORY_LAYOUT, migrated.joinToString(separator = ","))
+            .putBoolean(KEY_ACCESSORY_SCREEN_ACTIONS_BACKFILLED, true)
+            .apply()
+        return migrated
+    }
+
+    private fun markScreenActionsBackfilled() {
+        prefs.edit().putBoolean(KEY_ACCESSORY_SCREEN_ACTIONS_BACKFILLED, true).apply()
     }
 
     private fun loadTerminalCustomKeyGroups(): List<TerminalCustomKeyGroup> {
@@ -164,6 +197,9 @@ class SettingsRepository(context: Context) {
         private const val KEY_ACCESSORY_LAYOUT = "terminal_accessory_layout"
         private const val KEY_TERMINAL_CUSTOM_ACTIONS = "terminal_custom_actions"
         private const val KEY_ACCESSORY_BAR_SINGLE_ROW = "terminal_accessory_bar_single_row"
+        private const val KEY_TERMUX_STYLE_ACCESSORY_BAR = "terminal_termux_style_accessory_bar"
+        private const val KEY_ACCESSORY_SCREEN_ACTIONS_BACKFILLED =
+            "terminal_accessory_screen_actions_backfilled"
         private const val KEY_TAB_MODE = "terminal_tab_mode"
         private const val KEY_APP_LOCK_ENABLED = "app_lock_enabled"
         private const val KEY_REQUIRE_AUTH_ON_CONNECT = "require_auth_on_connect"
