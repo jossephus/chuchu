@@ -63,6 +63,9 @@ import com.jossephus.chuchu.ui.components.ChuCard
 import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.components.ChuSwitch
 import com.jossephus.chuchu.ui.components.ChuTextField
+import com.jossephus.chuchu.ui.terminal.AccessoryKeyItem
+import com.jossephus.chuchu.ui.terminal.BuiltinCommand
+import com.jossephus.chuchu.ui.terminal.BuiltinShortcutStore
 import com.jossephus.chuchu.ui.terminal.KeyboardAccessoryBar
 import com.jossephus.chuchu.ui.terminal.ModifierState
 import com.jossephus.chuchu.ui.terminal.ResolvedAccessoryEntry
@@ -82,6 +85,10 @@ internal fun TerminalSettings(
     onTerminalFontSizeChanged: (Float) -> Unit = {},
     currentTerminalCustomKeyGroups: List<TerminalCustomKeyGroup>,
     onEditCustomActions: () -> Unit,
+    showCustomActionsFab: Boolean,
+    onShowCustomActionsFabChanged: (Boolean) -> Unit,
+    builtinShortcuts: Map<String, String> = emptyMap(),
+    onEditChuchuCommands: () -> Unit = {},
     currentTabMode: TerminalTabMode = TerminalTabMode.Classic,
     onTabModeChanged: (TerminalTabMode) -> Unit = {},
     localShellEnabled: Boolean = false,
@@ -390,6 +397,66 @@ internal fun TerminalSettings(
                     style = typography.body,
                     color = colors.textSecondary,
                 )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        ChuText("show actions button", style = typography.label)
+                        ChuText(
+                            "toggle visibility of the floating button in terminal",
+                            style = typography.bodySmall,
+                            color = colors.textMuted,
+                        )
+                    }
+                    ChuSwitch(
+                        checked = showCustomActionsFab,
+                        onCheckedChange = onShowCustomActionsFabChanged,
+                    )
+                }
+            }
+        }
+
+        ChuCard(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        ChuText("chuchu commands", style = typography.label)
+                        val boundCount = builtinShortcuts.count { it.value.isNotEmpty() }
+                        ChuText(
+                            if (boundCount == 0) "no shortcuts" else "$boundCount shortcuts",
+                            style = typography.body,
+                            color = colors.textMuted,
+                        )
+                    }
+
+                    ChuButton(
+                        onClick = onEditChuchuCommands,
+                        variant = ChuButtonVariant.Outlined,
+                        bracketed = true,
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                    ) {
+                        ChuText("customize", style = typography.label)
+                    }
+                }
+
+                ChuText(
+                    "assign shortcut keys for builtin commands.",
+                    style = typography.body,
+                    color = colors.textSecondary,
+                )
             }
         }
 
@@ -417,6 +484,155 @@ internal fun TerminalSettings(
                     checked = localShellEnabled,
                     onCheckedChange = onLocalShellEnabledChanged,
                 )
+            }
+        }
+    }
+}
+
+@Composable
+internal fun ChuchuCommandsEditorSheet(
+    visible: Boolean,
+    builtinShortcuts: Map<String, String>,
+    onSave: (Map<String, String>) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+    var draft by remember(builtinShortcuts, visible) { mutableStateOf(builtinShortcuts) }
+
+    fun setKey(command: BuiltinCommand, updated: String) {
+        // Lowercase to match runtime key matching, so the conflict check below catches
+        // case-variant duplicates.
+        val key = updated.takeLast(1).lowercase()
+        val newShortcuts = draft.toMutableMap()
+        if (key.isNotEmpty()) {
+            // Keep each key bound to a single command: clear any other command
+            // currently using this key.
+            newShortcuts.entries
+                .filter { it.value == key && it.key != command.id }
+                .forEach { newShortcuts[it.key] = "" }
+        }
+        newShortcuts[command.id] = key
+        draft = newShortcuts
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(colors.background.copy(alpha = 0.72f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onDismiss,
+                    ),
+            )
+        }
+
+        AnimatedVisibility(
+            visible = visible,
+            enter = slideInVertically { it },
+            exit = slideOutVertically { it },
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(colors.surfaceVariant)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {},
+                    )
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        ChuText("chuchu commands", style = typography.headline)
+                        ChuText(
+                            "empty key hides the command. overrides custom action shortcut keys.",
+                            style = typography.body,
+                            color = colors.textSecondary,
+                        )
+                    }
+
+                    ChuButton(
+                        onClick = onDismiss,
+                        variant = ChuButtonVariant.Ghost,
+                        bracketed = true,
+                        borderColor = colors.textMuted,
+                        contentPadding = PaddingValues(6.dp),
+                    ) {
+                        ChuText("x", style = typography.label, color = colors.textMuted)
+                    }
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    BuiltinCommand.entries.forEach { command ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                ChuText(command.label, style = typography.label)
+                                ChuText(
+                                    command.description,
+                                    style = typography.bodySmall,
+                                    color = colors.textMuted,
+                                )
+                            }
+                            ChuTextField(
+                                value = draft[command.id] ?: "",
+                                onValueChange = { setKey(command, it) },
+                                label = command.label,
+                                showLabel = false,
+                                placeholder = "key",
+                                singleLine = true,
+                                autoFocus = false,
+                                modifier = Modifier.width(64.dp),
+                            )
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ChuButton(
+                        onClick = { draft = BuiltinShortcutStore.defaults },
+                        variant = ChuButtonVariant.Outlined,
+                        bracketed = true,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        ChuText("reset", style = typography.label)
+                    }
+
+                    ChuButton(
+                        onClick = { onSave(draft) },
+                        bracketed = true,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        ChuText("save", style = typography.label, color = colors.onAccent)
+                    }
+                }
             }
         }
     }

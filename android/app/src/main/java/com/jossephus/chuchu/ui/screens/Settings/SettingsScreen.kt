@@ -49,6 +49,10 @@ fun SettingsScreen(
     currentAccessoryLayoutIds: List<String>,
     accessoryBarSingleRow: Boolean,
     currentTerminalCustomKeyGroups: List<TerminalCustomKeyGroup>,
+    showCustomActionsFab: Boolean,
+    onShowCustomActionsFabChanged: (Boolean) -> Unit,
+    builtinShortcuts: Map<String, String> = emptyMap(),
+    onBuiltinShortcutsChanged: (Map<String, String>) -> Unit = {},
     currentTabMode: TerminalTabMode = TerminalTabMode.Classic,
     onTabModeChanged: (TerminalTabMode) -> Unit = {},
     themeMode: ThemeMode,
@@ -74,6 +78,7 @@ fun SettingsScreen(
     var selectedCategory by remember { mutableStateOf(SettingsCategory.General) }
     var showAccessoryEditor by remember { mutableStateOf(false) }
     var showCustomActionEditor by remember { mutableStateOf(false) }
+    var showChuchuCommandsEditor by remember { mutableStateOf(false) }
     var showBackupSheet by remember { mutableStateOf(false) }
 
     BackHandler(enabled = true) {
@@ -83,6 +88,7 @@ fun SettingsScreen(
                 showBackupSheet = false
             }
             showCustomActionEditor -> showCustomActionEditor = false
+            showChuchuCommandsEditor -> showChuchuCommandsEditor = false
             showAccessoryEditor -> showAccessoryEditor = false
             else -> onBack()
         }
@@ -173,6 +179,10 @@ fun SettingsScreen(
                         onTerminalFontSizeChanged = onTerminalFontSizeChanged,
                         currentTerminalCustomKeyGroups = currentTerminalCustomKeyGroups,
                         onEditCustomActions = { showCustomActionEditor = true },
+                        showCustomActionsFab = showCustomActionsFab,
+                        onShowCustomActionsFabChanged = onShowCustomActionsFabChanged,
+                        builtinShortcuts = builtinShortcuts,
+                        onEditChuchuCommands = { showChuchuCommandsEditor = true },
                         currentTabMode = currentTabMode,
                         onTabModeChanged = onTabModeChanged,
                         localShellEnabled = localShellEnabled,
@@ -197,6 +207,16 @@ fun SettingsScreen(
             initialGroups = currentTerminalCustomKeyGroups,
             onSave = onTerminalCustomActionsChanged,
             onDismiss = { showCustomActionEditor = false },
+        )
+
+        ChuchuCommandsEditorSheet(
+            visible = showChuchuCommandsEditor,
+            builtinShortcuts = builtinShortcuts,
+            onSave = {
+                onBuiltinShortcutsChanged(it)
+                showChuchuCommandsEditor = false
+            },
+            onDismiss = { showChuchuCommandsEditor = false },
         )
 
         if (backupViewModel != null) {
