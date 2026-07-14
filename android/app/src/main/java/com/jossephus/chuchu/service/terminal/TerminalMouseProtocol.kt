@@ -1,8 +1,8 @@
 package com.jossephus.chuchu.service.terminal
 
 object TerminalMouseAction {
-    const val Release = 0
-    const val Press = 1
+    const val Press = 0
+    const val Release = 1
     const val Motion = 2
 }
 
