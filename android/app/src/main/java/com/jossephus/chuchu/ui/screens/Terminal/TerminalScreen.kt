@@ -329,6 +329,7 @@ fun TerminalScreen(
     val tabMode by settingsRepo.terminalTabMode.collectAsStateWithLifecycle()
     val currentAccessoryLayoutIds by settingsRepo.accessoryLayoutIds.collectAsStateWithLifecycle()
     val useSingleRowAccessoryBar by settingsRepo.accessoryBarSingleRow.collectAsStateWithLifecycle()
+    val useTermuxStyleAccessoryBar by settingsRepo.termuxStyleAccessoryBar.collectAsStateWithLifecycle()
     val currentTerminalCustomKeyGroups by
         settingsRepo.terminalCustomKeyGroups.collectAsStateWithLifecycle()
     val settingsFontSize by settingsRepo.terminalFontSize.collectAsStateWithLifecycle()
@@ -879,6 +880,26 @@ fun TerminalScreen(
 
 
                     fun dispatchAccessoryAction(action: AccessoryAction) {
+                        when (action) {
+                            AccessoryAction.Settings -> {
+                                onOpenSettings()
+                                return
+                            }
+                            AccessoryAction.ChuchuKey -> {
+                                chuchuKeys.togglePrefix()
+                                requestInputFocus()
+                                return
+                            }
+                            AccessoryAction.OpenFiles -> {
+                                if (filesSupported) {
+                                    vm.selectConnectionTab(ConnectionTab.Files)
+                                } else {
+                                    showLocalShellFilesUnsupported()
+                                }
+                                return
+                            }
+                            else -> Unit
+                        }
                         if (
                             action is AccessoryAction.SendText && chuchuKeys.handleText(action.text)
                         ) {
@@ -1596,7 +1617,10 @@ fun TerminalScreen(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(6.dp))
+                        // The termux-style bar sits flush against the terminal, so it drops the gap.
+                        if (!(selectedTab == ConnectionTab.Terminal && useTermuxStyleAccessoryBar)) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                        }
                         if (selectedTab == ConnectionTab.Terminal) {
                             if (activeHostCount > 1 && currentHostName != null) {
                                 Row(
@@ -1625,21 +1649,14 @@ fun TerminalScreen(
                                 entries = accessoryLayout,
                                 modifierState = modifierState,
                                 onAction = ::dispatchAccessoryAction,
-                                onSettings = onOpenSettings,
-                                onChuchuKey = {
-                                    chuchuKeys.togglePrefix()
-                                    requestInputFocus()
-                                },
                                 chuchuKeyActive = chuchuKeys.isPrefixActive,
-                                onOpenFiles = {
-                                    if (filesSupported) {
-                                        vm.selectConnectionTab(ConnectionTab.Files)
-                                    } else {
-                                        showLocalShellFilesUnsupported()
-                                    }
-                                },
                                 useSingleRow = useSingleRowAccessoryBar,
-                                modifier = Modifier.padding(bottom = 2.dp),
+                                termuxStyle = useTermuxStyleAccessoryBar,
+                                modifier = if (useTermuxStyleAccessoryBar) {
+                                    Modifier
+                                } else {
+                                    Modifier.padding(bottom = 2.dp)
+                                },
                             )
                         }
                     }
@@ -1650,7 +1667,27 @@ fun TerminalScreen(
                     UploadProgressDialog(progress = uploadProgress)
                 }
                 if (showTabSheet) {
-                    val paletteAccessoryAction: (AccessoryAction) -> Unit = { action ->
+                    val paletteAccessoryAction: (AccessoryAction) -> Unit = fun(action: AccessoryAction) {
+                        when (action) {
+                            AccessoryAction.Settings -> {
+                                onOpenSettings()
+                                return
+                            }
+                            AccessoryAction.ChuchuKey -> {
+                                chuchuKeys.togglePrefix()
+                                return
+                            }
+                            AccessoryAction.OpenFiles -> {
+                                if (filesSupported) {
+                                    vm.selectConnectionTab(ConnectionTab.Files)
+                                    showTabSheet = false
+                                } else {
+                                    showLocalShellFilesUnsupported()
+                                }
+                                return
+                            }
+                            else -> Unit
+                        }
                         if (
                             !(action is AccessoryAction.SendText &&
                                 chuchuKeys.handleText(action.text))
@@ -1720,18 +1757,9 @@ fun TerminalScreen(
                         accessoryEntries = accessoryLayout,
                         accessoryModifierState = modifierState,
                         onAccessoryAction = paletteAccessoryAction,
-                        onChuchuKey = { chuchuKeys.togglePrefix() },
                         chuchuKeyActive = chuchuKeys.isPrefixActive,
-                        onOpenFiles = {
-                            if (filesSupported) {
-                                vm.selectConnectionTab(ConnectionTab.Files)
-                                showTabSheet = false
-                            } else {
-                                showLocalShellFilesUnsupported()
-                            }
-                        },
-                        onOpenSettings = onOpenSettings,
                         useSingleRowAccessoryBar = useSingleRowAccessoryBar,
+                        termuxStyleAccessoryBar = useTermuxStyleAccessoryBar,
                         onSelectTab = {
                             vm.selectTab(it)
                             showTabSheet = false
