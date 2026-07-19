@@ -5,7 +5,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 object HerdrMultiplexer : Multiplexer {
-    private const val pathPrelude = "PATH=\"\$HOME/.local/bin:/usr/local/bin:/opt/homebrew/bin:\$PATH\"; "
+    internal const val pathPrelude = "PATH=\"\$HOME/.local/bin:/usr/local/bin:/opt/homebrew/bin:\$PATH\"; "
     private val json = Json {
         ignoreUnknownKeys = true
         isLenient = true
@@ -59,6 +59,23 @@ object HerdrMultiplexer : Multiplexer {
         remoteSessions: Collection<RemoteMultiplexerSession>,
         localSessionNames: Collection<String>,
     ): String = "default"
+
+    fun snapshotStreamCommand(): String =
+        pathPrelude +
+            "while IFS= read -r _; do printf 'CHUCHU_SNAP_BEGIN\\n'; herdr api snapshot 2>/dev/null; " +
+            "printf '\\nCHUCHU_SNAP_END\\n'; done"
+
+    fun focusTabCommand(tabId: String): String =
+        pathPrelude + "herdr tab focus ${shellQuote(tabId)}"
+
+    fun focusPaneCommand(paneId: String): String =
+        pathPrelude + "herdr agent focus ${shellQuote(paneId)}"
+
+    fun createTabCommand(workspaceId: String): String =
+        pathPrelude + "herdr tab create --workspace ${shellQuote(workspaceId)} --focus"
+
+    fun closeTabCommand(tabId: String): String =
+        pathPrelude + "herdr tab close ${shellQuote(tabId)}"
 
     private fun shellQuote(value: String): String =
         "'" + value.replace("'", "'\\''") + "'"

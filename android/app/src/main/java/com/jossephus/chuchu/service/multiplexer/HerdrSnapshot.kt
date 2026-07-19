@@ -25,6 +25,45 @@ data class HerdrSnapshot(
     @SerialName("focused_pane_id") val focusedPaneId: String? = null,
 )
 
+sealed interface HerdrControlState {
+    data object Inactive : HerdrControlState
+
+    data object Connecting : HerdrControlState
+
+    data class Active(
+        val snapshot: HerdrSnapshot,
+        val protocolWarning: Boolean,
+    ) : HerdrControlState
+
+    data class Error(val message: String) : HerdrControlState
+}
+
+internal fun appendHerdrStreamChunk(buffer: StringBuilder, chunk: String): List<String> {
+    val begin = "CHUCHU_SNAP_BEGIN\n"
+    val end = "\nCHUCHU_SNAP_END"
+    val frames = mutableListOf<String>()
+    buffer.append(chunk)
+
+    while (true) {
+        val beginIndex = buffer.indexOf(begin)
+        if (beginIndex < 0) {
+            val keep =
+                (begin.length - 1 downTo 1).firstOrNull { length ->
+                    buffer.endsWith(begin.substring(0, length))
+                } ?: 0
+            if (buffer.length > keep) buffer.delete(0, buffer.length - keep)
+            return frames
+        }
+        if (beginIndex > 0) buffer.delete(0, beginIndex)
+
+        val endIndex = buffer.indexOf(end, begin.length)
+        if (endIndex < 0) return frames
+
+        frames += buffer.substring(begin.length, endIndex)
+        buffer.delete(0, endIndex + end.length)
+    }
+}
+
 @Serializable
 data class HerdrWorkspace(
     @SerialName("workspace_id") val workspaceId: String = "",
