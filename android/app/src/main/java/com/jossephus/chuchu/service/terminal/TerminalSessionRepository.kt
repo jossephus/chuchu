@@ -3,8 +3,10 @@ package com.jossephus.chuchu.service.terminal
 import android.app.Application
 import android.content.ClipData
 import android.content.ClipboardManager
+import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.Transport
+import com.jossephus.chuchu.service.multiplexer.HerdrControlState
 import com.jossephus.chuchu.service.multiplexer.MultiplexerRegistry
 import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerSession
 import com.jossephus.chuchu.service.ssh.HostKeyStore
@@ -40,9 +42,13 @@ class TerminalSessionRepository private constructor(application: Application) {
 
     private val hostKeyStore =
         HostKeyStore(appContext.getSharedPreferences("host_keys", Application.MODE_PRIVATE))
+    private val settingsRepository = SettingsRepository.getInstance(appContext)
     private val tailscaleStatusChecker = TailscaleStatusChecker(appContext)
     private val clipboard = appContext.getSystemService(ClipboardManager::class.java)
     private val osc52ClipboardPolicy = Osc52ClipboardPolicy.Deny
+    private val herdrAgentNotifier = HerdrAgentNotifier(appContext)
+    private val herdrStateJobs = mutableMapOf<String, Job>()
+    private val herdrCadenceByTab = mutableMapOf<String, Long>()
 
     private fun publishTerminalClipboard(tabId: String, text: String) {
         if (!canPublishTerminalClipboard(tabId)) return
@@ -113,6 +119,9 @@ class TerminalSessionRepository private constructor(application: Application) {
 
     init {
         scope.launch {
+            settingsRepository.herdrNotificationsEnabled.collect { updateHerdrCadence() }
+        }
+        scope.launch {
             combine(_tabs, _activeTabId) { tabs, _ -> tabs }
                 .flatMapLatest { tabs ->
                     if (tabs.isEmpty()) {
@@ -124,6 +133,7 @@ class TerminalSessionRepository private constructor(application: Application) {
                     }
                 }
                 .collect { pairs ->
+                    updateHerdrCadence()
                     val anyAlive =
                         pairs.any { (_, state) ->
                             state.status == SessionStatus.Connecting ||
@@ -146,10 +156,12 @@ class TerminalSessionRepository private constructor(application: Application) {
 
     fun attachClient() {
         attachedClients += 1
+        updateHerdrCadence()
     }
 
     fun detachClient() {
         attachedClients = (attachedClients - 1).coerceAtLeast(0)
+        updateHerdrCadence()
     }
 
     private fun currentNotificationLabel(): String {
@@ -228,6 +240,7 @@ class TerminalSessionRepository private constructor(application: Application) {
         val tab = TabSession(id, spec, engine)
         _tabs.value = _tabs.value + tab
         _activeTabId.value = id
+        observeHerdrState(tab)
         engine.connect(
             host = spec.host,
             port = spec.port,
@@ -244,23 +257,29 @@ class TerminalSessionRepository private constructor(application: Application) {
             multiplexerSessionName = spec.multiplexerSessionName,
             multiplexerCreateIfMissing = spec.multiplexerCreateIfMissing,
         )
+        updateHerdrCadence()
         return tab
     }
 
     fun selectTab(id: String) {
         if (_tabs.value.any { it.id == id }) {
             _activeTabId.value = id
+            updateHerdrCadence()
         }
     }
 
     fun closeTab(id: String) {
         val tab = _tabs.value.firstOrNull { it.id == id } ?: return
+        herdrStateJobs.remove(id)?.cancel()
+        herdrCadenceByTab.remove(id)
+        herdrAgentNotifier.removeTab(id)
         val remaining = _tabs.value.filterNot { it.id == id }
         _tabs.value = remaining
         if (_activeTabId.value == id) {
             val nextSameHost = remaining.firstOrNull { it.spec.hostId == tab.spec.hostId }
             _activeTabId.value = nextSameHost?.id ?: remaining.firstOrNull()?.id
         }
+        updateHerdrCadence()
         tab.engine.dispose()
     }
 
@@ -312,7 +331,54 @@ class TerminalSessionRepository private constructor(application: Application) {
         val tabs = _tabs.value
         _tabs.value = emptyList()
         _activeTabId.value = null
+        herdrStateJobs.values.forEach(Job::cancel)
+        herdrStateJobs.clear()
+        herdrCadenceByTab.clear()
+        tabs.forEach { herdrAgentNotifier.removeTab(it.id) }
         tabs.forEach { it.engine.dispose() }
+    }
+
+    private fun observeHerdrState(tab: TabSession) {
+        if (tab.spec.multiplexer != MultiplexerType.Herdr) return
+        herdrStateJobs[tab.id] =
+            scope.launch {
+                tab.engine.herdrState.collect { state ->
+                    if (state is HerdrControlState.Active) {
+                        herdrAgentNotifier.onSnapshot(
+                            tabSessionId = tab.id,
+                            tabLabel = tab.spec.tabLabel,
+                            snapshot = state.snapshot,
+                            foreground = attachedClients > 0,
+                            enabled = settingsRepository.herdrNotificationsEnabled.value,
+                        )
+                    }
+                }
+            }
+    }
+
+    private fun updateHerdrCadence() {
+        val foreground = attachedClients > 0
+        val activeTabId = _activeTabId.value
+        val notificationsEnabled = settingsRepository.herdrNotificationsEnabled.value
+        _tabs.value
+            .asSequence()
+            .filter { tab ->
+                tab.spec.multiplexer == MultiplexerType.Herdr &&
+                    tab.sessionState.value.status == SessionStatus.Connected
+            }
+            .forEach { tab ->
+                val cadence =
+                    when {
+                        foreground && tab.id == activeTabId -> 3_000L
+                        foreground -> 15_000L
+                        notificationsEnabled -> 25_000L
+                        else -> 60_000L
+                    }
+                if (herdrCadenceByTab[tab.id] != cadence) {
+                    herdrCadenceByTab[tab.id] = cadence
+                    tab.engine.setHerdrCadence(cadence)
+                }
+            }
     }
 
     private fun activeEngine(): TerminalSessionEngine? = activeTab.value?.engine

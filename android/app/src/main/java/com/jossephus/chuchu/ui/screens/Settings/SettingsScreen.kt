@@ -46,6 +46,7 @@ fun SettingsScreen(
     appLockEnabled: Boolean,
     requireAuthOnConnect: Boolean,
     localShellEnabled: Boolean,
+    herdrNotificationsEnabled: Boolean,
     currentAccessoryLayoutIds: List<String>,
     accessoryBarSingleRow: Boolean,
     currentTerminalCustomKeyGroups: List<TerminalCustomKeyGroup>,
@@ -64,6 +65,7 @@ fun SettingsScreen(
     onAppLockEnabledChanged: (Boolean) -> Unit,
     onRequireAuthOnConnectChanged: (Boolean) -> Unit,
     onLocalShellEnabledChanged: (Boolean) -> Unit,
+    onHerdrNotificationsEnabledChanged: (Boolean) -> Unit,
     onAccessoryLayoutChanged: (List<String>) -> Unit,
     onAccessoryBarSingleRowChanged: (Boolean) -> Unit,
     currentTerminalFontSize: Float = 14f,
@@ -187,6 +189,8 @@ fun SettingsScreen(
                         onTabModeChanged = onTabModeChanged,
                         localShellEnabled = localShellEnabled,
                         onLocalShellEnabledChanged = onLocalShellEnabledChanged,
+                        herdrNotificationsEnabled = herdrNotificationsEnabled,
+                        onHerdrNotificationsEnabledChanged = onHerdrNotificationsEnabledChanged,
                     )
                 }
             }
