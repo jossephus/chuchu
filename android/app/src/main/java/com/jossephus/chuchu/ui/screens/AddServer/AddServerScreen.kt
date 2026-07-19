@@ -389,6 +389,7 @@ private enum class MultiplexerOption(val type: MultiplexerType?) {
     Tmux(MultiplexerType.Tmux),
     Zellij(MultiplexerType.Zellij),
     Zmx(MultiplexerType.Zmx),
+    Herdr(MultiplexerType.Herdr),
 }
 
 @Composable
@@ -408,6 +409,7 @@ private fun MultiplexerSection(
             MultiplexerOption.Tmux to "tmux",
             MultiplexerOption.Zellij to "zellij",
             MultiplexerOption.Zmx to "zmx",
+            MultiplexerOption.Herdr to "herdr",
         ),
         selected = selectedOption,
         onSelect = { onSelect(it.type) },
