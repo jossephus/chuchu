@@ -55,6 +55,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.jossephus.chuchu.service.multiplexer.HerdrControlState
 import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerSession
 import com.jossephus.chuchu.service.terminal.SessionStatus
 import com.jossephus.chuchu.service.terminal.SessionState
@@ -101,6 +102,14 @@ fun TerminalTabManager(
     onMultiplexerRefresh: () -> Unit = {},
     onMultiplexerNew: () -> Unit = {},
     onMultiplexerAttach: (String) -> Unit = {},
+    herdrEnabled: Boolean = false,
+    herdrState: HerdrControlState = HerdrControlState.Inactive,
+    herdrActionError: String? = null,
+    onHerdrFocusTab: (String) -> Unit = {},
+    onHerdrFocusPane: (String) -> Unit = {},
+    onHerdrCreateTab: (String) -> Unit = {},
+    onHerdrCloseTab: (String) -> Unit = {},
+    onHerdrRefresh: () -> Unit = {},
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
@@ -426,7 +435,18 @@ fun TerminalTabManager(
                     }
                 }
 
-                // Multiplexer sessions section (current-host only)
+                if (herdrEnabled) {
+                    HerdrPanel(
+                        state = herdrState,
+                        onFocusTab = onHerdrFocusTab,
+                        onFocusPane = onHerdrFocusPane,
+                        onCreateTab = onHerdrCreateTab,
+                        onCloseTab = onHerdrCloseTab,
+                        onRefresh = onHerdrRefresh,
+                        actionError = herdrActionError,
+                    )
+                }
+
                 if (multiplexerEnabled) {
                     MultiplexerSessionPanel(
                         sessions = multiplexerSessions,

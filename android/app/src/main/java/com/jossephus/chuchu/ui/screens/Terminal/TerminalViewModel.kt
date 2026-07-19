@@ -10,8 +10,11 @@ import com.jossephus.chuchu.data.repository.HostRepository
 import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.data.repository.SshKeyRepository
 import com.jossephus.chuchu.model.HostProfile
+import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.Transport
+import com.jossephus.chuchu.service.multiplexer.HerdrControlState
 import com.jossephus.chuchu.service.multiplexer.MultiplexerRegistry
+import com.jossephus.chuchu.service.multiplexer.MultiplexerCommandResult
 import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerSession
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
 import com.jossephus.chuchu.service.terminal.HostKeyPrompt
@@ -20,6 +23,7 @@ import com.jossephus.chuchu.service.terminal.TabSession
 import com.jossephus.chuchu.service.terminal.TabSpec
 import com.jossephus.chuchu.service.terminal.TerminalMouseAction
 import com.jossephus.chuchu.service.terminal.TerminalMouseButton
+import com.jossephus.chuchu.service.terminal.TerminalSessionEngine
 import com.jossephus.chuchu.service.terminal.TerminalSessionRepository
 import com.jossephus.chuchu.ui.screens.Files.ConnectionTab
 import com.jossephus.chuchu.ui.screens.Files.FileBrowserEntry
@@ -42,6 +46,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -68,6 +74,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     private var pendingMultiplexerAction: PendingMultiplexerAction? = null
     private var multiplexerActionGeneration = 0L
     private var multiplexerSessionListGeneration = 0L
+    private val _herdrActionError = MutableStateFlow<String?>(null)
 
     private val _tailscaleActive = MutableStateFlow(tailscaleStatusChecker.isActive())
     val tailscaleActive: StateFlow<Boolean> = _tailscaleActive.asStateFlow()
@@ -77,6 +84,20 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     val activeTab: StateFlow<TabSession?> = sessionRepository.activeTab
     val sessionState: StateFlow<SessionState> = sessionRepository.sessionState
     val hostKeyPrompt: StateFlow<HostKeyPrompt?> = sessionRepository.hostKeyPrompt
+    val herdrUiState: StateFlow<HerdrUiState> =
+        activeTab
+            .flatMapLatest { tab ->
+                if (tab != null && tab.spec.multiplexer == MultiplexerType.Herdr &&
+                    tab.spec.transport in setOf(Transport.SSH, Transport.TailscaleSSH)
+                ) {
+                    combine(tab.engine.herdrState, _herdrActionError) { control, actionError ->
+                        HerdrUiState(control = control, enabled = true, actionError = actionError)
+                    }
+                } else {
+                    flowOf(HerdrUiState())
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, HerdrUiState())
     val hosts: StateFlow<List<HostProfile>> =
         hostRepository.observeAll().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val hostsLoaded: StateFlow<Boolean> =
@@ -410,6 +431,39 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
 
     fun selectTab(id: String) {
         sessionRepository.selectTab(id)
+    }
+
+    fun onHerdrFocusTab(tabId: String) {
+        runHerdrCommand { it.herdrFocusTab(tabId) }
+    }
+
+    fun onHerdrFocusPane(paneId: String) {
+        runHerdrCommand { it.herdrFocusPane(paneId) }
+    }
+
+    fun onHerdrCreateTab(workspaceId: String) {
+        runHerdrCommand { it.herdrCreateTab(workspaceId) }
+    }
+
+    fun onHerdrCloseTab(tabId: String) {
+        runHerdrCommand { it.herdrCloseTab(tabId) }
+    }
+
+    fun onHerdrPanelOpened() {
+        _herdrActionError.value = null
+        sessionRepository.activeTab.value?.engine?.pokeHerdr()
+    }
+
+    private fun runHerdrCommand(
+        command: suspend (TerminalSessionEngine) -> MultiplexerCommandResult,
+    ) {
+        val engine = sessionRepository.activeTab.value?.engine ?: return
+        viewModelScope.launch {
+            val result = command(engine)
+            _herdrActionError.value =
+                if (result.exitCode == 0) null
+                else result.stderr.ifBlank { result.stdout.ifBlank { "Herdr command failed" } }
+        }
     }
 
     fun closeTab(id: String) {
@@ -755,4 +809,10 @@ data class MultiplexerUiState(
     val sessionsSourceTabId: String? = null,
     val sessionsSourceHostId: Long? = null,
     val reconnectRecovery: Boolean = false,
+)
+
+data class HerdrUiState(
+    val control: HerdrControlState = HerdrControlState.Inactive,
+    val enabled: Boolean = false,
+    val actionError: String? = null,
 )

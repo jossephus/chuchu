@@ -407,6 +407,7 @@ fun TerminalScreen(
             )
         }
     val multiplexerState by vm.multiplexerState.collectAsStateWithLifecycle()
+    val herdrUiState by vm.herdrUiState.collectAsStateWithLifecycle()
 
     LaunchedEffect(terminalFontSizeSp) {
         settingsRepo.setTerminalFontSize(terminalFontSizeSp)
@@ -567,10 +568,18 @@ fun TerminalScreen(
         }
     }
 
+    LaunchedEffect(showTabSheet, herdrUiState.enabled) {
+        if (showTabSheet && herdrUiState.enabled) vm.onHerdrPanelOpened()
+    }
+
     LaunchedEffect(showGlobalTabManager, activeTab?.id) {
         if (showGlobalTabManager && activeTab?.spec?.usesRuntimeMultiplexer == true) {
             vm.listMultiplexerSessionsForCurrentHost()
         }
+    }
+
+    LaunchedEffect(showGlobalTabManager, herdrUiState.enabled) {
+        if (showGlobalTabManager && herdrUiState.enabled) vm.onHerdrPanelOpened()
     }
 
     if (showPassphrasePrompt) {
@@ -1751,6 +1760,14 @@ fun TerminalScreen(
                         onMultiplexerAttach = { name ->
                             vm.switchToMultiplexerSession(name, multiplexerState.sessionsSourceTabId)
                         },
+                        herdrEnabled = herdrUiState.enabled,
+                        herdrState = herdrUiState.control,
+                        herdrActionError = herdrUiState.actionError,
+                        onHerdrFocusTab = vm::onHerdrFocusTab,
+                        onHerdrFocusPane = vm::onHerdrFocusPane,
+                        onHerdrCreateTab = vm::onHerdrCreateTab,
+                        onHerdrCloseTab = vm::onHerdrCloseTab,
+                        onHerdrRefresh = vm::onHerdrPanelOpened,
                     )
                 }
 
@@ -1829,6 +1846,14 @@ fun TerminalScreen(
             onMultiplexerAttach = { name ->
                 vm.switchToMultiplexerSession(name, multiplexerState.sessionsSourceTabId)
             },
+            herdrEnabled = herdrUiState.enabled,
+            herdrState = herdrUiState.control,
+            herdrActionError = herdrUiState.actionError,
+            onHerdrFocusTab = vm::onHerdrFocusTab,
+            onHerdrFocusPane = vm::onHerdrFocusPane,
+            onHerdrCreateTab = vm::onHerdrCreateTab,
+            onHerdrCloseTab = vm::onHerdrCloseTab,
+            onHerdrRefresh = vm::onHerdrPanelOpened,
         )
     }
 }
