@@ -1248,6 +1248,8 @@ fun TerminalScreen(
                                 TerminalCanvas(
                                     snapshot = snapshot,
                                     fontSizeSp = terminalFontSizeSp,
+                                    minFontSizeSp = SettingsRepository.MIN_TERMINAL_FONT_SIZE,
+                                    maxFontSizeSp = SettingsRepository.MAX_TERMINAL_FONT_SIZE,
                                     cursorColor =
                                         ghosttyTheme?.cursorColor
                                             ?: Color.White.copy(alpha = 0.28f),
@@ -1266,14 +1268,7 @@ fun TerminalScreen(
                                     onPrimaryClick = vm::onPrimaryMouseClick,
                                     onAppSelectionDrag = vm::onAppSelectionDrag,
                                     onScroll = vm::onScroll,
-                                    onZoom = { zoomFactor ->
-                                        terminalFontSizeSp =
-                                            (terminalFontSizeSp * zoomFactor)
-                                                .coerceIn(
-                                                    SettingsRepository.MIN_TERMINAL_FONT_SIZE,
-                                                    SettingsRepository.MAX_TERMINAL_FONT_SIZE,
-                                                )
-                                    },
+                                    onFontSizeChange = { sizeSp -> terminalFontSizeSp = sizeSp },
                                     onSelectionChanged = { state -> selectionState = state },
                                 )
 
