@@ -20,9 +20,35 @@ data class HerdrSnapshot(
     val workspaces: List<HerdrWorkspace> = emptyList(),
     val tabs: List<HerdrTab> = emptyList(),
     val panes: List<HerdrPane> = emptyList(),
+    val layouts: List<HerdrTabLayout> = emptyList(),
     @SerialName("focused_workspace_id") val focusedWorkspaceId: String? = null,
     @SerialName("focused_tab_id") val focusedTabId: String? = null,
     @SerialName("focused_pane_id") val focusedPaneId: String? = null,
+)
+
+@Serializable
+data class HerdrRect(
+    val x: Int = 0,
+    val y: Int = 0,
+    val width: Int = 0,
+    val height: Int = 0,
+)
+
+@Serializable
+data class HerdrLayoutPane(
+    @SerialName("pane_id") val paneId: String = "",
+    val rect: HerdrRect = HerdrRect(),
+    val focused: Boolean = false,
+)
+
+@Serializable
+data class HerdrTabLayout(
+    @SerialName("tab_id") val tabId: String = "",
+    @SerialName("workspace_id") val workspaceId: String = "",
+    val area: HerdrRect = HerdrRect(),
+    @SerialName("focused_pane_id") val focusedPaneId: String? = null,
+    val panes: List<HerdrLayoutPane> = emptyList(),
+    val zoomed: Boolean = false,
 )
 
 sealed interface HerdrControlState {
