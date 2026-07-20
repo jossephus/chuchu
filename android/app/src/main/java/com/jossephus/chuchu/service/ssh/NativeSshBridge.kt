@@ -51,6 +51,8 @@ class NativeSshBridge {
 
     external fun nativeOpenExec(handle: Long, command: String): Boolean
 
+    external fun nativeOpenExecChannel(handle: Long, command: String): Int
+
     external fun nativeOpenExecPty(
         handle: Long,
         command: String,
@@ -63,6 +65,10 @@ class NativeSshBridge {
 
     external fun nativeChannelEof(handle: Long): Boolean
 
+    external fun nativeChannelEofById(handle: Long, channelId: Int): Boolean
+
+    external fun nativeCloseChannel(handle: Long, channelId: Int)
+
     external fun nativeResize(
         handle: Long,
         cols: Int,
@@ -72,6 +78,8 @@ class NativeSshBridge {
     ): Boolean
 
     external fun nativeIpcExchange(handle: Long, request: ByteArray): ByteArray?
+
+    external fun nativeChannelExchange(handle: Long, channelId: Int, request: ByteArray): ByteArray
 
     external fun nativeSftpInit(handle: Long): Boolean
 

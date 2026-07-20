@@ -38,11 +38,14 @@ const io_wait_timeout_ms = 120;
 // SFTP servers may make progress between short 120ms socket waits; use a
 // longer idle cap before failing directory listing/realpath as truly stalled.
 const sftp_idle_limit_ms: i64 = 15_000;
+const MAX_EXEC_CHANNELS = 16;
 
 const NativeSshSession = struct {
     socket_fd: c_int = -1,
     session: ?*c.LIBSSH2_SESSION = null,
     channel: ?*c.LIBSSH2_CHANNEL = null,
+    exec_channels: [MAX_EXEC_CHANNELS]?*c.LIBSSH2_CHANNEL = [_]?*c.LIBSSH2_CHANNEL{null} ** MAX_EXEC_CHANNELS,
+    exec_empty_reads: [MAX_EXEC_CHANNELS]u32 = [_]u32{0} ** MAX_EXEC_CHANNELS,
     sftp: ?*c.LIBSSH2_SFTP = null,
     upload_handle: ?*c.LIBSSH2_SFTP_HANDLE = null,
     username: ?[]u8 = null,
@@ -206,6 +209,14 @@ fn destroyNativeSshSession(session: *NativeSshSession) void {
     if (session.channel) |channel| {
         _ = c.libssh2_channel_close(channel);
         _ = c.libssh2_channel_free(channel);
+    }
+    for (&session.exec_channels, 0..) |*channel_slot, index| {
+        if (channel_slot.*) |channel| {
+            _ = c.libssh2_channel_close(channel);
+            _ = c.libssh2_channel_free(channel);
+            channel_slot.* = null;
+            session.exec_empty_reads[index] = 0;
+        }
     }
     if (session.session) |ssh_session| {
         _ = c.libssh2_session_disconnect_ex(ssh_session, c.SSH_DISCONNECT_BY_APPLICATION, "bye", "en");
@@ -433,11 +444,7 @@ fn appendErrorFrame(response: *std.ArrayList(u8), session: *NativeSshSession, fa
     ipc.appendMessage(allocator, response, .Error, message) catch {};
 }
 
-fn writeChannel(session: *NativeSshSession, bytes: []const u8) c.jint {
-    const channel = session.channel orelse {
-        setError(session, "Shell not open", .{});
-        return -1;
-    };
+fn writeChannel(session: *NativeSshSession, channel: *c.LIBSSH2_CHANNEL, bytes: []const u8) c.jint {
     if (bytes.len == 0) return 0;
     var total_written: usize = 0;
     var stalled_loops: u32 = 0;
@@ -464,8 +471,7 @@ fn writeChannel(session: *NativeSshSession, bytes: []const u8) c.jint {
     return @intCast(total_written);
 }
 
-fn readChannel(alloc: std.mem.Allocator, session: *NativeSshSession, max_bytes: usize) ?[]u8 {
-    const channel = session.channel orelse return null;
+fn readChannel(alloc: std.mem.Allocator, session: *NativeSshSession, channel: *c.LIBSSH2_CHANNEL, max_bytes: usize, empty_reads: *u32) ?[]u8 {
     const cap = @max(max_bytes, 1);
     const buf = alloc.alloc(u8, cap) catch return null;
     defer alloc.free(buf);
@@ -478,7 +484,7 @@ fn readChannel(alloc: std.mem.Allocator, session: *NativeSshSession, max_bytes: 
             if (total_read >= buf.len) break;
             const rc = c.libssh2_channel_read_ex(channel, stream_id, @ptrCast(buf.ptr + total_read), @intCast(buf.len - total_read));
             if (rc == c.LIBSSH2_ERROR_EAGAIN) {
-                session.empty_reads +%= 1;
+                empty_reads.* +%= 1;
                 break;
             }
             if (rc == 0) {
@@ -489,7 +495,7 @@ fn readChannel(alloc: std.mem.Allocator, session: *NativeSshSession, max_bytes: 
                 return null;
             }
             total_read += @intCast(rc);
-            session.empty_reads = 0;
+            empty_reads.* = 0;
         }
     }
     if (total_read == 0) {
@@ -516,7 +522,10 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeCreateSess
     _ = thiz;
     _ = c.libssh2_init(0);
     const session = allocator.create(NativeSshSession) catch return 0;
-    session.* = .{};
+    session.* = .{
+        .exec_channels = [_]?*c.LIBSSH2_CHANNEL{null} ** MAX_EXEC_CHANNELS,
+        .exec_empty_reads = [_]u32{0} ** MAX_EXEC_CHANNELS,
+    };
     return handleFromSession(session);
 }
 
@@ -1011,6 +1020,69 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeOpenExec(e
     return c.JNI_TRUE;
 }
 
+export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeOpenExecChannel(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, command: c.jstring) callconv(.c) c.jint {
+    _ = thiz;
+    const session = sessionFromHandle(handle) orelse return -1;
+    const ssh_session = session.session orelse {
+        setError(session, "Not connected", .{});
+        return -1;
+    };
+    const channel_index = for (session.exec_channels, 0..) |channel, index| {
+        if (channel == null) break index;
+    } else {
+        setError(session, "No exec channel slots available", .{});
+        return -1;
+    };
+    const command_slice = jniDupString(env, command) orelse {
+        setError(session, "Missing exec command", .{});
+        return -1;
+    };
+    defer allocator.free(command_slice);
+
+    var channel: ?*c.LIBSSH2_CHANNEL = null;
+    var open_attempts: u32 = 0;
+    while (channel == null) {
+        channel = c.libssh2_channel_open_ex(ssh_session, "session", 7, c.LIBSSH2_CHANNEL_WINDOW_DEFAULT, c.LIBSSH2_CHANNEL_PACKET_DEFAULT, null, 0);
+        if (channel != null) break;
+        const open_rc = c.libssh2_session_last_errno(ssh_session);
+        if (open_rc != c.LIBSSH2_ERROR_EAGAIN) {
+            setLibssh2Error(session, "Channel open failed", open_rc);
+            return -1;
+        }
+        open_attempts +%= 1;
+        if (open_attempts > 64 or !waitSocket(session, setup_wait_timeout_ms)) {
+            setError(session, "Channel open timed out", .{});
+            return -1;
+        }
+    }
+    c.libssh2_channel_set_blocking(channel.?, 0);
+
+    var startup_attempts: u32 = 0;
+    while (true) {
+        const startup_rc = c.libssh2_channel_process_startup(channel.?, "exec", 4, command_slice.ptr, @intCast(command_slice.len));
+        if (startup_rc == 0) break;
+        if (startup_rc != c.LIBSSH2_ERROR_EAGAIN) {
+            setLibssh2Error(session, "Exec start failed", startup_rc);
+            _ = c.libssh2_channel_close(channel.?);
+            _ = c.libssh2_channel_free(channel.?);
+            return -1;
+        }
+        startup_attempts +%= 1;
+        if (startup_attempts > 64 or !waitSocket(session, setup_wait_timeout_ms)) {
+            setError(session, "Exec start timed out", .{});
+            _ = c.libssh2_channel_close(channel.?);
+            _ = c.libssh2_channel_free(channel.?);
+            return -1;
+        }
+    }
+    session.exec_channels[channel_index] = channel;
+    session.exec_empty_reads[channel_index] = 0;
+    setSocketNonBlocking(session.socket_fd);
+    c.libssh2_session_set_blocking(ssh_session, 0);
+    c.libssh2_channel_set_blocking(channel.?, 0);
+    return @intCast(channel_index);
+}
+
 export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeOpenExecPty(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, command: c.jstring, cols: c.jint, rows: c.jint, width_px: c.jint, height_px: c.jint, term: c.jstring) callconv(.c) c.jboolean {
     _ = thiz;
     const session = sessionFromHandle(handle) orelse return c.JNI_FALSE;
@@ -1139,7 +1211,12 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeIpcExchang
 
     switch (frame.header.tag) {
         .Write => {
-            const written = writeChannel(session, frame.payload);
+            const channel = session.channel orelse {
+                setError(session, "Shell not open", .{});
+                appendErrorFrame(&response, session, "Write failed");
+                return jniNewByteArrayOrNull(env, response.items);
+            };
+            const written = writeChannel(session, channel, frame.payload);
             if (written < 0) {
                 appendErrorFrame(&response, session, "Write failed");
                 return jniNewByteArrayOrNull(env, response.items);
@@ -1154,7 +1231,11 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeIpcExchang
                 return jniNewByteArrayOrNull(env, response.items);
             }
             const max_bytes = std.mem.bytesToValue(u32, frame.payload[0..@sizeOf(u32)]);
-            const bytes = readChannel(allocator, session, @intCast(@max(max_bytes, 1))) orelse {
+            const channel = session.channel orelse {
+                appendErrorFrame(&response, session, "Read failed");
+                return jniNewByteArrayOrNull(env, response.items);
+            };
+            const bytes = readChannel(allocator, session, channel, @intCast(@max(max_bytes, 1)), &session.empty_reads) orelse {
                 appendErrorFrame(&response, session, "Read failed");
                 return jniNewByteArrayOrNull(env, response.items);
             };
@@ -1168,6 +1249,90 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeIpcExchang
     }
 
     return jniNewByteArrayOrNull(env, response.items);
+}
+
+export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeChannelExchange(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, channel_id: c.jint, request: c.jbyteArray) callconv(.c) c.jbyteArray {
+    _ = thiz;
+    const session = sessionFromHandle(handle) orelse return null;
+
+    var response: std.ArrayList(u8) = .empty;
+    defer response.deinit(allocator);
+
+    if (channel_id < 0 or channel_id >= @as(c.jint, MAX_EXEC_CHANNELS)) {
+        setError(session, "Invalid exec channel ID", .{});
+        appendErrorFrame(&response, session, "Invalid exec channel ID");
+        return jniNewByteArrayOrNull(env, response.items);
+    }
+    const channel_index: usize = @intCast(channel_id);
+    const channel = session.exec_channels[channel_index] orelse {
+        setError(session, "Exec channel not open", .{});
+        appendErrorFrame(&response, session, "Exec channel not open");
+        return jniNewByteArrayOrNull(env, response.items);
+    };
+    const req_bytes = readJByteArray(env, request) orelse return null;
+    defer if (req_bytes.len > 0) allocator.free(req_bytes);
+
+    const frame = ipc.parse(req_bytes) catch {
+        setError(session, "Invalid IPC frame", .{});
+        appendErrorFrame(&response, session, "Invalid IPC frame");
+        return jniNewByteArrayOrNull(env, response.items);
+    };
+
+    switch (frame.header.tag) {
+        .Write => {
+            const written = writeChannel(session, channel, frame.payload);
+            if (written < 0) {
+                appendErrorFrame(&response, session, "Write failed");
+                return jniNewByteArrayOrNull(env, response.items);
+            }
+            const written_u32: u32 = @intCast(written);
+            ipc.appendMessage(allocator, &response, .Ack, std.mem.asBytes(&written_u32)) catch {};
+        },
+        .Read => {
+            if (frame.payload.len != @sizeOf(u32)) {
+                setError(session, "Invalid read request payload", .{});
+                appendErrorFrame(&response, session, "Invalid read request payload");
+                return jniNewByteArrayOrNull(env, response.items);
+            }
+            const max_bytes = std.mem.bytesToValue(u32, frame.payload[0..@sizeOf(u32)]);
+            const bytes = readChannel(allocator, session, channel, @intCast(@max(max_bytes, 1)), &session.exec_empty_reads[channel_index]) orelse {
+                appendErrorFrame(&response, session, "Read failed");
+                return jniNewByteArrayOrNull(env, response.items);
+            };
+            defer allocator.free(bytes);
+            ipc.appendMessage(allocator, &response, .Data, bytes) catch {};
+        },
+        else => {
+            setError(session, "Unsupported IPC tag {}", .{@intFromEnum(frame.header.tag)});
+            appendErrorFrame(&response, session, "Unsupported IPC tag");
+        },
+    }
+
+    return jniNewByteArrayOrNull(env, response.items);
+}
+
+export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeChannelEofById(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, channel_id: c.jint) callconv(.c) c.jboolean {
+    _ = env;
+    _ = thiz;
+    const session = sessionFromHandle(handle) orelse return c.JNI_TRUE;
+    if (channel_id < 0 or channel_id >= @as(c.jint, MAX_EXEC_CHANNELS)) return c.JNI_TRUE;
+    const channel_index: usize = @intCast(channel_id);
+    const channel = session.exec_channels[channel_index] orelse return c.JNI_TRUE;
+    return if (c.libssh2_channel_eof(channel) == 1) c.JNI_TRUE else c.JNI_FALSE;
+}
+
+export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeCloseChannel(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, channel_id: c.jint) callconv(.c) void {
+    _ = env;
+    _ = thiz;
+    const session = sessionFromHandle(handle) orelse return;
+    if (channel_id < 0 or channel_id >= @as(c.jint, MAX_EXEC_CHANNELS)) return;
+    const channel_index: usize = @intCast(channel_id);
+    if (session.exec_channels[channel_index]) |channel| {
+        _ = c.libssh2_channel_close(channel);
+        _ = c.libssh2_channel_free(channel);
+        session.exec_channels[channel_index] = null;
+        session.exec_empty_reads[channel_index] = 0;
+    }
 }
 
 export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeClose(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong) callconv(.c) void {
@@ -1189,6 +1354,14 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeClose(env:
         _ = c.libssh2_channel_close(channel);
         _ = c.libssh2_channel_free(channel);
         session.channel = null;
+    }
+    for (&session.exec_channels, 0..) |*channel_slot, index| {
+        if (channel_slot.*) |channel| {
+            _ = c.libssh2_channel_close(channel);
+            _ = c.libssh2_channel_free(channel);
+            channel_slot.* = null;
+            session.exec_empty_reads[index] = 0;
+        }
     }
     if (session.session) |ssh_session| {
         _ = c.libssh2_session_disconnect_ex(ssh_session, c.SSH_DISCONNECT_BY_APPLICATION, "bye", "en");
