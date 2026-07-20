@@ -634,6 +634,9 @@ class TerminalSessionEngine(
     suspend fun herdrCreateTab(workspaceId: String): MultiplexerCommandResult =
         runHerdrControl { HerdrMultiplexer.createTabCommand(workspaceId, lastConnectionParams?.multiplexerSessionName) }
 
+    suspend fun herdrCreateWorkspace(label: String?): MultiplexerCommandResult =
+        runHerdrControl { HerdrMultiplexer.createWorkspaceCommand(label, lastConnectionParams?.multiplexerSessionName) }
+
     suspend fun herdrCloseTab(tabId: String): MultiplexerCommandResult =
         runHerdrControl { HerdrMultiplexer.closeTabCommand(tabId, lastConnectionParams?.multiplexerSessionName) }
 

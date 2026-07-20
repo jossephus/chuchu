@@ -43,6 +43,7 @@ fun HerdrSwitcherHome(
     activeConnectionId: String? = null,
     onSelectConnection: (String) -> Unit = {},
     onOpenServerList: () -> Unit = {},
+    onCreateWorkspace: () -> Unit = {},
 ) {
     val typography = ChuTypography.current
     val workspaces = snapshot.workspaces.sortedBy { it.number }
@@ -80,6 +81,20 @@ fun HerdrSwitcherHome(
                     onSelectConnection = onSelectConnection,
                     onOpenServerList = onOpenServerList,
                 )
+            }
+            item(key = "workspaces-header") {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 8.dp, top = 8.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ChuText("workspaces", style = typography.label, color = colors.textSecondary, modifier = Modifier.weight(1f))
+                    ChuText(
+                        "+ new",
+                        style = typography.labelSmall,
+                        color = colors.accent,
+                        modifier = Modifier.clickable { onCreateWorkspace() }.padding(horizontal = 6.dp, vertical = 4.dp),
+                    )
+                }
             }
             if (workspaces.isEmpty()) {
                 item(key = "no-workspaces") {

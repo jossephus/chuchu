@@ -509,6 +509,10 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         runHerdrCommand { it.herdrCreateTab(workspaceId) }
     }
 
+    fun onHerdrCreateWorkspace(label: String?) {
+        runHerdrCommand { it.herdrCreateWorkspace(label) }
+    }
+
     fun onEnterHerdrWorkspace(workspaceId: String) {
         _herdrHomeVisible.value = false
         runHerdrCommand { it.herdrFocusWorkspace(workspaceId) }

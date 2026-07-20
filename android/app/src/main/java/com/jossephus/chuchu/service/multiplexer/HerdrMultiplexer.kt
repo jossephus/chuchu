@@ -106,6 +106,11 @@ object HerdrMultiplexer : Multiplexer {
     fun createTabCommand(workspaceId: String, session: String? = null): String =
         pathPrelude + "${herdr(session)}tab create --workspace ${shellQuote(workspaceId)} --focus"
 
+    fun createWorkspaceCommand(label: String?, session: String? = null): String {
+        val labelArg = label?.takeIf { it.isNotBlank() }?.let { " --label ${shellQuote(it)}" } ?: ""
+        return pathPrelude + "${herdr(session)}workspace create --focus$labelArg"
+    }
+
     fun closeTabCommand(tabId: String, session: String? = null): String =
         pathPrelude + "${herdr(session)}tab close ${shellQuote(tabId)}"
 

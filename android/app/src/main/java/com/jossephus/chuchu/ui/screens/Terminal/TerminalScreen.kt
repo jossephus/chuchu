@@ -348,6 +348,8 @@ fun TerminalScreen(
     var selectionState by remember { mutableStateOf<TerminalSelectionState?>(null) }
     var showPassphrasePrompt by remember { mutableStateOf(false) }
     var passphraseInput by remember { mutableStateOf("") }
+    var showCreateWorkspacePrompt by remember { mutableStateOf(false) }
+    var newWorkspaceName by remember { mutableStateOf("") }
     var pendingTabSpec by remember { mutableStateOf<TabSpec?>(null) }
     var passphraseFromPicker by remember { mutableStateOf(false) }
     var showTabSheet by remember { mutableStateOf(false) }
@@ -629,6 +631,30 @@ fun TerminalScreen(
                 label = "Passphrase",
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+
+    if (showCreateWorkspacePrompt) {
+        ChuDialog(
+            title = "New herdr workspace",
+            confirmLabel = "Create",
+            onConfirm = {
+                showCreateWorkspacePrompt = false
+                vm.onHerdrCreateWorkspace(newWorkspaceName.trim().ifBlank { null })
+                newWorkspaceName = ""
+            },
+            onDismiss = {
+                showCreateWorkspacePrompt = false
+                newWorkspaceName = ""
+            },
+        ) {
+            ChuTextField(
+                value = newWorkspaceName,
+                onValueChange = { newWorkspaceName = it },
+                label = "Name (optional)",
+                singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -1296,6 +1322,7 @@ fun TerminalScreen(
                                             snapshot = herdrSnapshot,
                                             onEnterWorkspace = vm::onEnterHerdrWorkspace,
                                             onEnterAgent = vm::onEnterHerdrAgent,
+                                            onCreateWorkspace = { showCreateWorkspacePrompt = true },
                                             colors = colors,
                                             sessionHint = activeTab?.spec?.tabLabel,
                                             connections = tabs,
