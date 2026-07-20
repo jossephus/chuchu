@@ -25,6 +25,7 @@ import com.jossephus.chuchu.service.multiplexer.HerdrAgent
 import com.jossephus.chuchu.service.multiplexer.HerdrAgentStatus
 import com.jossephus.chuchu.service.multiplexer.HerdrSnapshot
 import com.jossephus.chuchu.service.multiplexer.HerdrWorkspace
+import com.jossephus.chuchu.service.terminal.TabSession
 import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.theme.ChuColorPalette
 import com.jossephus.chuchu.ui.theme.ChuColors
@@ -38,6 +39,10 @@ fun HerdrSwitcherHome(
     colors: ChuColorPalette,
     modifier: Modifier = Modifier,
     sessionHint: String? = null,
+    connections: List<TabSession> = emptyList(),
+    activeConnectionId: String? = null,
+    onSelectConnection: (String) -> Unit = {},
+    onOpenServerList: () -> Unit = {},
 ) {
     val typography = ChuTypography.current
     val workspaces = snapshot.workspaces.sortedBy { it.number }
@@ -58,22 +63,83 @@ fun HerdrSwitcherHome(
             )
         }
 
-        if (workspaces.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                ChuText("no herdr workspaces", style = typography.labelSmall, color = colors.textMuted)
-            }
-            return
-        }
-
         LazyColumn(modifier = Modifier.fillMaxSize()) {
-            items(workspaces, key = { it.workspaceId }) { workspace ->
-                HerdrSwitcherWorkspace(
-                    workspace = workspace,
-                    agents = snapshot.agents.filter { it.workspaceId == workspace.workspaceId },
-                    onEnterWorkspace = onEnterWorkspace,
-                    onEnterAgent = onEnterAgent,
+            item(key = "connections") {
+                HerdrConnections(
+                    connections = connections,
+                    activeConnectionId = activeConnectionId,
+                    onSelectConnection = onSelectConnection,
+                    onOpenServerList = onOpenServerList,
                 )
             }
+            if (workspaces.isEmpty()) {
+                item(key = "no-workspaces") {
+                    ChuText(
+                        "no herdr workspaces",
+                        style = typography.labelSmall,
+                        color = colors.textMuted,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    )
+                }
+            } else {
+                items(workspaces, key = { it.workspaceId }) { workspace ->
+                    HerdrSwitcherWorkspace(
+                        workspace = workspace,
+                        agents = snapshot.agents.filter { it.workspaceId == workspace.workspaceId },
+                        onEnterWorkspace = onEnterWorkspace,
+                        onEnterAgent = onEnterAgent,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HerdrConnections(
+    connections: List<TabSession>,
+    activeConnectionId: String?,
+    onSelectConnection: (String) -> Unit,
+    onOpenServerList: () -> Unit,
+) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ChuText("connections", style = typography.label, color = colors.textSecondary, modifier = Modifier.weight(1f))
+        ChuText(
+            "server list",
+            style = typography.labelSmall,
+            color = colors.accent,
+            modifier = Modifier.clickable { onOpenServerList() }.padding(horizontal = 6.dp, vertical = 4.dp),
+        )
+    }
+    connections.forEach { tab ->
+        val active = tab.id == activeConnectionId
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 2.dp)
+                .background(if (active) colors.surfaceVariant else Color.Transparent)
+                .border(
+                    1.dp,
+                    if (active) colors.accent.copy(alpha = 0.5f) else colors.border.copy(alpha = 0.2f),
+                )
+                .clickable { onSelectConnection(tab.id) }
+                .padding(horizontal = 10.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            ChuText(
+                terminalTabDisplayLabel(tab),
+                style = typography.body,
+                color = if (active) colors.accent else colors.textSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }

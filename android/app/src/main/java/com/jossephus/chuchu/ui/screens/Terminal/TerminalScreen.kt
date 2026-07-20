@@ -1298,6 +1298,10 @@ fun TerminalScreen(
                                             onEnterAgent = vm::onEnterHerdrAgent,
                                             colors = colors,
                                             sessionHint = activeTab?.let(::terminalTabDisplayLabel),
+                                            connections = tabs,
+                                            activeConnectionId = activeTabId,
+                                            onSelectConnection = { id -> vm.selectTab(id) },
+                                            onOpenServerList = onBack,
                                             modifier = Modifier.fillMaxSize(),
                                         )
                                     }
