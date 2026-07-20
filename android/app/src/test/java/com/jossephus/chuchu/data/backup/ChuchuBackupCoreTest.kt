@@ -26,6 +26,7 @@ class ChuchuBackupCoreTest {
         assertEquals(payload, decrypted)
         assertEquals("echo hello", decrypted.hosts.single().postConnectCommand)
         assertEquals(MultiplexerType.Tmux, decrypted.hosts.single().multiplexer)
+        assertFalse(decrypted.hosts.single().herdrNativeMode)
         assertFalse(String(encrypted, Charsets.ISO_8859_1).contains("PRIVATE KEY"))
     }
 
@@ -187,7 +188,7 @@ class ChuchuBackupCoreTest {
     }
 
     @Test
-    fun payloadV2PreservesMultiplexerWithStableLowercaseId() {
+    fun payloadV3PreservesMultiplexerWithStableLowercaseId() {
         val encoded = ChuchuBackupCodec.encodePayload(samplePayload())
         val encodedText = String(encoded, Charsets.ISO_8859_1)
         val decoded = ChuchuBackupCodec.decodePayload(encoded)
@@ -195,10 +196,11 @@ class ChuchuBackupCoreTest {
         assertTrue(encodedText.contains("tmux"))
         assertFalse(encodedText.contains("Tmux"))
         assertEquals(MultiplexerType.Tmux, decoded.hosts.single().multiplexer)
+        assertFalse(decoded.hosts.single().herdrNativeMode)
     }
 
     @Test
-    fun payloadV2ReadsLegacyEnumMultiplexerName() {
+    fun payloadV3ReadsLegacyEnumMultiplexerName() {
         val encoded = ChuchuBackupCodec.encodePayload(samplePayload())
         replaceLastAscii(encoded, "tmux", "Tmux")
 
@@ -208,14 +210,29 @@ class ChuchuBackupCoreTest {
     }
 
     @Test
-    fun payloadV1DefaultsMultiplexerToNull() {
-        val v2 = ChuchuBackupCodec.encodePayload(samplePayload())
-        writeIntAt(v2, offset = Int.SIZE_BYTES, value = 1)
-        val v1 = v2.copyOf(v2.size - encodedNullableStringSize(MultiplexerType.Tmux.id))
+    fun payloadV2DefaultsHerdrNativeModeToTrue() {
+        val v3 = ChuchuBackupCodec.encodePayload(samplePayload())
+        writeIntAt(v3, offset = Int.SIZE_BYTES, value = 2)
+        val v2 = v3.copyOf(v3.size - 1)
+
+        val decoded = ChuchuBackupCodec.decodePayload(v2)
+
+        assertTrue(decoded.hosts.single().herdrNativeMode)
+        assertEquals(MultiplexerType.Tmux, decoded.hosts.single().multiplexer)
+    }
+
+    @Test
+    fun payloadV1DefaultsMultiplexerToNullAndHerdrNativeModeToTrue() {
+        val v3 = ChuchuBackupCodec.encodePayload(samplePayload())
+        writeIntAt(v3, offset = Int.SIZE_BYTES, value = 1)
+        val v1 = v3.copyOf(
+            v3.size - 1 - encodedNullableStringSize(MultiplexerType.Tmux.id),
+        )
 
         val decoded = ChuchuBackupCodec.decodePayload(v1)
 
         assertNull(decoded.hosts.single().multiplexer)
+        assertTrue(decoded.hosts.single().herdrNativeMode)
         assertEquals("echo hello", decoded.hosts.single().postConnectCommand)
     }
 
@@ -266,6 +283,7 @@ class ChuchuBackupCoreTest {
         requireAuthOnConnect = true,
         postConnectCommand = "echo hello",
         multiplexer = MultiplexerType.Tmux,
+        herdrNativeMode = false,
     )
 
     private fun encodedNullableStringSize(value: String): Int =

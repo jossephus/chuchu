@@ -35,6 +35,7 @@ import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -154,7 +155,6 @@ class TerminalSessionEngine(
     private var herdrConnection: SharedSshConnection? = null
     private val herdrConnectionMutex = Mutex()
     private var herdrStreamJob: Job? = null
-    @Volatile private var herdrStreamService: NativeSshService? = null
     private val herdrPoke = Channel<Unit>(Channel.CONFLATED)
     private val herdrCadenceMs = MutableStateFlow(3_000L)
     @Volatile private var herdrIdleStretch = 0
@@ -707,7 +707,7 @@ class TerminalSessionEngine(
             val host =
                 HerdrPaneHost(
                     paneId = paneId,
-                    connection = ensureHerdrConnection(params),
+                    connectionProvider = { ensureHerdrConnection(params) },
                     runCommand = { mode, commandCols, commandRows ->
                         HerdrMultiplexer.terminalSessionCommand(paneId, commandCols, commandRows, mode, params.multiplexerSessionName)
                     },
@@ -775,10 +775,24 @@ class TerminalSessionEngine(
                 keyPassphrase = params.keyPassphrase,
                 hostKeyPolicy = ::verifyHostKey,
             )
-            connection.connect()
-            herdrConnection = connection
-            connection
+            try {
+                connection.connect()
+                herdrConnection = connection
+                connection
+            } catch (error: Exception) {
+                connection.close()
+                throw error
+            }
         }
+
+    private suspend fun invalidateHerdrConnection(connection: SharedSshConnection?) {
+        if (connection == null) return
+        herdrConnectionMutex.withLock {
+            if (herdrConnection !== connection) return@withLock
+            herdrConnection = null
+            connection.close()
+        }
+    }
 
     private fun cancelHostKeyPrompt() {
         hostKeyDecision?.cancel()
@@ -1209,8 +1223,7 @@ class TerminalSessionEngine(
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Exception) {
-                    herdrConnection?.close()
-                    herdrConnection = null
+                    invalidateHerdrConnection(connection)
                     MultiplexerCommandResult(1, "", error.message ?: "Herdr command failed")
                 }
             pokeHerdr()
@@ -1236,7 +1249,6 @@ class TerminalSessionEngine(
                     var failed = false
                     try {
                         service = NativeSshService(hostKeyPolicy = ::verifyHostKey)
-                        herdrStreamService = service
                         service.connect(
                             host = params.host,
                             port = params.port,
@@ -1255,6 +1267,7 @@ class TerminalSessionEngine(
                     } catch (error: CancellationException) {
                         throw error
                     } catch (error: Exception) {
+                        currentCoroutineContext().ensureActive()
                         failed = true
                         if (isHerdrStreamCurrent(params)) {
                             _herdrState.value =
@@ -1263,7 +1276,6 @@ class TerminalSessionEngine(
                                 )
                         }
                     } finally {
-                        if (herdrStreamService === service) herdrStreamService = null
                         service?.let { runCatching { it.close() } }
                     }
                     if (failed && isHerdrStreamCurrent(params)) {
@@ -1277,8 +1289,6 @@ class TerminalSessionEngine(
     private fun stopHerdrStream() {
         herdrStreamJob?.cancel()
         herdrStreamJob = null
-        herdrStreamService?.let { service -> runCatching { service.close() } }
-        herdrStreamService = null
         herdrIdleStretch = 0
         _herdrState.value = HerdrControlState.Inactive
     }

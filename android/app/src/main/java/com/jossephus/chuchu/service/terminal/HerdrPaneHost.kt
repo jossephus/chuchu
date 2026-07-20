@@ -21,6 +21,7 @@ import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -49,7 +50,7 @@ data class HerdrPaneState(
 
 class HerdrPaneHost(
     val paneId: String,
-    private val connection: SharedSshConnection,
+    private val connectionProvider: suspend () -> SharedSshConnection,
     private val runCommand: (HerdrStreamMode, Int, Int) -> String,
     private val scope: CoroutineScope,
 ) {
@@ -180,11 +181,12 @@ class HerdrPaneHost(
     fun dispose() {
         if (disposed) return
         disposed = true
-        streamJob?.cancel()
+        val job = streamJob
         streamJob = null
         runBlocking {
+            job?.cancelAndJoin()
             withContext(dispatcher) {
-                closeStreamChannel()
+                discardPendingCommands()
                 snapshotScheduled = false
                 if (handle != 0L) {
                     bridge.nativeDestroy(handle)
@@ -197,9 +199,10 @@ class HerdrPaneHost(
     }
 
     private suspend fun restartStream() {
-        streamJob?.cancel()
+        streamJob?.cancelAndJoin()
         streamJob = null
-        closeStreamChannel()
+        streamChannelId = null
+        discardPendingCommands()
         _state.value =
             _state.value.copy(
                 status = HerdrPaneStreamStatus.Connecting,
@@ -214,16 +217,18 @@ class HerdrPaneHost(
         var mode = initialMode
         var retryDelayMs = 2_000L
         while (currentCoroutineContext().isActive && !disposed) {
+            var connection: SharedSshConnection? = null
             var channelId: Int? = null
             var failed = false
             try {
                 setConnecting(mode)
                 val (commandCols, commandRows) = withContext(dispatcher) { cols to rows }
+                connection = connectionProvider()
                 channelId = connection.openExecChannel(runCommand(mode, commandCols, commandRows))
                 streamChannelId = channelId
                 retryDelayMs = 2_000L
-                syncViewport(channelId, commandCols, commandRows)
-                when (readFrames(channelId, mode)) {
+                syncViewport(connection, channelId, commandCols, commandRows)
+                when (readFrames(connection, channelId, mode)) {
                     StreamEnd.Restart -> Unit
                     StreamEnd.ControlRefused -> {
                         mode = HerdrStreamMode.Observe
@@ -237,8 +242,12 @@ class HerdrPaneHost(
                 setError(error.message ?: "Herdr terminal stream failed")
             } finally {
                 if (streamChannelId == channelId) streamChannelId = null
-                channelId?.let { id ->
-                    withContext(NonCancellable) { runCatching { connection.closeChannel(id) } }
+                val closingConnection = connection
+                val closingChannelId = channelId
+                if (closingConnection != null && closingChannelId != null) {
+                    withContext(NonCancellable) {
+                        runCatching { closingConnection.closeChannel(closingChannelId) }
+                    }
                 }
             }
             if (failed && !disposed) {
@@ -248,11 +257,15 @@ class HerdrPaneHost(
         }
     }
 
-    private suspend fun readFrames(channelId: Int, mode: HerdrStreamMode): StreamEnd {
+    private suspend fun readFrames(
+        connection: SharedSshConnection,
+        channelId: Int,
+        mode: HerdrStreamMode,
+    ): StreamEnd {
         val buffer = StringBuilder()
         var lastSeq: Long? = null
         while (currentCoroutineContext().isActive && !disposed) {
-            writePendingCommands(channelId)
+            writePendingCommands(connection, channelId)
             val chunk = connection.readChannel(channelId, 8192)
             if (chunk != null && chunk.isNotEmpty()) {
                 for (line in appendHerdrNdjsonChunk(buffer, chunk.toString(Charsets.UTF_8))) {
@@ -286,7 +299,12 @@ class HerdrPaneHost(
         throw CancellationException()
     }
 
-    private suspend fun syncViewport(channelId: Int, openedCols: Int, openedRows: Int) {
+    private suspend fun syncViewport(
+        connection: SharedSshConnection,
+        channelId: Int,
+        openedCols: Int,
+        openedRows: Int,
+    ) {
         val (currentCols, currentRows) = withContext(dispatcher) { cols to rows }
         if (currentCols != openedCols || currentRows != openedRows) {
             connection.writeChannel(
@@ -296,12 +314,21 @@ class HerdrPaneHost(
         }
     }
 
-    private suspend fun writePendingCommands(channelId: Int) {
+    private suspend fun writePendingCommands(
+        connection: SharedSshConnection,
+        channelId: Int,
+    ) {
         while (true) {
             val pending = pendingCommands.tryReceive().getOrNull() ?: return
             if (pending.channelId == channelId) {
                 connection.writeChannel(channelId, (pending.json + "\n").toByteArray(Charsets.UTF_8))
             }
+        }
+    }
+
+    private fun discardPendingCommands() {
+        while (pendingCommands.tryReceive().isSuccess) {
+            // Commands belong to the stream generation that captured their channel ID.
         }
     }
 
@@ -359,12 +386,6 @@ class HerdrPaneHost(
         if (disposed || (!allowReadOnly && _state.value.readOnly)) return
         val channelId = streamChannelId ?: return
         pendingCommands.trySend(PendingCommand(channelId, json))
-    }
-
-    private suspend fun closeStreamChannel() {
-        val channelId = streamChannelId ?: return
-        streamChannelId = null
-        runCatching { connection.closeChannel(channelId) }
     }
 
     private fun requestSnapshot(force: Boolean = false) {

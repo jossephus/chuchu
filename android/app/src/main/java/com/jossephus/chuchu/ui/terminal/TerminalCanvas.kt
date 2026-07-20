@@ -308,225 +308,238 @@ fun TerminalCanvas(
                         var lastPointerPos = down.position
                         var autoScrollDir = 0
 
-                        while (true) {
-                            val timeoutMs = (longPressDeadline - lastEventUptime).coerceAtLeast(1L)
-                            val inAutoScrollZone = dragMode == DragMode.ClientSelectionDrag && autoScrollDir != 0
-                            val event = when {
-                                dragMode == DragMode.None && !didScroll && !didPinch && !didDragGesture ->
-                                    withTimeoutOrNull(timeoutMs) { awaitPointerEvent() }
-                                inAutoScrollZone ->
-                                    withTimeoutOrNull(autoScrollIntervalMs) { awaitPointerEvent() }
-                                else -> awaitPointerEvent()
-                            }
+                        try {
+                            while (true) {
+                                val timeoutMs = (longPressDeadline - lastEventUptime).coerceAtLeast(1L)
+                                val inAutoScrollZone = dragMode == DragMode.ClientSelectionDrag && autoScrollDir != 0
+                                val event = when {
+                                    dragMode == DragMode.None && !didScroll && !didPinch && !didDragGesture ->
+                                        withTimeoutOrNull(timeoutMs) { awaitPointerEvent() }
+                                    inAutoScrollZone ->
+                                        withTimeoutOrNull(autoScrollIntervalMs) { awaitPointerEvent() }
+                                    else -> awaitPointerEvent()
+                                }
 
-                            if (event == null) {
-                                if (dragMode == DragMode.None) {
-                                    val s = currentSnapshot.value
-                                    val downPos = toSnapshotSpace(down.position, s)
-                                    if (s.appHandlesSelectionDrag) {
-                                        currentOnAppSelectionDrag.value(TerminalMouseAction.Press, downPos.x, downPos.y)
-                                        currentHaptics.value.performHapticFeedback(
-                                            HapticFeedbackType.LongPress,
-                                        )
-                                        didDragGesture = true
-                                        dragMode = DragMode.AppMouseDrag
-                                    } else if (startSelection(
-                                            s,
-                                            downPos,
-                                            currentCellWidth.value,
-                                            currentCellHeight.value,
-                                            currentOnSelectionChange.value,
-                                        )
-                                    ) {
-                                        currentHaptics.value.performHapticFeedback(
-                                            HapticFeedbackType.LongPress,
-                                        )
-                                        dragMode = DragMode.ClientSelectionDrag
+                                if (event == null) {
+                                    if (dragMode == DragMode.None) {
+                                        val s = currentSnapshot.value
+                                        val downPos = toSnapshotSpace(down.position, s)
+                                        if (s.appHandlesSelectionDrag) {
+                                            currentOnAppSelectionDrag.value(TerminalMouseAction.Press, downPos.x, downPos.y)
+                                            currentHaptics.value.performHapticFeedback(
+                                                HapticFeedbackType.LongPress,
+                                            )
+                                            didDragGesture = true
+                                            dragMode = DragMode.AppMouseDrag
+                                        } else if (startSelection(
+                                                s,
+                                                downPos,
+                                                currentCellWidth.value,
+                                                currentCellHeight.value,
+                                                currentOnSelectionChange.value,
+                                            )
+                                        ) {
+                                            currentHaptics.value.performHapticFeedback(
+                                                HapticFeedbackType.LongPress,
+                                            )
+                                            dragMode = DragMode.ClientSelectionDrag
+                                        }
+                                        continue
+                                    }
+                                    val pos = lastPointerPos
+                                    val depth = if (autoScrollDir > 0) {
+                                        pos.y - (canvasSize.height - currentAutoScrollEdgeZonePx.value)
+                                    } else {
+                                        currentAutoScrollEdgeZonePx.value - pos.y
+                                    }.coerceAtLeast(0f)
+                                    val rows = (depth / currentCellHeight.value).toInt().coerceIn(1, 8)
+                                    scrollDeltaChannel.trySend(
+                                        TerminalScrollDelta(autoScrollDir * rows, pos.x, pos.y),
+                                    )
+                                    continue
+                                }
+
+                                lastEventUptime = event.changes.maxOfOrNull { it.uptimeMillis } ?: lastEventUptime
+                                val pressed = event.changes.filter { it.pressed }
+                                if (pressed.isEmpty()) {
+                                    autoScrollDir = 0
+                                    autoScrollingSelection = false
+                                    val releasedDragMode = dragMode
+                                    dragMode = DragMode.None
+                                    if (releasedDragMode == DragMode.AppMouseDrag) {
+                                        val s = currentSnapshot.value
+                                        val releasePos = toSnapshotSpace(lastPointerPos, s)
+                                        currentOnAppSelectionDrag.value(TerminalMouseAction.Release, releasePos.x, releasePos.y)
+                                    }
+                                    if (releasedDragMode != DragMode.None) {
+                                        break
+                                    }
+                                    if (!didScroll && !didPinch && !didDragGesture) {
+                                        val tapTime = event.changes.maxOfOrNull { it.uptimeMillis } ?: lastEventUptime
+                                        val s = currentSnapshot.value
+                                        val tapPos = toSnapshotSpace(down.position, s)
+                                        val timeSinceLastTap = tapTime - doubleTapState.lastTime
+                                        val distSinceLastTap = hypot(
+                                            (tapPos.x - doubleTapState.lastPos.x).toDouble(),
+                                            (tapPos.y - doubleTapState.lastPos.y).toDouble(),
+                                        ).toFloat()
+                                        doubleTapState.lastTime = tapTime
+                                        doubleTapState.lastPos = tapPos
+
+                                        if (timeSinceLastTap < currentDoubleTapTimeoutMillis.value &&
+                                            distSinceLastTap < currentDoubleTapSlopPx.value
+                                        ) {
+                                            val cellIdx = s.cellAt(
+                                                tapPos.x,
+                                                tapPos.y,
+                                                currentCellWidth.value,
+                                                currentCellHeight.value,
+                                            )
+                                            if (cellIdx != null) {
+                                                val wordRange = s.wordAt(cellIdx)
+                                                if (wordRange != null) {
+                                                    currentOnSelectionChange.value(TerminalSelection(wordRange.first, wordRange.last))
+                                                    currentHaptics.value.performHapticFeedback(
+                                                        HapticFeedbackType.LongPress,
+                                                    )
+                                                }
+                                            }
+                                        } else {
+                                            if (currentSelectionState.value != null) {
+                                                currentOnSelectionChange.value(null)
+                                            } else {
+                                                currentOnPrimaryClick.value(tapPos.x, tapPos.y)
+                                                currentOnTap.value()
+                                            }
+                                        }
+                                    }
+                                    break
+                                }
+
+                                if (pressed.size >= 2) {
+                                    didPinch = true
+                                    val first = pressed[0].position
+                                    val second = pressed[1].position
+                                    val distance = hypot(
+                                        (first.x - second.x).toDouble(),
+                                        (first.y - second.y).toDouble(),
+                                    ).toFloat()
+                                    if (startPinchDistance == null && distance > 0f) {
+                                        startPinchDistance = distance
+                                        anchorFontSp = currentFontSizeSp.value
+                                        lastSentSp = round(anchorFontSp)
+                                    }
+                                    val startDistance = startPinchDistance
+                                    if (startDistance != null && distance > 0f) {
+                                        val steppedSp = round(anchorFontSp * (distance / startDistance))
+                                            .coerceIn(currentMinFontSizeSp.value, currentMaxFontSizeSp.value)
+                                        if (steppedSp != lastSentSp) {
+                                            currentOnFontSizeChange.value(steppedSp)
+                                            currentHaptics.value.performHapticFeedback(
+                                                HapticFeedbackType.TextHandleMove,
+                                            )
+                                            lastSentSp = steppedSp
+                                        }
+                                    }
+                                    pressed.forEach { change ->
+                                        if (change.position != change.previousPosition) change.consume()
                                     }
                                     continue
                                 }
-                                val pos = lastPointerPos
-                                val depth = if (autoScrollDir > 0) {
-                                    pos.y - (canvasSize.height - currentAutoScrollEdgeZonePx.value)
-                                } else {
-                                    currentAutoScrollEdgeZonePx.value - pos.y
-                                }.coerceAtLeast(0f)
-                                val rows = (depth / currentCellHeight.value).toInt().coerceIn(1, 8)
-                                scrollDeltaChannel.trySend(
-                                    TerminalScrollDelta(autoScrollDir * rows, pos.x, pos.y),
+
+                                startPinchDistance = null
+                                val change = pressed.firstOrNull { it.id == lastSinglePointerId } ?: pressed.first().also {
+                                    lastSinglePointerId = it.id
+                                }
+
+                                // Selection drag takes priority once activated
+                                val s = currentSnapshot.value
+                                val changePos = toSnapshotSpace(change.position, s)
+                                val changePrevPos = toSnapshotSpace(change.previousPosition, s)
+                                val downPos = toSnapshotSpace(down.position, s)
+                                val selectedCell = s.cellAt(
+                                    changePos.x,
+                                    changePos.y,
+                                    currentCellWidth.value,
+                                    currentCellHeight.value,
                                 )
-                                continue
-                            }
-
-                            lastEventUptime = event.changes.maxOfOrNull { it.uptimeMillis } ?: lastEventUptime
-                            val pressed = event.changes.filter { it.pressed }
-                            if (pressed.isEmpty()) {
-                                autoScrollDir = 0
-                                autoScrollingSelection = false
-                                val releasedDragMode = dragMode
-                                dragMode = DragMode.None
-                                if (releasedDragMode == DragMode.AppMouseDrag) {
-                                    val s = currentSnapshot.value
-                                    val releasePos = toSnapshotSpace(lastPointerPos, s)
-                                    currentOnAppSelectionDrag.value(TerminalMouseAction.Release, releasePos.x, releasePos.y)
-                                }
-                                if (releasedDragMode != DragMode.None) {
-                                    break
-                                }
-                                if (!didScroll && !didPinch && !didDragGesture) {
-                                    val tapTime = event.changes.maxOfOrNull { it.uptimeMillis } ?: lastEventUptime
-                                    val s = currentSnapshot.value
-                                    val tapPos = toSnapshotSpace(down.position, s)
-                                    val timeSinceLastTap = tapTime - doubleTapState.lastTime
-                                    val distSinceLastTap = hypot(
-                                        (tapPos.x - doubleTapState.lastPos.x).toDouble(),
-                                        (tapPos.y - doubleTapState.lastPos.y).toDouble(),
-                                    ).toFloat()
-                                    doubleTapState.lastTime = tapTime
-                                    doubleTapState.lastPos = tapPos
-
-                                    if (timeSinceLastTap < currentDoubleTapTimeoutMillis.value &&
-                                        distSinceLastTap < currentDoubleTapSlopPx.value
-                                    ) {
-                                        val cellIdx = s.cellAt(
-                                            tapPos.x,
-                                            tapPos.y,
-                                            currentCellWidth.value,
-                                            currentCellHeight.value,
-                                        )
-                                        if (cellIdx != null) {
-                                            val wordRange = s.wordAt(cellIdx)
-                                            if (wordRange != null) {
-                                                currentOnSelectionChange.value(TerminalSelection(wordRange.first, wordRange.last))
-                                                currentHaptics.value.performHapticFeedback(
-                                                    HapticFeedbackType.LongPress,
-                                                )
-                                            }
-                                        }
-                                    } else {
-                                        if (currentSelectionState.value != null) {
-                                            currentOnSelectionChange.value(null)
-                                        } else {
-                                            currentOnPrimaryClick.value(tapPos.x, tapPos.y)
-                                            currentOnTap.value()
-                                        }
+                                if (dragMode == DragMode.AppMouseDrag) {
+                                    lastPointerPos = change.position
+                                    autoScrollDir = 0
+                                    autoScrollingSelection = false
+                                    if (change.position != change.previousPosition) {
+                                        currentOnAppSelectionDrag.value(TerminalMouseAction.Motion, changePos.x, changePos.y)
+                                        change.consume()
                                     }
+                                    continue
                                 }
-                                break
-                            }
+                                if (dragMode == DragMode.ClientSelectionDrag && selectedCell != null) {
+                                    lastPointerPos = change.position
+                                    updateSelectionDrag(
+                                        existing = currentSelectionState.value,
+                                        selectedCell = selectedCell,
+                                        onSelectionChange = currentOnSelectionChange.value,
+                                    )
+                                    autoScrollDir = when {
+                                        change.position.y < currentAutoScrollEdgeZonePx.value -> -1
+                                        change.position.y > canvasSize.height - currentAutoScrollEdgeZonePx.value -> 1
+                                        else -> 0
+                                    }
+                                    autoScrollingSelection = autoScrollDir != 0
+                                    if (change.position != change.previousPosition) {
+                                        change.consume()
+                                    }
+                                    continue
+                                }
 
-                            if (pressed.size >= 2) {
-                                didPinch = true
-                                val first = pressed[0].position
-                                val second = pressed[1].position
-                                val distance = hypot(
-                                    (first.x - second.x).toDouble(),
-                                    (first.y - second.y).toDouble(),
+                                val dragX = changePos.x - changePrevPos.x
+                                val dragY = changePos.y - changePrevPos.y
+                                val movedDistance = hypot(
+                                    (changePos.x - downPos.x).toDouble(),
+                                    (changePos.y - downPos.y).toDouble(),
                                 ).toFloat()
-                                if (startPinchDistance == null && distance > 0f) {
-                                    startPinchDistance = distance
-                                    anchorFontSp = currentFontSizeSp.value
-                                    lastSentSp = round(anchorFontSp)
+                                val abortSlopPx = if (dragMode != DragMode.None) {
+                                    currentTouchSlopPx.value
+                                } else {
+                                    currentLongPressSlopPx.value
                                 }
-                                val startDistance = startPinchDistance
-                                if (startDistance != null && distance > 0f) {
-                                    val steppedSp = round(anchorFontSp * (distance / startDistance))
-                                        .coerceIn(currentMinFontSizeSp.value, currentMaxFontSizeSp.value)
-                                    if (steppedSp != lastSentSp) {
-                                        currentOnFontSizeChange.value(steppedSp)
-                                        currentHaptics.value.performHapticFeedback(
-                                            HapticFeedbackType.TextHandleMove,
-                                        )
-                                        lastSentSp = steppedSp
+                                if (movedDistance > abortSlopPx) {
+                                    didDragGesture = true
+                                    if (currentSelectionState.value != null && !selectionCleared) {
+                                        currentOnSelectionChange.value(null)
+                                        selectionCleared = true
                                     }
                                 }
-                                pressed.forEach { change ->
-                                    if (change.position != change.previousPosition) change.consume()
-                                }
-                                continue
-                            }
-
-                            startPinchDistance = null
-                            val change = pressed.firstOrNull { it.id == lastSinglePointerId } ?: pressed.first().also {
-                                lastSinglePointerId = it.id
-                            }
-
-                            // Selection drag takes priority once activated
-                            val s = currentSnapshot.value
-                            val changePos = toSnapshotSpace(change.position, s)
-                            val changePrevPos = toSnapshotSpace(change.previousPosition, s)
-                            val downPos = toSnapshotSpace(down.position, s)
-                            val selectedCell = s.cellAt(
-                                changePos.x,
-                                changePos.y,
-                                currentCellWidth.value,
-                                currentCellHeight.value,
-                            )
-                            if (dragMode == DragMode.AppMouseDrag) {
-                                lastPointerPos = change.position
                                 autoScrollDir = 0
                                 autoScrollingSelection = false
-                                if (change.position != change.previousPosition) {
-                                    currentOnAppSelectionDrag.value(TerminalMouseAction.Motion, changePos.x, changePos.y)
-                                    change.consume()
+                                val verticalIntent = abs(dragY) > abs(dragX) * 1.2f
+                                if (verticalIntent) {
+                                    dragRemainder += dragY / currentCellHeight.value
                                 }
-                                continue
-                            }
-                            if (dragMode == DragMode.ClientSelectionDrag && selectedCell != null) {
-                                lastPointerPos = change.position
-                                updateSelectionDrag(
-                                    existing = currentSelectionState.value,
-                                    selectedCell = selectedCell,
-                                    onSelectionChange = currentOnSelectionChange.value,
-                                )
-                                autoScrollDir = when {
-                                    change.position.y < currentAutoScrollEdgeZonePx.value -> -1
-                                    change.position.y > canvasSize.height - currentAutoScrollEdgeZonePx.value -> 1
-                                    else -> 0
-                                }
-                                autoScrollingSelection = autoScrollDir != 0
-                                if (change.position != change.previousPosition) {
-                                    change.consume()
-                                }
-                                continue
-                            }
 
-                            val dragX = changePos.x - changePrevPos.x
-                            val dragY = changePos.y - changePrevPos.y
-                            val movedDistance = hypot(
-                                (changePos.x - downPos.x).toDouble(),
-                                (changePos.y - downPos.y).toDouble(),
-                            ).toFloat()
-                            val abortSlopPx = if (dragMode != DragMode.None) {
-                                currentTouchSlopPx.value
-                            } else {
-                                currentLongPressSlopPx.value
-                            }
-                            if (movedDistance > abortSlopPx) {
-                                didDragGesture = true
-                                if (currentSelectionState.value != null && !selectionCleared) {
-                                    currentOnSelectionChange.value(null)
-                                    selectionCleared = true
+                                if (didDragGesture && abs(dragRemainder) >= 1f) {
+                                    val delta = dragRemainder.toInt()
+                                    dragRemainder -= delta
+                                    if (delta != 0) {
+                                        didScroll = true
+                                        scrollDeltaChannel.trySend(TerminalScrollDelta(-delta, changePos.x, changePos.y))
+                                    }
+                                }
+
+                                if (change.position != change.previousPosition) {
+                                    change.consume()
                                 }
                             }
-                            autoScrollDir = 0
+                        } finally {
                             autoScrollingSelection = false
-                            val verticalIntent = abs(dragY) > abs(dragX) * 1.2f
-                            if (verticalIntent) {
-                                dragRemainder += dragY / currentCellHeight.value
-                            }
-
-                            if (didDragGesture && abs(dragRemainder) >= 1f) {
-                                val delta = dragRemainder.toInt()
-                                dragRemainder -= delta
-                                if (delta != 0) {
-                                    didScroll = true
-                                    scrollDeltaChannel.trySend(TerminalScrollDelta(-delta, changePos.x, changePos.y))
-                                }
-                            }
-
-                            if (change.position != change.previousPosition) {
-                                change.consume()
+                            if (dragMode == DragMode.AppMouseDrag) {
+                                val s = currentSnapshot.value
+                                val releasePos = toSnapshotSpace(lastPointerPos, s)
+                                currentOnAppSelectionDrag.value(
+                                    TerminalMouseAction.Release,
+                                    releasePos.x,
+                                    releasePos.y,
+                                )
                             }
                         }
                     }
