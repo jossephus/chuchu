@@ -400,15 +400,26 @@ class TerminalSessionRepository private constructor(application: Application) {
         _tabs.value.forEach { tab ->
             if (tab.id == activeTab?.id && tab.spec.usesHerdrNativeMode) {
                 val snapshot = (tab.engine.herdrState.value as? HerdrControlState.Active)?.snapshot
-                tab.engine.retainHerdrPaneStreams(
+                val desired =
                     desiredHerdrPaneStreams(
                         snapshot = snapshot,
                         nativeModeActive = true,
                         foreground = attachedClients > 0,
-                    ),
-                )
+                    )
+                tab.engine.retainHerdrPaneStreams(desired)
                 if (snapshot != null && _herdrFocusedPaneId.value != snapshot.focusedPaneId) {
                     setHerdrNativeFocus(snapshot.focusedPaneId)
+                }
+                val existing = tab.engine.herdrPanes.value.keys
+                desired.filterNot { it in existing }.forEach { paneId ->
+                    tab.engine.ensureHerdrPaneStream(
+                        paneId = paneId,
+                        cols = BOOTSTRAP_PANE_COLS,
+                        rows = BOOTSTRAP_PANE_ROWS,
+                        cellWidthPx = BOOTSTRAP_CELL_PX,
+                        cellHeightPx = BOOTSTRAP_CELL_PX,
+                        focused = paneId == snapshot?.focusedPaneId,
+                    )
                 }
             } else {
                 tab.engine.retainHerdrPaneStreams(emptySet())
@@ -592,6 +603,10 @@ class TerminalSessionRepository private constructor(application: Application) {
     }
 
     companion object {
+        private const val BOOTSTRAP_PANE_COLS = 80
+        private const val BOOTSTRAP_PANE_ROWS = 24
+        private const val BOOTSTRAP_CELL_PX = 10
+
         @Volatile private var instance: TerminalSessionRepository? = null
 
         fun getInstance(application: Application): TerminalSessionRepository {
