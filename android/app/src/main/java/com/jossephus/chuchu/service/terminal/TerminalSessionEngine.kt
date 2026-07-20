@@ -34,8 +34,14 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -159,6 +165,19 @@ class TerminalSessionEngine(
 
     private val _herdrPaneHosts = MutableStateFlow<Map<String, HerdrPaneHost>>(emptyMap())
     val herdrPanes: StateFlow<Map<String, HerdrPaneHost>> = _herdrPaneHosts.asStateFlow()
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val herdrPaneStates: StateFlow<Map<String, HerdrPaneState>> =
+        herdrPanes
+            .flatMapLatest { paneHosts ->
+                if (paneHosts.isEmpty()) {
+                    flowOf(emptyMap())
+                } else {
+                    combine(paneHosts.map { (paneId, host) -> host.state.map { paneId to it } }) {
+                        states -> states.associate { it }
+                    }
+                }
+            }
+            .stateIn(scope, SharingStarted.Eagerly, emptyMap())
     private var herdrFocusedPaneId: String? = null
 
     data class DefaultColors(
