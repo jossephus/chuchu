@@ -12,6 +12,7 @@ import com.jossephus.chuchu.service.mosh.NativeMoshService
 import com.jossephus.chuchu.service.multiplexer.HerdrControlState
 import com.jossephus.chuchu.service.multiplexer.HerdrMultiplexer
 import com.jossephus.chuchu.service.multiplexer.HerdrSnapshot
+import com.jossephus.chuchu.service.multiplexer.HerdrSplitDirection
 import com.jossephus.chuchu.service.multiplexer.HerdrStreamMode
 import com.jossephus.chuchu.service.multiplexer.MultiplexerAvailability
 import com.jossephus.chuchu.service.multiplexer.MultiplexerCommandResult
@@ -639,6 +640,15 @@ class TerminalSessionEngine(
 
     suspend fun herdrCloseTab(tabId: String): MultiplexerCommandResult =
         runHerdrControl { HerdrMultiplexer.closeTabCommand(tabId, lastConnectionParams?.multiplexerSessionName) }
+
+    suspend fun herdrSplitPane(paneId: String, direction: HerdrSplitDirection): MultiplexerCommandResult =
+        runHerdrControl { HerdrMultiplexer.splitPaneCommand(paneId, direction, lastConnectionParams?.multiplexerSessionName) }
+
+    suspend fun herdrClosePane(paneId: String): MultiplexerCommandResult =
+        runHerdrControl { HerdrMultiplexer.closePaneCommand(paneId, lastConnectionParams?.multiplexerSessionName) }
+
+    suspend fun herdrCloseWorkspace(workspaceId: String): MultiplexerCommandResult =
+        runHerdrControl { HerdrMultiplexer.closeWorkspaceCommand(workspaceId, lastConnectionParams?.multiplexerSessionName) }
 
     fun disconnect() {
         disconnectRequested = true

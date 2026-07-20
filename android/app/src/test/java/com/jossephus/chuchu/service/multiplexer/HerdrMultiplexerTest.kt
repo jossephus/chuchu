@@ -147,4 +147,43 @@ class HerdrMultiplexerTest {
             HerdrMultiplexer.focusWorkspaceCommand("workspace'; no"),
         )
     }
+
+    @Test
+    fun splitPaneCommandUsesDirectionAndFocus() {
+        val prelude = "PATH=\"\$HOME/.local/bin:/usr/local/bin:/opt/homebrew/bin:\$PATH\"; "
+
+        assertEquals(
+            prelude + "herdr pane split '1-1' --direction right --focus",
+            HerdrMultiplexer.splitPaneCommand("1-1", HerdrSplitDirection.Right),
+        )
+        assertEquals(
+            prelude + "herdr pane split '1-1' --direction down --focus",
+            HerdrMultiplexer.splitPaneCommand("1-1", HerdrSplitDirection.Down),
+        )
+    }
+
+    @Test
+    fun splitPaneCommandTargetsNamedSessionAndQuotesPaneId() {
+        assertEquals(
+            "PATH=\"\$HOME/.local/bin:/usr/local/bin:/opt/homebrew/bin:\$PATH\"; " +
+                "herdr --session 'work' pane split 'p'\\''; no' --direction right --focus",
+            HerdrMultiplexer.splitPaneCommand("p'; no", HerdrSplitDirection.Right, session = "work"),
+        )
+    }
+
+    @Test
+    fun closePaneCommandQuotesPaneId() {
+        assertEquals(
+            "PATH=\"\$HOME/.local/bin:/usr/local/bin:/opt/homebrew/bin:\$PATH\"; herdr pane close '1-2'",
+            HerdrMultiplexer.closePaneCommand("1-2"),
+        )
+    }
+
+    @Test
+    fun closeWorkspaceCommandTargetsNamedSession() {
+        assertEquals(
+            "PATH=\"\$HOME/.local/bin:/usr/local/bin:/opt/homebrew/bin:\$PATH\"; herdr --session 'work' workspace close 'ws-1'",
+            HerdrMultiplexer.closeWorkspaceCommand("ws-1", session = "work"),
+        )
+    }
 }

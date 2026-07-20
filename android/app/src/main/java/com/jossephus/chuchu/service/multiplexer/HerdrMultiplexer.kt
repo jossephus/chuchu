@@ -4,6 +4,11 @@ import com.jossephus.chuchu.model.MultiplexerType
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
+enum class HerdrSplitDirection(val cli: String) {
+    Right("right"),
+    Down("down"),
+}
+
 object HerdrMultiplexer : Multiplexer {
     internal const val pathPrelude = "PATH=\"\$HOME/.local/bin:/usr/local/bin:/opt/homebrew/bin:\$PATH\"; "
     private val json = Json {
@@ -113,6 +118,15 @@ object HerdrMultiplexer : Multiplexer {
 
     fun closeTabCommand(tabId: String, session: String? = null): String =
         pathPrelude + "${herdr(session)}tab close ${shellQuote(tabId)}"
+
+    fun splitPaneCommand(paneId: String, direction: HerdrSplitDirection, session: String? = null): String =
+        pathPrelude + "${herdr(session)}pane split ${shellQuote(paneId)} --direction ${direction.cli} --focus"
+
+    fun closePaneCommand(paneId: String, session: String? = null): String =
+        pathPrelude + "${herdr(session)}pane close ${shellQuote(paneId)}"
+
+    fun closeWorkspaceCommand(workspaceId: String, session: String? = null): String =
+        pathPrelude + "${herdr(session)}workspace close ${shellQuote(workspaceId)}"
 
     private fun shellQuote(value: String): String =
         "'" + value.replace("'", "'\\''") + "'"

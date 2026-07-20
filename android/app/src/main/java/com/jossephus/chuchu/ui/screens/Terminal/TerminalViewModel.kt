@@ -14,6 +14,7 @@ import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.multiplexer.HerdrControlState
 import com.jossephus.chuchu.service.multiplexer.HerdrSnapshot
+import com.jossephus.chuchu.service.multiplexer.HerdrSplitDirection
 import com.jossephus.chuchu.service.multiplexer.HerdrTabLayout
 import com.jossephus.chuchu.service.multiplexer.MultiplexerRegistry
 import com.jossephus.chuchu.service.multiplexer.MultiplexerCommandResult
@@ -536,6 +537,18 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
 
     fun onHerdrCloseTab(tabId: String) {
         runHerdrCommand { it.herdrCloseTab(tabId) }
+    }
+
+    fun onHerdrSplitPane(paneId: String, direction: HerdrSplitDirection) {
+        runHerdrCommand { it.herdrSplitPane(paneId, direction) }
+    }
+
+    fun onHerdrClosePane(paneId: String) {
+        runHerdrCommand { it.herdrClosePane(paneId) }
+    }
+
+    fun onHerdrCloseWorkspace(workspaceId: String) {
+        runHerdrCommand { it.herdrCloseWorkspace(workspaceId) }
     }
 
     fun onHerdrPanelOpened() {
