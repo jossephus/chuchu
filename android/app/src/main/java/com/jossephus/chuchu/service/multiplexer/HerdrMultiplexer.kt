@@ -93,6 +93,9 @@ object HerdrMultiplexer : Multiplexer {
     fun focusTabCommand(tabId: String): String =
         pathPrelude + "herdr tab focus ${shellQuote(tabId)}"
 
+    fun focusWorkspaceCommand(workspaceId: String): String =
+        pathPrelude + "herdr workspace focus ${shellQuote(workspaceId)}"
+
     fun focusPaneCommand(paneId: String): String =
         pathPrelude + "herdr agent focus ${shellQuote(paneId)}"
 

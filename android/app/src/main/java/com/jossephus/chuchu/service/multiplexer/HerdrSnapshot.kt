@@ -20,6 +20,7 @@ data class HerdrSnapshot(
     val workspaces: List<HerdrWorkspace> = emptyList(),
     val tabs: List<HerdrTab> = emptyList(),
     val panes: List<HerdrPane> = emptyList(),
+    val agents: List<HerdrAgent> = emptyList(),
     val layouts: List<HerdrTabLayout> = emptyList(),
     @SerialName("focused_workspace_id") val focusedWorkspaceId: String? = null,
     @SerialName("focused_tab_id") val focusedTabId: String? = null,
@@ -132,6 +133,18 @@ data class HerdrTab(
 
 @Serializable
 data class HerdrPane(
+    @SerialName("pane_id") val paneId: String = "",
+    @SerialName("tab_id") val tabId: String = "",
+    @SerialName("workspace_id") val workspaceId: String = "",
+    val agent: String? = null,
+    @SerialName("agent_status") val agentStatus: HerdrAgentStatus = HerdrAgentStatus.Unknown,
+    val cwd: String? = null,
+    @SerialName("terminal_title_stripped") val terminalTitleStripped: String? = null,
+    val focused: Boolean = false,
+)
+
+@Serializable
+data class HerdrAgent(
     @SerialName("pane_id") val paneId: String = "",
     @SerialName("tab_id") val tabId: String = "",
     @SerialName("workspace_id") val workspaceId: String = "",

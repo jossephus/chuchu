@@ -72,6 +72,8 @@ fun TerminalTabStrip(
     herdrState: HerdrControlState = HerdrControlState.Inactive,
     onHerdrFocusTab: (String) -> Unit = {},
     onHerdrCreateTab: (String) -> Unit = {},
+    onHerdrHome: () -> Unit = {},
+    herdrNativeMode: Boolean = false,
     hostChipLabel: String? = null,
 ) {
     val colors = ChuColors.current
@@ -109,16 +111,18 @@ fun TerminalTabStrip(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                val hostLabel = hostChipLabel
-                    ?: tabs.firstOrNull { it.id == activeTabId }?.let(::terminalTabDisplayLabel)
-                    ?: "terminal"
+                val hostLabel =
+                    if (herdrNativeMode) "⌂ herdr"
+                    else hostChipLabel
+                        ?: tabs.firstOrNull { it.id == activeTabId }?.let(::terminalTabDisplayLabel)
+                        ?: "terminal"
                 Box(
                     modifier = Modifier
                         .semantics { contentDescription = hostLabel }
                         .defaultMinSize(minHeight = 32.dp)
                         .widthIn(min = 44.dp, max = 160.dp)
                         .clip(androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
-                        .clickable(onClick = onOpenManager)
+                        .clickable { if (herdrNativeMode) onHerdrHome() else onOpenManager() }
                         .padding(horizontal = 8.dp, vertical = 3.dp),
                     contentAlignment = Alignment.Center,
                 ) {

@@ -16,7 +16,15 @@ class HerdrSnapshotParserTest {
         assertEquals(1, snapshot.workspaces.size)
         assertEquals(2, snapshot.tabs.size)
         assertEquals(2, snapshot.panes.size)
+        assertEquals(2, snapshot.agents.size)
         assertEquals(emptyList<HerdrTabLayout>(), snapshot.layouts)
+
+        val agent = snapshot.agents.first { it.paneId == "wJ:p3D" }
+        assertEquals("pi", agent.agent)
+        assertEquals(HerdrAgentStatus.Idle, agent.agentStatus)
+        assertEquals("wJ:tR", agent.tabId)
+        assertEquals("wJ", agent.workspaceId)
+        assertEquals("/home/salem/coding/ERBareeq", agent.cwd)
 
         val pane = snapshot.panes.first { it.paneId == "wJ:p5Y" }
         assertEquals("pi", pane.agent)

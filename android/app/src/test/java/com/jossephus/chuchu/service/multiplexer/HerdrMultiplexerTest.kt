@@ -139,4 +139,12 @@ class HerdrMultiplexerTest {
             ),
         )
     }
+
+    @Test
+    fun focusWorkspaceCommandQuotesWorkspaceId() {
+        assertEquals(
+            "PATH=\"\$HOME/.local/bin:/usr/local/bin:/opt/homebrew/bin:\$PATH\"; herdr workspace focus 'workspace'\\''; no'",
+            HerdrMultiplexer.focusWorkspaceCommand("workspace'; no"),
+        )
+    }
 }

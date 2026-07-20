@@ -694,6 +694,8 @@ fun TerminalScreen(
                         herdrState = herdrUiState.control,
                         onHerdrFocusTab = vm::onHerdrFocusTab,
                         onHerdrCreateTab = vm::onHerdrCreateTab,
+                        onHerdrHome = vm::onShowHerdrHome,
+                        herdrNativeMode = herdrNativeState.enabled,
                         hostChipLabel = activeTab?.let(::terminalTabDisplayLabel),
                     )
                     Box(
@@ -783,6 +785,8 @@ fun TerminalScreen(
                         herdrState = herdrUiState.control,
                         onHerdrFocusTab = vm::onHerdrFocusTab,
                         onHerdrCreateTab = vm::onHerdrCreateTab,
+                        onHerdrHome = vm::onShowHerdrHome,
+                        herdrNativeMode = herdrNativeState.enabled,
                         hostChipLabel = activeTab?.let(::terminalTabDisplayLabel),
                     )
                     Box(
@@ -1107,6 +1111,8 @@ fun TerminalScreen(
                                 herdrState = herdrUiState.control,
                                 onHerdrFocusTab = vm::onHerdrFocusTab,
                                 onHerdrCreateTab = vm::onHerdrCreateTab,
+                                onHerdrHome = vm::onShowHerdrHome,
+                                herdrNativeMode = herdrNativeState.enabled,
                                 hostChipLabel = activeTab?.let(::terminalTabDisplayLabel),
                             )
                         }
@@ -1273,7 +1279,21 @@ fun TerminalScreen(
                             }
                         } else {
                             Box(modifier = Modifier.weight(1f)) {
+                                val herdrSnapshot = herdrNativeState.snapshot
                                 when {
+                                    herdrNativeState.enabled &&
+                                        herdrNativeState.homeVisible &&
+                                        herdrSnapshot != null -> {
+                                        HerdrSwitcherHome(
+                                            snapshot = herdrSnapshot,
+                                            onEnterWorkspace = vm::onEnterHerdrWorkspace,
+                                            onEnterAgent = vm::onEnterHerdrAgent,
+                                            colors = colors,
+                                            sessionHint = activeTab?.let(::terminalTabDisplayLabel),
+                                            modifier = Modifier.fillMaxSize(),
+                                        )
+                                    }
+
                                     herdrNativeState.enabled &&
                                         herdrNativeState.layout?.panes?.isNotEmpty() == true -> {
                                         HerdrSplitLayout(
@@ -1837,6 +1857,8 @@ fun TerminalScreen(
                             herdrState = herdrUiState.control,
                             onHerdrFocusTab = vm::onHerdrFocusTab,
                             onHerdrCreateTab = vm::onHerdrCreateTab,
+                            onHerdrHome = vm::onShowHerdrHome,
+                            herdrNativeMode = herdrNativeState.enabled,
                             hostChipLabel = activeTab?.let(::terminalTabDisplayLabel),
                         )
                         Box(

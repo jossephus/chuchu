@@ -620,6 +620,9 @@ class TerminalSessionEngine(
     suspend fun herdrFocusTab(tabId: String): MultiplexerCommandResult =
         runHerdrControl { HerdrMultiplexer.focusTabCommand(tabId) }
 
+    suspend fun herdrFocusWorkspace(workspaceId: String): MultiplexerCommandResult =
+        runHerdrControl { HerdrMultiplexer.focusWorkspaceCommand(workspaceId) }
+
     suspend fun herdrFocusPane(paneId: String): MultiplexerCommandResult =
         runHerdrControl { HerdrMultiplexer.focusPaneCommand(paneId) }
 
