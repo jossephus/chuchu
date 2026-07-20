@@ -263,6 +263,7 @@ class TerminalSessionRepository private constructor(application: Application) {
             multiplexer = spec.multiplexer,
             multiplexerSessionName = spec.multiplexerSessionName,
             multiplexerCreateIfMissing = spec.multiplexerCreateIfMissing,
+            herdrNativeMode = spec.herdrNativeMode,
         )
         updateHerdrCadence()
         updateHerdrPaneStreams()
@@ -329,6 +330,7 @@ class TerminalSessionRepository private constructor(application: Application) {
             multiplexer = spec.multiplexer,
             multiplexerSessionName = spec.multiplexerSessionName,
             multiplexerCreateIfMissing = spec.multiplexerCreateIfMissing,
+            herdrNativeMode = spec.herdrNativeMode,
         )
     }
 

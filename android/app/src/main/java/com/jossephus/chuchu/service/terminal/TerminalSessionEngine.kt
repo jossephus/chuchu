@@ -99,11 +99,15 @@ class TerminalSessionEngine(
         val multiplexer: MultiplexerType? = null,
         val multiplexerSessionName: String? = null,
         val multiplexerCreateIfMissing: Boolean = true,
+        val herdrNativeMode: Boolean = false,
     ) {
         fun multiplexerStartupCommand(): String? {
             val type = multiplexer ?: return null
             if (!type.runtimeSupported || transport == Transport.Mosh || transport == Transport.LocalShell) return null
             val sessionName = multiplexerSessionName?.takeIf { it.isNotBlank() } ?: return null
+            if (type == MultiplexerType.Herdr && herdrNativeMode) {
+                return HerdrMultiplexer.nativeModeLaunchCommand(sessionName)
+            }
             val runtime = MultiplexerRegistry.forType(type) ?: return null
             return runtime.launchCommand(
                 sessionName = sessionName,
@@ -206,6 +210,7 @@ class TerminalSessionEngine(
         multiplexer: MultiplexerType? = null,
         multiplexerSessionName: String? = null,
         multiplexerCreateIfMissing: Boolean = true,
+        herdrNativeMode: Boolean = false,
     ) {
         disconnectRequested = false
         stopHerdrStream()
@@ -225,6 +230,7 @@ class TerminalSessionEngine(
                 multiplexer = multiplexer,
                 multiplexerSessionName = multiplexerSessionName,
                 multiplexerCreateIfMissing = multiplexerCreateIfMissing,
+                herdrNativeMode = herdrNativeMode,
             )
         lastConnectionParams = params
         scope.launch(dispatcher) {

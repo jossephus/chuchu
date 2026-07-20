@@ -79,6 +79,7 @@ class AddServerViewModel(
                     requireAuthOnConnect = profile.requireAuthOnConnect,
                     postConnectCommand = profile.postConnectCommand.orEmpty(),
                     multiplexer = profile.multiplexer,
+                    herdrNativeMode = profile.herdrNativeMode,
                 )
             }
         }
@@ -205,6 +206,10 @@ class AddServerViewModel(
         )
     }
 
+    fun updateHerdrNativeMode(enabled: Boolean) {
+        _form.value = _form.value.copy(herdrNativeMode = enabled)
+    }
+
     fun testConnection() {
         val current = _form.value
         if (current.host.isBlank()) return
@@ -264,6 +269,7 @@ class AddServerViewModel(
                 requireAuthOnConnect = current.requireAuthOnConnect,
                 postConnectCommand = current.postConnectCommand.trim().ifBlank { null },
                 multiplexer = current.multiplexer.takeIf { current.transport != Transport.Mosh && it?.runtimeSupported == true },
+                herdrNativeMode = current.herdrNativeMode,
             )
             hostRepository.upsert(profile)
             onComplete()
@@ -287,6 +293,7 @@ data class AddServerForm(
     val requireAuthOnConnect: Boolean = false,
     val postConnectCommand: String = "",
     val multiplexer: MultiplexerType? = null,
+    val herdrNativeMode: Boolean = true,
 )
 
 fun AddServerForm.canSave(): Boolean {

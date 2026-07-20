@@ -21,6 +21,7 @@ data class TabSpec(
     val multiplexer: MultiplexerType? = null,
     val multiplexerSessionName: String? = null,
     val multiplexerCreateIfMissing: Boolean = true,
+    val herdrNativeMode: Boolean = true,
 ) {
     val sessionKey: String
         get() =
@@ -52,7 +53,7 @@ data class TabSpec(
                 transport != Transport.LocalShell
 
     val usesHerdrNativeMode: Boolean
-        get() = multiplexer == MultiplexerType.Herdr && usesRuntimeMultiplexer
+        get() = multiplexer == MultiplexerType.Herdr && usesRuntimeMultiplexer && herdrNativeMode
 
     companion object {
         fun fromHostProfile(
@@ -78,6 +79,7 @@ data class TabSpec(
                     host.transport != Transport.Mosh &&
                     host.transport != Transport.LocalShell
             },
+            herdrNativeMode = host.herdrNativeMode,
         )
     }
 }

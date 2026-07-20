@@ -255,6 +255,8 @@ fun AddServerScreen(
             MultiplexerSection(
                 selected = form.multiplexer,
                 onSelect = vm::updateMultiplexer,
+                herdrNativeMode = form.herdrNativeMode,
+                onHerdrNativeModeChanged = vm::updateHerdrNativeMode,
             )
             SectionDivider()
             PostConnectActionSection(
@@ -396,6 +398,8 @@ private enum class MultiplexerOption(val type: MultiplexerType?) {
 private fun MultiplexerSection(
     selected: MultiplexerType?,
     onSelect: (MultiplexerType?) -> Unit,
+    herdrNativeMode: Boolean,
+    onHerdrNativeModeChanged: (Boolean) -> Unit,
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
@@ -415,6 +419,16 @@ private fun MultiplexerSection(
         onSelect = { onSelect(it.type) },
         disabledOptions = setOf(MultiplexerOption.Zellij),
     )
+    if (selected == MultiplexerType.Herdr) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        ) {
+            ChuText("native splits (beta)", style = typography.label)
+            ChuSwitch(checked = herdrNativeMode, onCheckedChange = onHerdrNativeModeChanged)
+        }
+    }
 }
 
 @Composable
