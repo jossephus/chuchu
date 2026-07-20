@@ -98,6 +98,8 @@ fun TerminalTabStrip(
     val rowRootLeft = remember { mutableStateOf(0) }
     val herdrSnapshot = (herdrState as? HerdrControlState.Active)?.snapshot
     val focusedWorkspaceId = herdrSnapshot?.focusedWorkspaceId
+    val focusedWorkspace =
+        herdrSnapshot?.workspaces?.firstOrNull { it.workspaceId == focusedWorkspaceId }
     val herdrTabs =
         herdrSnapshot
             ?.tabs
@@ -126,7 +128,13 @@ fun TerminalTabStrip(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 val hostLabel =
-                    if (herdrNativeMode) "⌂ herdr"
+                    if (herdrNativeMode) {
+                        val workspaceLabel =
+                            focusedWorkspace?.label?.takeIf { it.isNotBlank() }
+                                ?: focusedWorkspace?.let { "ws ${it.number}" }
+                                ?: "herdr"
+                        "⌂ $workspaceLabel"
+                    }
                     else hostChipLabel
                         ?: tabs.firstOrNull { it.id == activeTabId }?.let(::terminalTabDisplayLabel)
                         ?: "terminal"
