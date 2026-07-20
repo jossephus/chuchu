@@ -12,6 +12,7 @@ import com.jossephus.chuchu.service.mosh.NativeMoshService
 import com.jossephus.chuchu.service.multiplexer.HerdrControlState
 import com.jossephus.chuchu.service.multiplexer.HerdrMultiplexer
 import com.jossephus.chuchu.service.multiplexer.HerdrSnapshot
+import com.jossephus.chuchu.service.multiplexer.HerdrStreamMode
 import com.jossephus.chuchu.service.multiplexer.MultiplexerAvailability
 import com.jossephus.chuchu.service.multiplexer.MultiplexerCommandResult
 import com.jossephus.chuchu.service.multiplexer.MultiplexerRegistry
@@ -156,6 +157,10 @@ class TerminalSessionEngine(
     private val _herdrState = MutableStateFlow<HerdrControlState>(HerdrControlState.Inactive)
     val herdrState: StateFlow<HerdrControlState> = _herdrState.asStateFlow()
 
+    private val _herdrPaneHosts = MutableStateFlow<Map<String, HerdrPaneHost>>(emptyMap())
+    val herdrPanes: StateFlow<Map<String, HerdrPaneHost>> = _herdrPaneHosts.asStateFlow()
+    private var herdrFocusedPaneId: String? = null
+
     data class DefaultColors(
         val fg: IntArray?,
         val bg: IntArray?,
@@ -185,6 +190,7 @@ class TerminalSessionEngine(
     ) {
         disconnectRequested = false
         stopHerdrStream()
+        stopHerdrPaneStreams()
         val params =
             ConnectionParams(
                 host = host,
@@ -603,6 +609,7 @@ class TerminalSessionEngine(
         reconnectJob?.cancel()
         reconnectJob = null
         stopHerdrStream()
+        stopHerdrPaneStreams()
         lastConnectionParams = null
         cancelHostKeyPrompt()
         scope.launch(dispatcher) {
@@ -633,6 +640,88 @@ class TerminalSessionEngine(
         disposed = true
         disconnect()
         dispatcher.close()
+    }
+
+    fun ensureHerdrPaneStream(
+        paneId: String,
+        cols: Int,
+        rows: Int,
+        cellWidthPx: Int,
+        cellHeightPx: Int,
+        focused: Boolean,
+    ) {
+        scope.launch(dispatcher) {
+            val params = lastConnectionParams ?: return@launch
+            if (!isHerdrSshSession(params)) return@launch
+            val existing = _herdrPaneHosts.value[paneId]
+            if (existing != null) {
+                existing.setViewport(cols, rows, cellWidthPx, cellHeightPx)
+                return@launch
+            }
+            val host =
+                HerdrPaneHost(
+                    paneId = paneId,
+                    sshFactory = {
+                        NativeSshService(hostKeyPolicy = ::verifyHostKey).also { service ->
+                            service.connect(
+                                host = params.host,
+                                port = params.port,
+                                username = params.username,
+                                authMethod = params.authMethod,
+                                password = if (params.authMethod == AuthMethod.Password) params.password else "",
+                                publicKeyOpenSsh = params.publicKeyOpenSsh,
+                                privateKeyPem = params.privateKeyPem,
+                                keyPassphrase = params.keyPassphrase,
+                            )
+                        }
+                    },
+                    runCommand = { mode, commandCols, commandRows ->
+                        HerdrMultiplexer.terminalSessionCommand(paneId, commandCols, commandRows, mode)
+                    },
+                    scope = scope,
+                )
+            _herdrPaneHosts.value = _herdrPaneHosts.value + (paneId to host)
+            host.start(cols, rows, if (focused) HerdrStreamMode.Control else HerdrStreamMode.Observe)
+            host.setViewport(cols, rows, cellWidthPx, cellHeightPx)
+            if (focused) herdrFocusedPaneId = paneId
+        }
+    }
+
+    fun retainHerdrPaneStreams(paneIds: Set<String>) {
+        scope.launch(dispatcher) {
+            val params = lastConnectionParams ?: return@launch
+            if (!isHerdrSshSession(params)) return@launch
+            val removed = _herdrPaneHosts.value.filterKeys { it !in paneIds }
+            if (removed.isEmpty()) return@launch
+            removed.values.forEach(HerdrPaneHost::dispose)
+            _herdrPaneHosts.value = _herdrPaneHosts.value - removed.keys
+            if (herdrFocusedPaneId !in paneIds) herdrFocusedPaneId = null
+        }
+    }
+
+    fun setHerdrFocusedPaneStream(paneId: String?) {
+        scope.launch(dispatcher) {
+            val params = lastConnectionParams ?: return@launch
+            if (!isHerdrSshSession(params)) return@launch
+            val previous = herdrFocusedPaneId
+            if (previous != paneId) _herdrPaneHosts.value[previous]?.setMode(HerdrStreamMode.Observe)
+            _herdrPaneHosts.value[paneId]?.setMode(HerdrStreamMode.Control)
+            herdrFocusedPaneId = paneId
+        }
+    }
+
+    fun herdrTakeoverFocusedPane() {
+        scope.launch(dispatcher) {
+            val params = lastConnectionParams ?: return@launch
+            if (!isHerdrSshSession(params)) return@launch
+            _herdrPaneHosts.value[herdrFocusedPaneId]?.setMode(HerdrStreamMode.ControlTakeover)
+        }
+    }
+
+    private fun stopHerdrPaneStreams() {
+        _herdrPaneHosts.value.values.forEach(HerdrPaneHost::dispose)
+        _herdrPaneHosts.value = emptyMap()
+        herdrFocusedPaneId = null
     }
 
     private fun cancelHostKeyPrompt() {
@@ -1202,6 +1291,7 @@ class TerminalSessionEngine(
                     return
                 }
         stopHerdrStream()
+        stopHerdrPaneStreams()
         if (reconnectJob?.isActive == true) return
         reconnectJob =
             scope.launch(dispatcher) {

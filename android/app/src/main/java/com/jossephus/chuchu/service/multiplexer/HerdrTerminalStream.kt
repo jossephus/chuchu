@@ -100,6 +100,13 @@ fun herdrResizeJson(cols: Int, rows: Int): String =
 fun herdrScrollJson(direction: HerdrScrollDirection, lines: Int): String =
     herdrTerminalJson.encodeToString(HerdrTerminalScroll(direction = direction, lines = lines))
 
+fun herdrScrollCommand(delta: Int): Pair<HerdrScrollDirection, Int> =
+    if (delta >= 0) {
+        HerdrScrollDirection.Up to delta
+    } else {
+        HerdrScrollDirection.Down to -delta
+    }
+
 fun frameDisposition(lastSeq: Long?, frame: HerdrTerminalFrame): FrameDisposition =
     if (frame.full || (lastSeq != null && frame.seq == lastSeq + 1)) {
         FrameDisposition.Apply

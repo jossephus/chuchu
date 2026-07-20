@@ -51,6 +51,23 @@ data class HerdrTabLayout(
     val zoomed: Boolean = false,
 )
 
+fun desiredHerdrPaneStreams(
+    snapshot: HerdrSnapshot?,
+    nativeModeActive: Boolean,
+    foreground: Boolean,
+): Set<String> {
+    if (!nativeModeActive || !foreground || snapshot == null) return emptySet()
+    val layout = snapshot.layouts.firstOrNull { it.tabId == snapshot.focusedTabId } ?: return emptySet()
+    val focusedPaneId = snapshot.focusedPaneId ?: layout.focusedPaneId
+    if (layout.zoomed) return focusedPaneId?.let(::setOf) ?: emptySet()
+    val paneIds = layout.panes.map { it.paneId }.filter { it.isNotBlank() }.toMutableSet()
+    if (paneIds.size <= 6) return paneIds
+    val retained = LinkedHashSet<String>(6)
+    focusedPaneId?.takeIf { it in paneIds }?.let(retained::add)
+    paneIds.asSequence().filterNot { it == focusedPaneId }.take(6 - retained.size).forEach(retained::add)
+    return retained
+}
+
 sealed interface HerdrControlState {
     data object Inactive : HerdrControlState
 
