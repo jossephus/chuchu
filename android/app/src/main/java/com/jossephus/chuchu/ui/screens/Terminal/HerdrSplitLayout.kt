@@ -56,13 +56,18 @@ fun HerdrSplitLayout(
             val paneModifier = if (layout.zoomed) {
                 Modifier.fillMaxSize()
             } else {
+                val left = scaledOffset(layoutPane.rect.x - layout.area.x, layout.area.width, maxWidth)
+                val right = scaledOffset(
+                    layoutPane.rect.x + layoutPane.rect.width - layout.area.x, layout.area.width, maxWidth,
+                )
+                val top = scaledOffset(layoutPane.rect.y - layout.area.y, layout.area.height, maxHeight)
+                val bottom = scaledOffset(
+                    layoutPane.rect.y + layoutPane.rect.height - layout.area.y, layout.area.height, maxHeight,
+                )
                 Modifier
-                    .offset(
-                        x = scaledOffset(layoutPane.rect.x - layout.area.x, layout.area.width, maxWidth),
-                        y = scaledOffset(layoutPane.rect.y - layout.area.y, layout.area.height, maxHeight),
-                    )
-                    .width(scaledSize(layoutPane.rect.width, layout.area.width, maxWidth))
-                    .height(scaledSize(layoutPane.rect.height, layout.area.height, maxHeight))
+                    .offset(x = left, y = top)
+                    .width((right - left).coerceAtLeast(0.dp))
+                    .height((bottom - top).coerceAtLeast(0.dp))
                     .padding(0.5.dp)
             }
             HerdrSplitPane(
@@ -174,6 +179,3 @@ private fun HerdrSplitPane(
 
 private fun scaledOffset(value: Int, extent: Int, container: Dp): Dp =
     if (extent > 0) container * (value.toFloat() / extent) else 0.dp
-
-private fun scaledSize(value: Int, extent: Int, container: Dp): Dp =
-    if (extent > 0) (container * (value.toFloat() / extent)).coerceAtLeast(0.dp) else 0.dp
