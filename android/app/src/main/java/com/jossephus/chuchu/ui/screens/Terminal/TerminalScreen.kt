@@ -73,6 +73,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.Transport
+import com.jossephus.chuchu.service.multiplexer.HerdrSnapshot
+import com.jossephus.chuchu.service.multiplexer.HerdrSplitDirection
 import com.jossephus.chuchu.service.terminal.SessionStatus
 import com.jossephus.chuchu.service.terminal.TabSpec
 import com.jossephus.chuchu.ui.components.ChuButton
@@ -350,6 +352,7 @@ fun TerminalScreen(
     var passphraseInput by remember { mutableStateOf("") }
     var showCreateWorkspacePrompt by remember { mutableStateOf(false) }
     var newWorkspaceName by remember { mutableStateOf("") }
+    var pendingHerdrClose by remember { mutableStateOf<HerdrCloseTarget?>(null) }
     var pendingTabSpec by remember { mutableStateOf<TabSpec?>(null) }
     var passphraseFromPicker by remember { mutableStateOf(false) }
     var showTabSheet by remember { mutableStateOf(false) }
@@ -418,6 +421,20 @@ fun TerminalScreen(
     var herdrSelection by remember(herdrNativeState.focusedPaneId) { mutableStateOf<TerminalSelection?>(null) }
     var herdrSelectionState by
         remember(herdrNativeState.focusedPaneId) { mutableStateOf<TerminalSelectionState?>(null) }
+    val herdrFocusedPaneId = herdrNativeState.focusedPaneId ?: herdrNativeState.layout?.focusedPaneId
+    val onHerdrSplitFocusedPane: (HerdrSplitDirection) -> Unit = { direction ->
+        herdrFocusedPaneId?.let { vm.onHerdrSplitPane(it, direction) }
+    }
+    val onHerdrRequestClosePane: () -> Unit = {
+        herdrFocusedPaneId?.let { paneId ->
+            pendingHerdrClose = HerdrCloseTarget(
+                HerdrCloseKind.Pane, paneId, herdrPaneLabel(herdrNativeState.snapshot, paneId),
+            )
+        }
+    }
+    val onHerdrRequestCloseTab: (String, String) -> Unit = { tabId, label ->
+        pendingHerdrClose = HerdrCloseTarget(HerdrCloseKind.Tab, tabId, label)
+    }
 
     LaunchedEffect(terminalFontSizeSp) {
         settingsRepo.setTerminalFontSize(terminalFontSizeSp)
@@ -661,6 +678,28 @@ fun TerminalScreen(
         }
     }
 
+    pendingHerdrClose?.let { target ->
+        ChuDialog(
+            title = "Close ${target.kind.label} “${target.label}”?",
+            confirmLabel = "Close",
+            dismissLabel = "Cancel",
+            onConfirm = {
+                when (target.kind) {
+                    HerdrCloseKind.Pane -> vm.onHerdrClosePane(target.id)
+                    HerdrCloseKind.Tab -> vm.onHerdrCloseTab(target.id)
+                    HerdrCloseKind.Workspace -> vm.onHerdrCloseWorkspace(target.id)
+                }
+                pendingHerdrClose = null
+            },
+            onDismiss = { pendingHerdrClose = null },
+        ) {
+            ChuText(
+                "Any agent running in this ${target.kind.label} will be terminated.",
+                style = typography.body,
+            )
+        }
+    }
+
     fun showLocalShellFilesUnsupported() {
         val message = "Files are not supported for local shell"
         localShellFilesMessage = message
@@ -732,6 +771,9 @@ fun TerminalScreen(
                         onHerdrHome = vm::onShowHerdrHome,
                         herdrNativeMode = herdrNativeState.enabled,
                         hostChipLabel = activeTab?.let(::terminalTabDisplayLabel),
+                        onHerdrSplitPane = onHerdrSplitFocusedPane,
+                        onHerdrRequestClosePane = onHerdrRequestClosePane,
+                        onHerdrRequestCloseTab = onHerdrRequestCloseTab,
                     )
                     Box(
                         modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -823,6 +865,9 @@ fun TerminalScreen(
                         onHerdrHome = vm::onShowHerdrHome,
                         herdrNativeMode = herdrNativeState.enabled,
                         hostChipLabel = activeTab?.let(::terminalTabDisplayLabel),
+                        onHerdrSplitPane = onHerdrSplitFocusedPane,
+                        onHerdrRequestClosePane = onHerdrRequestClosePane,
+                        onHerdrRequestCloseTab = onHerdrRequestCloseTab,
                     )
                     Box(
                         modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -1149,6 +1194,9 @@ fun TerminalScreen(
                                 onHerdrHome = vm::onShowHerdrHome,
                                 herdrNativeMode = herdrNativeState.enabled,
                                 hostChipLabel = activeTab?.let(::terminalTabDisplayLabel),
+                                onHerdrSplitPane = onHerdrSplitFocusedPane,
+                                onHerdrRequestClosePane = onHerdrRequestClosePane,
+                                onHerdrRequestCloseTab = onHerdrRequestCloseTab,
                             )
                         }
 
@@ -1324,6 +1372,11 @@ fun TerminalScreen(
                                             onEnterWorkspace = vm::onEnterHerdrWorkspace,
                                             onEnterAgent = vm::onEnterHerdrAgent,
                                             onCreateWorkspace = { showCreateWorkspacePrompt = true },
+                                            onCloseWorkspace = { workspaceId, label ->
+                                                pendingHerdrClose = HerdrCloseTarget(
+                                                    HerdrCloseKind.Workspace, workspaceId, label,
+                                                )
+                                            },
                                             colors = colors,
                                             sessionHint = activeTab?.spec?.tabLabel,
                                             connections = tabs,
@@ -1900,6 +1953,9 @@ fun TerminalScreen(
                             onHerdrHome = vm::onShowHerdrHome,
                             herdrNativeMode = herdrNativeState.enabled,
                             hostChipLabel = activeTab?.let(::terminalTabDisplayLabel),
+                            onHerdrSplitPane = onHerdrSplitFocusedPane,
+                            onHerdrRequestClosePane = onHerdrRequestClosePane,
+                            onHerdrRequestCloseTab = onHerdrRequestCloseTab,
                         )
                         Box(
                             modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -2104,4 +2160,21 @@ private fun UploadProgressDialog(progress: UploadProgress) {
             )
         }
     }
+}
+
+private enum class HerdrCloseKind(val label: String) {
+    Pane("pane"),
+    Tab("tab"),
+    Workspace("workspace"),
+}
+
+private data class HerdrCloseTarget(
+    val kind: HerdrCloseKind,
+    val id: String,
+    val label: String,
+)
+
+private fun herdrPaneLabel(snapshot: HerdrSnapshot?, paneId: String): String {
+    val agent = snapshot?.agents?.firstOrNull { it.paneId == paneId }
+    return agent?.agent?.takeIf { it.isNotBlank() } ?: paneId
 }

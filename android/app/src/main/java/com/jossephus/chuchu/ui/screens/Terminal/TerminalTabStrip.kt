@@ -1,10 +1,14 @@
 package com.jossephus.chuchu.ui.screens.Terminal
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
@@ -12,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -21,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,9 +36,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import com.jossephus.chuchu.service.multiplexer.HerdrControlState
+import com.jossephus.chuchu.service.multiplexer.HerdrSplitDirection
 import com.jossephus.chuchu.service.terminal.SessionStatus
 import kotlinx.coroutines.flow.map
 import kotlin.math.roundToInt
@@ -60,6 +70,7 @@ internal fun statusLabel(status: SessionStatus): String = when (status) {
  * Shows all active terminal sessions in a compact top strip.
  * The tab list scrolls; primary actions stay pinned on the right.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TerminalTabStrip(
     tabs: List<TabSession>,
@@ -75,6 +86,9 @@ fun TerminalTabStrip(
     onHerdrHome: () -> Unit = {},
     herdrNativeMode: Boolean = false,
     hostChipLabel: String? = null,
+    onHerdrSplitPane: (HerdrSplitDirection) -> Unit = {},
+    onHerdrRequestClosePane: () -> Unit = {},
+    onHerdrRequestCloseTab: (tabId: String, label: String) -> Unit = { _, _ -> },
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
@@ -162,7 +176,14 @@ fun TerminalTabStrip(
                                     if (isFocused) colors.accent.copy(alpha = 0.16f)
                                     else Color.Transparent
                                 )
-                                .clickable { onHerdrFocusTab(tab.tabId) }
+                                .combinedClickable(
+                                    onClick = { onHerdrFocusTab(tab.tabId) },
+                                    onLongClick = if (herdrNativeMode) {
+                                        { onHerdrRequestCloseTab(tab.tabId, label) }
+                                    } else {
+                                        null
+                                    },
+                                )
                                 .padding(horizontal = 8.dp, vertical = 3.dp),
                             contentAlignment = Alignment.Center,
                         ) {
@@ -279,18 +300,90 @@ fun TerminalTabStrip(
                 }
             }
 
-            ChuButton(
-                onClick = {
-                    if (showHerdrTabs) focusedWorkspaceId?.let(onHerdrCreateTab)
-                    else onAddTab()
-                },
-                modifier = Modifier.defaultMinSize(minHeight = 32.dp, minWidth = 32.dp),
-                variant = ChuButtonVariant.Ghost,
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                contentDescription = if (showHerdrTabs) "new herdr tab" else "new connection",
-            ) {
-                ChuText("+", style = typography.label, color = colors.accent)
+            if (showHerdrTabs && herdrNativeMode) {
+                var menuExpanded by remember { mutableStateOf(false) }
+                Box {
+                    ChuButton(
+                        onClick = { menuExpanded = true },
+                        modifier = Modifier.defaultMinSize(minHeight = 32.dp, minWidth = 32.dp),
+                        variant = ChuButtonVariant.Ghost,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        contentDescription = "herdr actions",
+                    ) {
+                        ChuText("+", style = typography.label, color = colors.accent)
+                    }
+                    if (menuExpanded) {
+                        Popup(
+                            alignment = Alignment.TopEnd,
+                            onDismissRequest = { menuExpanded = false },
+                            properties = PopupProperties(focusable = true),
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .width(184.dp)
+                                    .background(colors.background, RectangleShape)
+                                    .border(1.dp, colors.border, RectangleShape)
+                                    .padding(vertical = 4.dp),
+                            ) {
+                                HerdrMenuItem("split right", colors.textPrimary) {
+                                    menuExpanded = false
+                                    onHerdrSplitPane(HerdrSplitDirection.Right)
+                                }
+                                HerdrMenuItem("split down", colors.textPrimary) {
+                                    menuExpanded = false
+                                    onHerdrSplitPane(HerdrSplitDirection.Down)
+                                }
+                                HerdrMenuItem("close pane", colors.error) {
+                                    menuExpanded = false
+                                    onHerdrRequestClosePane()
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp)
+                                        .height(1.dp)
+                                        .background(colors.border.copy(alpha = 0.4f)),
+                                )
+                                HerdrMenuItem("new tab", colors.textPrimary) {
+                                    menuExpanded = false
+                                    focusedWorkspaceId?.let(onHerdrCreateTab)
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                ChuButton(
+                    onClick = {
+                        if (showHerdrTabs) focusedWorkspaceId?.let(onHerdrCreateTab)
+                        else onAddTab()
+                    },
+                    modifier = Modifier.defaultMinSize(minHeight = 32.dp, minWidth = 32.dp),
+                    variant = ChuButtonVariant.Ghost,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    contentDescription = if (showHerdrTabs) "new herdr tab" else "new connection",
+                ) {
+                    ChuText("+", style = typography.label, color = colors.accent)
+                }
             }
         }
     }
+}
+
+@Composable
+private fun HerdrMenuItem(
+    label: String,
+    color: Color,
+    onClick: () -> Unit,
+) {
+    val typography = ChuTypography.current
+    ChuText(
+        text = label,
+        style = typography.body,
+        color = color,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+    )
 }

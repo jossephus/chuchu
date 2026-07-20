@@ -44,6 +44,7 @@ fun HerdrSwitcherHome(
     onSelectConnection: (String) -> Unit = {},
     onOpenServerList: () -> Unit = {},
     onCreateWorkspace: () -> Unit = {},
+    onCloseWorkspace: (workspaceId: String, label: String) -> Unit = { _, _ -> },
 ) {
     val typography = ChuTypography.current
     val workspaces = snapshot.workspaces.sortedBy { it.number }
@@ -117,6 +118,7 @@ fun HerdrSwitcherHome(
                         expanded = workspace.focused || hasAttention,
                         onEnterWorkspace = onEnterWorkspace,
                         onEnterAgent = onEnterAgent,
+                        onCloseWorkspace = onCloseWorkspace,
                     )
                 }
             }
@@ -244,6 +246,7 @@ private fun HerdrSwitcherWorkspace(
     expanded: Boolean,
     onEnterWorkspace: (String) -> Unit,
     onEnterAgent: (agentPaneId: String, tabId: String) -> Unit,
+    onCloseWorkspace: (workspaceId: String, label: String) -> Unit,
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
@@ -269,6 +272,14 @@ private fun HerdrSwitcherWorkspace(
             "${pluralCount(workspace.tabCount, "tab")} · ${pluralCount(workspace.paneCount, "pane")}",
             style = typography.labelSmall,
             color = colors.textMuted,
+        )
+        ChuText(
+            "✕",
+            style = typography.labelSmall,
+            color = colors.textMuted,
+            modifier = Modifier
+                .clickable { onCloseWorkspace(workspace.workspaceId, label) }
+                .padding(horizontal = 8.dp, vertical = 2.dp),
         )
     }
     if (expanded) {
