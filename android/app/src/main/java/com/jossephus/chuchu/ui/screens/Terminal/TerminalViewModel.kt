@@ -93,9 +93,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     val herdrUiState: StateFlow<HerdrUiState> =
         activeTab
             .flatMapLatest { tab ->
-                if (tab != null && tab.spec.multiplexer == MultiplexerType.Herdr &&
-                    tab.spec.transport in setOf(Transport.SSH, Transport.TailscaleSSH)
-                ) {
+                if (tab != null && tab.spec.usesHerdrNativeMode) {
                     combine(tab.engine.herdrState, _herdrActionError) { control, actionError ->
                         HerdrUiState(control = control, enabled = true, actionError = actionError)
                     }
