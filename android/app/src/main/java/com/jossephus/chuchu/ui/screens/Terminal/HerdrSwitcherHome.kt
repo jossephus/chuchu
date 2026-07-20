@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -24,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import com.jossephus.chuchu.service.multiplexer.HerdrAgent
 import com.jossephus.chuchu.service.multiplexer.HerdrAgentStatus
 import com.jossephus.chuchu.service.multiplexer.HerdrSnapshot
+import com.jossephus.chuchu.service.multiplexer.HerdrTab
 import com.jossephus.chuchu.service.multiplexer.HerdrWorkspace
 import com.jossephus.chuchu.service.terminal.TabSession
 import com.jossephus.chuchu.ui.components.ChuText
@@ -45,9 +48,13 @@ fun HerdrSwitcherHome(
     onOpenServerList: () -> Unit = {},
     onCreateWorkspace: () -> Unit = {},
     onCloseWorkspace: (workspaceId: String, label: String) -> Unit = { _, _ -> },
+    onEnterTab: (tabId: String) -> Unit = {},
 ) {
     val typography = ChuTypography.current
     val workspaces = snapshot.workspaces.sortedBy { it.number }
+    // User overrides for inline expand/collapse, keyed by workspace id. Absent =
+    // fall back to auto-expand (focused or has attention).
+    val expandOverrides = remember { mutableStateMapOf<String, Boolean>() }
 
     Column(modifier = modifier.fillMaxSize()) {
         Row(
@@ -109,14 +116,21 @@ fun HerdrSwitcherHome(
             } else {
                 items(workspaces, key = { it.workspaceId }) { workspace ->
                     val workspaceAgents = snapshot.agents.filter { it.workspaceId == workspace.workspaceId }
+                    val workspaceTabs = snapshot.tabs
+                        .filter { it.workspaceId == workspace.workspaceId }
+                        .sortedBy { it.number }
                     val hasAttention = workspaceAgents.any {
                         it.agentStatus == HerdrAgentStatus.Blocked || it.agentStatus == HerdrAgentStatus.Done
                     }
+                    val expanded = expandOverrides[workspace.workspaceId] ?: (workspace.focused || hasAttention)
                     HerdrSwitcherWorkspace(
                         workspace = workspace,
+                        tabs = workspaceTabs,
                         agents = workspaceAgents,
-                        expanded = workspace.focused || hasAttention,
+                        expanded = expanded,
+                        onToggleExpand = { expandOverrides[workspace.workspaceId] = !expanded },
                         onEnterWorkspace = onEnterWorkspace,
+                        onEnterTab = onEnterTab,
                         onEnterAgent = onEnterAgent,
                         onCloseWorkspace = onCloseWorkspace,
                     )
@@ -242,9 +256,12 @@ private fun HerdrConnections(
 @Composable
 private fun HerdrSwitcherWorkspace(
     workspace: HerdrWorkspace,
+    tabs: List<HerdrTab>,
     agents: List<HerdrAgent>,
     expanded: Boolean,
+    onToggleExpand: () -> Unit,
     onEnterWorkspace: (String) -> Unit,
+    onEnterTab: (String) -> Unit,
     onEnterAgent: (agentPaneId: String, tabId: String) -> Unit,
     onCloseWorkspace: (workspaceId: String, label: String) -> Unit,
 ) {
@@ -262,10 +279,18 @@ private fun HerdrSwitcherWorkspace(
                 if (workspace.focused) colors.accent.copy(alpha = 0.65f) else colors.border.copy(alpha = 0.35f),
             )
             .clickable { onEnterWorkspace(workspace.workspaceId) }
-            .padding(horizontal = 10.dp, vertical = 8.dp),
+            .padding(horizontal = 6.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        ChuText(
+            if (expanded) "▾" else "▸",
+            style = typography.labelSmall,
+            color = colors.textMuted,
+            modifier = Modifier
+                .clickable { onToggleExpand() }
+                .padding(horizontal = 6.dp, vertical = 4.dp),
+        )
         ChuText(label, style = typography.label, color = colors.textPrimary, modifier = Modifier.weight(1f))
         HerdrAgentStatusSummary(agents)
         ChuText(
@@ -283,9 +308,48 @@ private fun HerdrSwitcherWorkspace(
         )
     }
     if (expanded) {
-        agents.forEach { agent ->
+        tabs.forEach { tab ->
+            val tabAgents = agents.filter { it.tabId == tab.tabId }
+            if (tabAgents.isEmpty()) {
+                HerdrSwitcherTab(tab, onEnterTab)
+            } else {
+                tabAgents.forEach { agent -> HerdrSwitcherAgent(agent, label, onEnterAgent) }
+            }
+        }
+        // Agents whose tab isn't listed in the snapshot (safety net).
+        agents.filter { agent -> tabs.none { it.tabId == agent.tabId } }.forEach { agent ->
             HerdrSwitcherAgent(agent, label, onEnterAgent)
         }
+    }
+}
+
+@Composable
+private fun HerdrSwitcherTab(
+    tab: HerdrTab,
+    onEnterTab: (String) -> Unit,
+) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+    val label = tab.label?.takeIf { it.isNotBlank() } ?: "tab ${tab.number}"
+    val statusColor = herdrAgentStatusColor(tab.agentStatus, colors)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 28.dp, end = 12.dp, top = 1.dp, bottom = 1.dp)
+            .background(if (tab.focused) colors.surfaceVariant else Color.Transparent)
+            .border(
+                1.dp,
+                if (tab.focused) colors.accent.copy(alpha = 0.5f) else colors.border.copy(alpha = 0.2f),
+            )
+            .clickable { onEnterTab(tab.tabId) }
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Box(modifier = Modifier.size(6.dp).background(statusColor))
+        ChuText(label, style = typography.body, color = colors.textSecondary, modifier = Modifier.weight(1f))
+        ChuText(pluralCount(tab.paneCount, "pane"), style = typography.labelSmall, color = colors.textMuted)
     }
 }
 

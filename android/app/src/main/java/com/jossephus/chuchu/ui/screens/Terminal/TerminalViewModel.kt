@@ -517,6 +517,11 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         runHerdrCommand { it.herdrFocusWorkspace(workspaceId) }
     }
 
+    fun onEnterHerdrTab(tabId: String) {
+        _herdrHomeVisible.value = false
+        runHerdrCommand { it.herdrFocusTab(tabId) }
+    }
+
     fun onEnterHerdrAgent(paneId: String, tabId: String) {
         val engine = sessionRepository.activeTab.value?.engine ?: return
         _herdrHomeVisible.value = false

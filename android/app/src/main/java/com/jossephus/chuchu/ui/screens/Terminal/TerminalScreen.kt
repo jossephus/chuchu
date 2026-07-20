@@ -1377,6 +1377,7 @@ fun TerminalScreen(
                                                     HerdrCloseKind.Workspace, workspaceId, label,
                                                 )
                                             },
+                                            onEnterTab = vm::onEnterHerdrTab,
                                             colors = colors,
                                             sessionHint = activeTab?.spec?.tabLabel,
                                             connections = tabs,
