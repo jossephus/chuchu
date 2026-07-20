@@ -706,7 +706,7 @@ class TerminalSessionEngine(
                     scope = scope,
                 )
             _herdrPaneHosts.value = _herdrPaneHosts.value + (paneId to host)
-            host.start(cols, rows, if (focused) HerdrStreamMode.Control else HerdrStreamMode.Observe)
+            host.start(cols, rows, HerdrStreamMode.Control)
             host.setViewport(cols, rows, cellWidthPx, cellHeightPx)
             if (focused) herdrFocusedPaneId = paneId
         }
@@ -728,9 +728,6 @@ class TerminalSessionEngine(
         scope.launch(dispatcher) {
             val params = lastConnectionParams ?: return@launch
             if (!isHerdrSshSession(params)) return@launch
-            val previous = herdrFocusedPaneId
-            if (previous != paneId) _herdrPaneHosts.value[previous]?.setMode(HerdrStreamMode.Observe)
-            _herdrPaneHosts.value[paneId]?.setMode(HerdrStreamMode.Control)
             herdrFocusedPaneId = paneId
         }
     }
