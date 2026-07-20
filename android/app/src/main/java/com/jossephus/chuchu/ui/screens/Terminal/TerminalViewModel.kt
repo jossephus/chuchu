@@ -546,7 +546,10 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     ) {
         val engine = sessionRepository.activeTab.value?.engine ?: return
         viewModelScope.launch {
-            updateHerdrActionError(command(engine))
+            val result = runCatching { command(engine) }.getOrElse {
+                MultiplexerCommandResult(1, "", it.message ?: "Herdr command failed")
+            }
+            updateHerdrActionError(result)
         }
     }
 

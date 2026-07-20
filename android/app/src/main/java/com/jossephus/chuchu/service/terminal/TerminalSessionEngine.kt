@@ -1187,10 +1187,18 @@ class TerminalSessionEngine(
             }
             val connection = runCatching { ensureHerdrConnection(params) }.getOrNull()
             val result =
-                if (connection?.connected == true) {
-                    connection.runCommand(command())
-                } else {
-                    runMultiplexerCommand(params, command())
+                try {
+                    if (connection?.connected == true) {
+                        connection.runCommand(command())
+                    } else {
+                        runMultiplexerCommand(params, command())
+                    }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    herdrConnection?.close()
+                    herdrConnection = null
+                    MultiplexerCommandResult(1, "", error.message ?: "Herdr command failed")
                 }
             pokeHerdr()
             result
