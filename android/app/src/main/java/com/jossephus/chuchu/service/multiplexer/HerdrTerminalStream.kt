@@ -102,9 +102,9 @@ fun herdrScrollJson(direction: HerdrScrollDirection, lines: Int): String =
 
 fun herdrScrollCommand(delta: Int): Pair<HerdrScrollDirection, Int> =
     if (delta >= 0) {
-        HerdrScrollDirection.Up to delta
+        HerdrScrollDirection.Down to delta
     } else {
-        HerdrScrollDirection.Down to -delta
+        HerdrScrollDirection.Up to -delta
     }
 
 fun frameDisposition(lastSeq: Long?, frame: HerdrTerminalFrame): FrameDisposition =

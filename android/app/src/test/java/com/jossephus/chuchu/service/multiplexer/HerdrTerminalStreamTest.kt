@@ -105,8 +105,8 @@ class HerdrTerminalStreamTest {
     }
 
     @Test
-    fun mapsPositiveScrollDeltaToHistoryUp() {
-        assertEquals(HerdrScrollDirection.Up to 3, herdrScrollCommand(3))
-        assertEquals(HerdrScrollDirection.Down to 2, herdrScrollCommand(-2))
+    fun mapsScrollDeltaToDirection() {
+        assertEquals(HerdrScrollDirection.Down to 3, herdrScrollCommand(3))
+        assertEquals(HerdrScrollDirection.Up to 2, herdrScrollCommand(-2))
     }
 }

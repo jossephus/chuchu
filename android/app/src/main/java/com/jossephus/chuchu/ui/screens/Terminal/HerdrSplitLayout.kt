@@ -143,8 +143,11 @@ private fun HerdrSplitPane(
                     onPaneViewport(paneId, cols, rows, cellWidth, cellHeight, widthPx, heightPx)
                 },
                 onTap = {
-                    onPaneTap(paneId)
-                    requestInputFocus()
+                    if (focused) {
+                        requestInputFocus()
+                    } else {
+                        onPaneTap(paneId)
+                    }
                 },
                 onPrimaryClick = { _, _ -> },
                 onAppSelectionDrag = { _, _, _ -> },
@@ -156,10 +159,7 @@ private fun HerdrSplitPane(
         }
         if (!focused) {
             Box(
-                modifier = Modifier.fillMaxSize().clickable {
-                    onPaneTap(paneId)
-                    requestInputFocus()
-                },
+                modifier = Modifier.fillMaxSize().clickable { onPaneTap(paneId) },
             )
         }
         if (paneState?.readOnly == true && focused) {
