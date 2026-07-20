@@ -124,7 +124,7 @@ private fun HerdrSplitPane(
         } else {
             TerminalCanvas(
                 snapshot = snapshot,
-                fitSnapshotToCanvas = true,
+                fitSnapshotToCanvas = false,
                 terminalHandle = paneState.handle,
                 enableGestures = focused,
                 fontSizeSp = fontSizeSp,
