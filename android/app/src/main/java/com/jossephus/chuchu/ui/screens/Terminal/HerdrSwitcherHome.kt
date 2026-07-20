@@ -92,9 +92,14 @@ fun HerdrSwitcherHome(
                 }
             } else {
                 items(workspaces, key = { it.workspaceId }) { workspace ->
+                    val workspaceAgents = snapshot.agents.filter { it.workspaceId == workspace.workspaceId }
+                    val hasAttention = workspaceAgents.any {
+                        it.agentStatus == HerdrAgentStatus.Blocked || it.agentStatus == HerdrAgentStatus.Done
+                    }
                     HerdrSwitcherWorkspace(
                         workspace = workspace,
-                        agents = snapshot.agents.filter { it.workspaceId == workspace.workspaceId },
+                        agents = workspaceAgents,
+                        expanded = workspace.focused || hasAttention,
                         onEnterWorkspace = onEnterWorkspace,
                         onEnterAgent = onEnterAgent,
                     )
@@ -121,7 +126,7 @@ private fun HerdrNeedsYou(
     agents.forEach { agent ->
         val color = herdrAgentStatusColor(agent.agentStatus, colors)
         val name = agent.agent?.takeIf { it.isNotBlank() } ?: "shell"
-        val title = agent.terminalTitleStripped?.takeIf { it.isNotBlank() }
+        val title = agent.terminalTitleStripped?.let { cleanAgentTitle(it, "") }?.takeIf { it.isNotBlank() }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -221,6 +226,7 @@ private fun HerdrConnections(
 private fun HerdrSwitcherWorkspace(
     workspace: HerdrWorkspace,
     agents: List<HerdrAgent>,
+    expanded: Boolean,
     onEnterWorkspace: (String) -> Unit,
     onEnterAgent: (agentPaneId: String, tabId: String) -> Unit,
 ) {
@@ -231,7 +237,7 @@ private fun HerdrSwitcherWorkspace(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 3.dp)
             .background(if (workspace.focused) colors.surfaceVariant else Color.Transparent)
             .border(
                 1.dp,
@@ -245,13 +251,15 @@ private fun HerdrSwitcherWorkspace(
         ChuText(label, style = typography.label, color = colors.textPrimary, modifier = Modifier.weight(1f))
         HerdrAgentStatusSummary(agents)
         ChuText(
-            "${workspace.tabCount} tabs · ${workspace.paneCount} panes",
+            "${pluralCount(workspace.tabCount, "tab")} · ${pluralCount(workspace.paneCount, "pane")}",
             style = typography.labelSmall,
             color = colors.textMuted,
         )
     }
-    agents.forEach { agent ->
-        HerdrSwitcherAgent(agent, onEnterAgent)
+    if (expanded) {
+        agents.forEach { agent ->
+            HerdrSwitcherAgent(agent, label, onEnterAgent)
+        }
     }
 }
 
@@ -290,12 +298,15 @@ private fun HerdrAgentStatusSummary(agents: List<HerdrAgent>) {
 @Composable
 private fun HerdrSwitcherAgent(
     agent: HerdrAgent,
+    workspaceLabel: String,
     onEnterAgent: (agentPaneId: String, tabId: String) -> Unit,
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
     val name = agent.agent?.takeIf { it.isNotBlank() } ?: "shell"
-    val cwd = agent.cwd?.trimEnd('/')?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
+    val cwd = agent.cwd?.trimEnd('/')?.substringAfterLast('/')
+        ?.takeIf { it.isNotBlank() && !it.equals(workspaceLabel, ignoreCase = true) }
+    val title = agent.terminalTitleStripped?.let { cleanAgentTitle(it, workspaceLabel) }?.takeIf { it.isNotBlank() }
 
     Row(
         modifier = Modifier
@@ -317,9 +328,9 @@ private fun HerdrSwitcherAgent(
                 Spacer(modifier = Modifier.width(8.dp))
                 HerdrSwitcherStatus(agent.agentStatus)
             }
-            agent.terminalTitleStripped?.takeIf { it.isNotBlank() }?.let { title ->
+            title?.let {
                 ChuText(
-                    title,
+                    it,
                     style = typography.labelSmall,
                     color = colors.textMuted,
                     maxLines = 1,
@@ -349,4 +360,20 @@ private fun HerdrSwitcherStatus(status: HerdrAgentStatus) {
         Box(modifier = Modifier.size(6.dp).background(color))
         ChuText(status.name.lowercase(), style = typography.labelSmall, color = color)
     }
+}
+
+private fun pluralCount(count: Int, unit: String): String =
+    "$count $unit${if (count == 1) "" else "s"}"
+
+private fun cleanAgentTitle(title: String, workspaceLabel: String): String {
+    var cleaned = title
+    val colon = cleaned.indexOf(": ")
+    if (colon in 1..40) cleaned = cleaned.substring(colon + 2)
+    if (workspaceLabel.isNotBlank()) {
+        val suffix = " - $workspaceLabel"
+        if (cleaned.endsWith(suffix, ignoreCase = true)) {
+            cleaned = cleaned.dropLast(suffix.length)
+        }
+    }
+    return cleaned.trim().ifBlank { title }
 }
