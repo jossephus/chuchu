@@ -70,6 +70,14 @@ class TerminalSessionRepository private constructor(application: Application) {
     private val _herdrFocusedPaneId = MutableStateFlow<String?>(null)
     val herdrFocusedPaneId: StateFlow<String?> = _herdrFocusedPaneId.asStateFlow()
 
+    // Last real pane geometry measured by a native canvas, used to bootstrap
+    // newly opened pane streams (e.g. on a workspace switch) close to their
+    // final size so a full-screen TUI doesn't flash at the 80x24 fallback.
+    @Volatile private var lastHerdrPaneCols = BOOTSTRAP_PANE_COLS
+    @Volatile private var lastHerdrPaneRows = BOOTSTRAP_PANE_ROWS
+    @Volatile private var lastHerdrPaneCellW = BOOTSTRAP_CELL_PX
+    @Volatile private var lastHerdrPaneCellH = BOOTSTRAP_CELL_PX
+
     val activeTab: StateFlow<TabSession?> =
         combine(_tabs, _activeTabId) { tabs, id -> tabs.firstOrNull { it.id == id } }
             .stateIn(scope, SharingStarted.Eagerly, null)
@@ -411,13 +419,21 @@ class TerminalSessionRepository private constructor(application: Application) {
                     setHerdrNativeFocus(snapshot.focusedPaneId)
                 }
                 val existing = tab.engine.herdrPanes.value.keys
-                desired.filterNot { it in existing }.forEach { paneId ->
+                val newPanes = desired.filterNot { it in existing }
+                // A single-pane tab fills the whole area, so the last measured
+                // geometry is exact; with splits it is an approximation that is
+                // still far closer than the 80x24 fallback.
+                val bootstrapCols = if (newPanes.size == 1) lastHerdrPaneCols else BOOTSTRAP_PANE_COLS
+                val bootstrapRows = if (newPanes.size == 1) lastHerdrPaneRows else BOOTSTRAP_PANE_ROWS
+                val bootstrapCellW = if (newPanes.size == 1) lastHerdrPaneCellW else BOOTSTRAP_CELL_PX
+                val bootstrapCellH = if (newPanes.size == 1) lastHerdrPaneCellH else BOOTSTRAP_CELL_PX
+                newPanes.forEach { paneId ->
                     tab.engine.ensureHerdrPaneStream(
                         paneId = paneId,
-                        cols = BOOTSTRAP_PANE_COLS,
-                        rows = BOOTSTRAP_PANE_ROWS,
-                        cellWidthPx = BOOTSTRAP_CELL_PX,
-                        cellHeightPx = BOOTSTRAP_CELL_PX,
+                        cols = bootstrapCols,
+                        rows = bootstrapRows,
+                        cellWidthPx = bootstrapCellW,
+                        cellHeightPx = bootstrapCellH,
                         focused = paneId == snapshot?.focusedPaneId,
                     )
                 }
@@ -454,6 +470,12 @@ class TerminalSessionRepository private constructor(application: Application) {
         cellWidth: Int,
         cellHeight: Int,
     ) {
+        if (cols > 0 && rows > 0 && cellWidth > 0 && cellHeight > 0) {
+            lastHerdrPaneCols = cols
+            lastHerdrPaneRows = rows
+            lastHerdrPaneCellW = cellWidth
+            lastHerdrPaneCellH = cellHeight
+        }
         activeEngine()?.ensureHerdrPaneStream(
             paneId = paneId,
             cols = cols,
