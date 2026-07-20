@@ -483,9 +483,10 @@ fun TerminalScreen(
                 passphraseFromPicker = fromPicker
                 pendingTabSpec = preparedSpec
                 showPassphrasePrompt = true
-            } else if (preparedSpec.usesHerdrNativeMode) {
-                // Native herdr always attaches to the default session; skip the
-                // multiplexer session-picker preflight so it connects immediately.
+            } else if (preparedSpec.usesHerdr) {
+                // Herdr (native or classic) always attaches to the default session;
+                // skip the tmux/zmx-style session-picker preflight so it connects
+                // immediately instead of showing an empty "no sessions" state.
                 vm.openTab(preparedSpec.copy(multiplexerSessionName = "default"))
             } else if (preparedSpec.usesRuntimeMultiplexer) {
                 vm.initiateMultiplexerOpen(preparedSpec)

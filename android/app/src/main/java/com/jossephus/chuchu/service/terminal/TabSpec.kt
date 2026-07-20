@@ -52,8 +52,11 @@ data class TabSpec(
                 transport != Transport.Mosh &&
                 transport != Transport.LocalShell
 
+    val usesHerdr: Boolean
+        get() = multiplexer == MultiplexerType.Herdr && usesRuntimeMultiplexer
+
     val usesHerdrNativeMode: Boolean
-        get() = multiplexer == MultiplexerType.Herdr && usesRuntimeMultiplexer && herdrNativeMode
+        get() = usesHerdr && herdrNativeMode
 
     companion object {
         fun fromHostProfile(
