@@ -222,6 +222,7 @@ class HerdrPaneHost(
                 channelId = connection.openExecChannel(runCommand(mode, commandCols, commandRows))
                 streamChannelId = channelId
                 retryDelayMs = 2_000L
+                syncViewport(channelId, commandCols, commandRows)
                 when (readFrames(channelId, mode)) {
                     StreamEnd.Restart -> Unit
                     StreamEnd.ControlRefused -> {
@@ -283,6 +284,16 @@ class HerdrPaneHost(
             }
         }
         throw CancellationException()
+    }
+
+    private suspend fun syncViewport(channelId: Int, openedCols: Int, openedRows: Int) {
+        val (currentCols, currentRows) = withContext(dispatcher) { cols to rows }
+        if (currentCols != openedCols || currentRows != openedRows) {
+            connection.writeChannel(
+                channelId,
+                (herdrResizeJson(currentCols, currentRows) + "\n").toByteArray(Charsets.UTF_8),
+            )
+        }
     }
 
     private suspend fun writePendingCommands(channelId: Int) {
