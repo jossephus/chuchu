@@ -117,8 +117,14 @@ private fun HerdrConnections(
             modifier = Modifier.clickable { onOpenServerList() }.padding(horizontal = 6.dp, vertical = 4.dp),
         )
     }
+    val duplicateHosts = connections
+        .groupBy { it.spec.hostId ?: it.spec.sessionKey }
+        .filterValues { it.size > 1 }
+        .keys
     connections.forEach { tab ->
         val active = tab.id == activeConnectionId
+        val serverName = tab.spec.tabLabel
+        val ambiguous = (tab.spec.hostId ?: tab.spec.sessionKey) in duplicateHosts
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -134,12 +140,22 @@ private fun HerdrConnections(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             ChuText(
-                terminalTabDisplayLabel(tab),
+                serverName,
                 style = typography.body,
                 color = if (active) colors.accent else colors.textSecondary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
             )
+            if (ambiguous) {
+                ChuText(
+                    terminalTabAlias(tab),
+                    style = typography.labelSmall,
+                    color = colors.textMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }

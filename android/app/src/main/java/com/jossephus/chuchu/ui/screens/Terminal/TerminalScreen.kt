@@ -1297,7 +1297,7 @@ fun TerminalScreen(
                                             onEnterWorkspace = vm::onEnterHerdrWorkspace,
                                             onEnterAgent = vm::onEnterHerdrAgent,
                                             colors = colors,
-                                            sessionHint = activeTab?.let(::terminalTabDisplayLabel),
+                                            sessionHint = activeTab?.spec?.tabLabel,
                                             connections = tabs,
                                             activeConnectionId = activeTabId,
                                             onSelectConnection = { id -> vm.selectTab(id) },
