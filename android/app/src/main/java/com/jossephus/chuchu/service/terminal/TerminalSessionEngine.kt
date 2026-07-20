@@ -623,19 +623,19 @@ class TerminalSessionEngine(
     }
 
     suspend fun herdrFocusTab(tabId: String): MultiplexerCommandResult =
-        runHerdrControl { HerdrMultiplexer.focusTabCommand(tabId) }
+        runHerdrControl { HerdrMultiplexer.focusTabCommand(tabId, lastConnectionParams?.multiplexerSessionName) }
 
     suspend fun herdrFocusWorkspace(workspaceId: String): MultiplexerCommandResult =
-        runHerdrControl { HerdrMultiplexer.focusWorkspaceCommand(workspaceId) }
+        runHerdrControl { HerdrMultiplexer.focusWorkspaceCommand(workspaceId, lastConnectionParams?.multiplexerSessionName) }
 
     suspend fun herdrFocusPane(paneId: String): MultiplexerCommandResult =
-        runHerdrControl { HerdrMultiplexer.focusPaneCommand(paneId) }
+        runHerdrControl { HerdrMultiplexer.focusPaneCommand(paneId, lastConnectionParams?.multiplexerSessionName) }
 
     suspend fun herdrCreateTab(workspaceId: String): MultiplexerCommandResult =
-        runHerdrControl { HerdrMultiplexer.createTabCommand(workspaceId) }
+        runHerdrControl { HerdrMultiplexer.createTabCommand(workspaceId, lastConnectionParams?.multiplexerSessionName) }
 
     suspend fun herdrCloseTab(tabId: String): MultiplexerCommandResult =
-        runHerdrControl { HerdrMultiplexer.closeTabCommand(tabId) }
+        runHerdrControl { HerdrMultiplexer.closeTabCommand(tabId, lastConnectionParams?.multiplexerSessionName) }
 
     fun disconnect() {
         disconnectRequested = true
@@ -696,7 +696,7 @@ class TerminalSessionEngine(
                     paneId = paneId,
                     connection = ensureHerdrConnection(params),
                     runCommand = { mode, commandCols, commandRows ->
-                        HerdrMultiplexer.terminalSessionCommand(paneId, commandCols, commandRows, mode)
+                        HerdrMultiplexer.terminalSessionCommand(paneId, commandCols, commandRows, mode, params.multiplexerSessionName)
                     },
                     scope = scope,
                 )
@@ -1234,7 +1234,7 @@ class TerminalSessionEngine(
                             privateKeyPem = params.privateKeyPem,
                             keyPassphrase = params.keyPassphrase,
                         )
-                        if (!service.openExec(HerdrMultiplexer.snapshotStreamCommand())) {
+                        if (!service.openExec(HerdrMultiplexer.snapshotStreamCommand(params.multiplexerSessionName))) {
                             throw IllegalStateException("Remote server did not open an exec channel")
                         }
                         retryDelayMs = 2_000L

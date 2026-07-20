@@ -69,9 +69,12 @@ object HerdrMultiplexer : Multiplexer {
         localSessionNames: Collection<String>,
     ): String = "default"
 
-    fun snapshotStreamCommand(): String =
+    private fun herdr(session: String?): String =
+        if (session.isNullOrBlank() || session == "default") "herdr " else "herdr --session ${shellQuote(session)} "
+
+    fun snapshotStreamCommand(session: String? = null): String =
         pathPrelude +
-            "while IFS= read -r _; do printf 'CHUCHU_SNAP_BEGIN\\n'; herdr api snapshot 2>/dev/null; " +
+            "while IFS= read -r _; do printf 'CHUCHU_SNAP_BEGIN\\n'; ${herdr(session)}api snapshot 2>/dev/null; " +
             "printf '\\nCHUCHU_SNAP_END\\n'; done"
 
     fun terminalSessionCommand(
@@ -79,6 +82,7 @@ object HerdrMultiplexer : Multiplexer {
         cols: Int,
         rows: Int,
         mode: HerdrStreamMode,
+        session: String? = null,
     ): String {
         val command = when (mode) {
             HerdrStreamMode.Control,
@@ -87,23 +91,23 @@ object HerdrMultiplexer : Multiplexer {
             HerdrStreamMode.Observe -> "observe"
         }
         val takeover = if (mode == HerdrStreamMode.ControlTakeover) " --takeover" else ""
-        return pathPrelude + "herdr terminal session $command ${shellQuote(paneId)} --cols $cols --rows $rows$takeover"
+        return pathPrelude + "${herdr(session)}terminal session $command ${shellQuote(paneId)} --cols $cols --rows $rows$takeover"
     }
 
-    fun focusTabCommand(tabId: String): String =
-        pathPrelude + "herdr tab focus ${shellQuote(tabId)}"
+    fun focusTabCommand(tabId: String, session: String? = null): String =
+        pathPrelude + "${herdr(session)}tab focus ${shellQuote(tabId)}"
 
-    fun focusWorkspaceCommand(workspaceId: String): String =
-        pathPrelude + "herdr workspace focus ${shellQuote(workspaceId)}"
+    fun focusWorkspaceCommand(workspaceId: String, session: String? = null): String =
+        pathPrelude + "${herdr(session)}workspace focus ${shellQuote(workspaceId)}"
 
-    fun focusPaneCommand(paneId: String): String =
-        pathPrelude + "herdr agent focus ${shellQuote(paneId)}"
+    fun focusPaneCommand(paneId: String, session: String? = null): String =
+        pathPrelude + "${herdr(session)}agent focus ${shellQuote(paneId)}"
 
-    fun createTabCommand(workspaceId: String): String =
-        pathPrelude + "herdr tab create --workspace ${shellQuote(workspaceId)} --focus"
+    fun createTabCommand(workspaceId: String, session: String? = null): String =
+        pathPrelude + "${herdr(session)}tab create --workspace ${shellQuote(workspaceId)} --focus"
 
-    fun closeTabCommand(tabId: String): String =
-        pathPrelude + "herdr tab close ${shellQuote(tabId)}"
+    fun closeTabCommand(tabId: String, session: String? = null): String =
+        pathPrelude + "${herdr(session)}tab close ${shellQuote(tabId)}"
 
     private fun shellQuote(value: String): String =
         "'" + value.replace("'", "'\\''") + "'"
