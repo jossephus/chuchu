@@ -186,7 +186,7 @@ private fun HerdrSwitcherWorkspace(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         ChuText(label, style = typography.label, color = colors.textPrimary, modifier = Modifier.weight(1f))
-        HerdrSwitcherStatus(workspace.agentStatus)
+        HerdrAgentStatusSummary(agents)
         ChuText(
             "${workspace.tabCount} tabs · ${workspace.paneCount} panes",
             style = typography.labelSmall,
@@ -195,6 +195,38 @@ private fun HerdrSwitcherWorkspace(
     }
     agents.forEach { agent ->
         HerdrSwitcherAgent(agent, onEnterAgent)
+    }
+}
+
+@Composable
+private fun HerdrAgentStatusSummary(agents: List<HerdrAgent>) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+    val order = listOf(
+        HerdrAgentStatus.Blocked,
+        HerdrAgentStatus.Working,
+        HerdrAgentStatus.Done,
+        HerdrAgentStatus.Idle,
+    )
+    val counts = order.mapNotNull { status ->
+        val count = agents.count { it.agentStatus == status }
+        if (count > 0) status to count else null
+    }
+    if (counts.isEmpty()) return
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        counts.forEach { (status, count) ->
+            val color = herdrAgentStatusColor(status, colors)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Box(modifier = Modifier.size(6.dp).background(color))
+                ChuText("$count ${status.name.lowercase()}", style = typography.labelSmall, color = color)
+            }
+        }
     }
 }
 
