@@ -1,6 +1,6 @@
 package com.jossephus.chuchu.ui.screens.Terminal
 
-import androidx.compose.foundation.border
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -51,7 +51,11 @@ fun HerdrSplitLayout(
         layout.panes
     }
 
-    BoxWithConstraints(modifier = modifier) {
+    val multiPane = panes.size > 1
+
+    BoxWithConstraints(
+        modifier = if (multiPane) modifier.background(colors.border.copy(alpha = 0.35f)) else modifier,
+    ) {
         panes.forEach { layoutPane ->
             val paneModifier = if (layout.zoomed) {
                 Modifier.fillMaxSize()
@@ -68,7 +72,7 @@ fun HerdrSplitLayout(
                     .offset(x = left, y = top)
                     .width((right - left).coerceAtLeast(0.dp))
                     .height((bottom - top).coerceAtLeast(0.dp))
-                    .padding(0.5.dp)
+                    .padding(if (multiPane) 0.5.dp else 0.dp)
             }
             HerdrSplitPane(
                 paneId = layoutPane.paneId,
@@ -110,9 +114,7 @@ private fun HerdrSplitPane(
     modifier: Modifier,
 ) {
     val typography = ChuTypography.current
-    val borderColor = if (focused) colors.accent else colors.border.copy(alpha = 0.55f)
-    val borderWidth = if (focused) 2.dp else 1.dp
-    Box(modifier = modifier.border(borderWidth, borderColor)) {
+    Box(modifier = modifier) {
         val snapshot = paneState?.snapshot
         if (snapshot == null) {
             val message = if (paneState?.status == HerdrPaneStreamStatus.Error) {
@@ -159,7 +161,10 @@ private fun HerdrSplitPane(
         }
         if (!focused) {
             Box(
-                modifier = Modifier.fillMaxSize().clickable { onPaneTap(paneId) },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(colors.background.copy(alpha = 0.4f))
+                    .clickable { onPaneTap(paneId) },
             )
         }
         if (paneState?.readOnly == true && focused) {
