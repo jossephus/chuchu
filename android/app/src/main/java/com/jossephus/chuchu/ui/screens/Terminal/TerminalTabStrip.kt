@@ -11,8 +11,10 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -30,6 +32,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.jossephus.chuchu.service.multiplexer.HerdrControlState
 import com.jossephus.chuchu.service.terminal.SessionStatus
 import kotlinx.coroutines.flow.map
 import kotlin.math.roundToInt
@@ -65,6 +68,11 @@ fun TerminalTabStrip(
     onAddTab: () -> Unit,
     onOpenManager: () -> Unit,
     modifier: Modifier = Modifier,
+    herdrEnabled: Boolean = false,
+    herdrState: HerdrControlState = HerdrControlState.Inactive,
+    onHerdrFocusTab: (String) -> Unit = {},
+    onHerdrCreateTab: (String) -> Unit = {},
+    hostChipLabel: String? = null,
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
@@ -72,9 +80,20 @@ fun TerminalTabStrip(
     val trailingActionWidth = if (tabs.size > 1) 72.dp else 40.dp
     val tabOffsets = remember { mutableStateMapOf<String, Int>() }
     val rowRootLeft = remember { mutableStateOf(0) }
+    val herdrSnapshot = (herdrState as? HerdrControlState.Active)?.snapshot
+    val focusedWorkspaceId = herdrSnapshot?.focusedWorkspaceId
+    val herdrTabs =
+        herdrSnapshot
+            ?.tabs
+            ?.filter { it.workspaceId == focusedWorkspaceId }
+            ?.sortedBy { it.number }
+            .orEmpty()
+    val showHerdrTabs = herdrEnabled && herdrSnapshot != null && herdrTabs.isNotEmpty()
+    val focusedHerdrTabId = herdrTabs.firstOrNull { it.focused }?.tabId ?: herdrSnapshot?.focusedTabId
+    val scrollTargetId = if (showHerdrTabs) focusedHerdrTabId else activeTabId
 
-    LaunchedEffect(activeTabId) {
-        val target = activeTabId?.let { tabOffsets[it] } ?: return@LaunchedEffect
+    LaunchedEffect(scrollTargetId) {
+        val target = scrollTargetId?.let { tabOffsets[it] } ?: return@LaunchedEffect
         scrollState.animateScrollTo(target)
     }
 
@@ -84,58 +103,152 @@ fun TerminalTabStrip(
             .background(colors.surfaceVariant)
             .padding(start = 4.dp, end = 6.dp, top = 3.dp, bottom = 5.dp),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(end = trailingActionWidth)
-                .horizontalScroll(scrollState)
-                .onGloballyPositioned { coords ->
-                    rowRootLeft.value = coords.localToRoot(Offset.Zero).x.roundToInt()
-                },
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            tabs.forEach { tab ->
-                val isActive = tab.id == activeTabId
-                val alias = terminalTabDisplayLabel(tab)
-                val title by remember(tab) {
-                    tab.sessionState.map { it.title?.takeIf(String::isNotBlank) }
-                }.collectAsStateWithLifecycle(initialValue = null)
-                val label = title ?: alias
-
+        if (showHerdrTabs) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(end = trailingActionWidth),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                val hostLabel = hostChipLabel
+                    ?: tabs.firstOrNull { it.id == activeTabId }?.let(::terminalTabDisplayLabel)
+                    ?: "terminal"
                 Box(
                     modifier = Modifier
-                        .onGloballyPositioned { coords ->
-                            tabOffsets[tab.id] = coords.localToRoot(Offset.Zero).x.roundToInt() - rowRootLeft.value + scrollState.value
-                        }
-                        .semantics { contentDescription = label }
+                        .semantics { contentDescription = hostLabel }
                         .defaultMinSize(minHeight = 32.dp)
                         .widthIn(min = 44.dp, max = 160.dp)
                         .clip(androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
-                        .background(
-                            if (isActive) colors.accent.copy(alpha = 0.16f)
-                            else Color.Transparent
-                        )
-                        .clickable { onTabSelected(tab.id) }
+                        .clickable(onClick = onOpenManager)
                         .padding(horizontal = 8.dp, vertical = 3.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     ChuText(
-                        text = label,
+                        text = hostLabel,
                         style = typography.labelSmall,
-                        color = if (isActive) colors.accent else colors.textSecondary,
+                        color = colors.textMuted,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    if (isActive) {
+                }
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .horizontalScroll(scrollState)
+                        .onGloballyPositioned { coords ->
+                            rowRootLeft.value = coords.localToRoot(Offset.Zero).x.roundToInt()
+                        },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    herdrTabs.forEach { tab ->
+                        val isFocused = tab.focused
+                        val label = tab.label?.takeIf { it.isNotBlank() } ?: "tab ${tab.number}"
+                        val statusColor = herdrAgentStatusColor(tab.agentStatus, colors)
+
                         Box(
                             modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .padding(start = 2.dp, end = 2.dp, bottom = 1.dp)
-                                .fillMaxWidth()
-                                .height(1.dp)
-                                .background(colors.accent),
+                                .onGloballyPositioned { coords ->
+                                    tabOffsets[tab.tabId] = coords.localToRoot(Offset.Zero).x.roundToInt() - rowRootLeft.value + scrollState.value
+                                }
+                                .semantics { contentDescription = label }
+                                .defaultMinSize(minHeight = 32.dp)
+                                .widthIn(min = 44.dp, max = 160.dp)
+                                .clip(androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                                .background(
+                                    if (isFocused) colors.accent.copy(alpha = 0.16f)
+                                    else Color.Transparent
+                                )
+                                .clickable { onHerdrFocusTab(tab.tabId) }
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Box(
+                                    modifier =
+                                        Modifier.size(6.dp).background(
+                                            statusColor,
+                                            CircleShape,
+                                        ),
+                                )
+                                ChuText(
+                                    text = label,
+                                    style = typography.labelSmall,
+                                    color = if (isFocused) colors.accent else colors.textSecondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            if (isFocused) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .padding(start = 2.dp, end = 2.dp, bottom = 1.dp)
+                                        .fillMaxWidth()
+                                        .height(1.dp)
+                                        .background(colors.accent),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(end = trailingActionWidth)
+                    .horizontalScroll(scrollState)
+                    .onGloballyPositioned { coords ->
+                        rowRootLeft.value = coords.localToRoot(Offset.Zero).x.roundToInt()
+                    },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                tabs.forEach { tab ->
+                    val isActive = tab.id == activeTabId
+                    val alias = terminalTabDisplayLabel(tab)
+                    val title by remember(tab) {
+                        tab.sessionState.map { it.title?.takeIf(String::isNotBlank) }
+                    }.collectAsStateWithLifecycle(initialValue = null)
+                    val label = title ?: alias
+
+                    Box(
+                        modifier = Modifier
+                            .onGloballyPositioned { coords ->
+                                tabOffsets[tab.id] = coords.localToRoot(Offset.Zero).x.roundToInt() - rowRootLeft.value + scrollState.value
+                            }
+                            .semantics { contentDescription = label }
+                            .defaultMinSize(minHeight = 32.dp)
+                            .widthIn(min = 44.dp, max = 160.dp)
+                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                            .background(
+                                if (isActive) colors.accent.copy(alpha = 0.16f)
+                                else Color.Transparent
+                            )
+                            .clickable { onTabSelected(tab.id) }
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        ChuText(
+                            text = label,
+                            style = typography.labelSmall,
+                            color = if (isActive) colors.accent else colors.textSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
+                        if (isActive) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .padding(start = 2.dp, end = 2.dp, bottom = 1.dp)
+                                    .fillMaxWidth()
+                                    .height(1.dp)
+                                    .background(colors.accent),
+                            )
+                        }
                     }
                 }
             }
@@ -163,11 +276,14 @@ fun TerminalTabStrip(
             }
 
             ChuButton(
-                onClick = onAddTab,
+                onClick = {
+                    if (showHerdrTabs) focusedWorkspaceId?.let(onHerdrCreateTab)
+                    else onAddTab()
+                },
                 modifier = Modifier.defaultMinSize(minHeight = 32.dp, minWidth = 32.dp),
                 variant = ChuButtonVariant.Ghost,
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                contentDescription = "new connection",
+                contentDescription = if (showHerdrTabs) "new herdr tab" else "new connection",
             ) {
                 ChuText("+", style = typography.label, color = colors.accent)
             }

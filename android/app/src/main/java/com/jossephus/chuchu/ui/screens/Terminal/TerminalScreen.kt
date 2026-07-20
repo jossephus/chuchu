@@ -686,6 +686,11 @@ fun TerminalScreen(
                         onTabSelected = { id -> vm.selectTab(id) },
                         onAddTab = openAnotherSessionForCurrentHost,
                         onOpenManager = { showGlobalTabManager = true },
+                        herdrEnabled = herdrUiState.enabled,
+                        herdrState = herdrUiState.control,
+                        onHerdrFocusTab = vm::onHerdrFocusTab,
+                        onHerdrCreateTab = vm::onHerdrCreateTab,
+                        hostChipLabel = activeTab?.let(::terminalTabDisplayLabel),
                     )
                     Box(
                         modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -770,6 +775,11 @@ fun TerminalScreen(
                         onTabSelected = { id -> vm.selectTab(id) },
                         onAddTab = openAnotherSessionForCurrentHost,
                         onOpenManager = { showGlobalTabManager = true },
+                        herdrEnabled = herdrUiState.enabled,
+                        herdrState = herdrUiState.control,
+                        onHerdrFocusTab = vm::onHerdrFocusTab,
+                        onHerdrCreateTab = vm::onHerdrCreateTab,
+                        hostChipLabel = activeTab?.let(::terminalTabDisplayLabel),
                     )
                     Box(
                         modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -1089,6 +1099,11 @@ fun TerminalScreen(
                                 onOpenManager = {
                                     showGlobalTabManager = true
                                 },
+                                herdrEnabled = herdrUiState.enabled,
+                                herdrState = herdrUiState.control,
+                                onHerdrFocusTab = vm::onHerdrFocusTab,
+                                onHerdrCreateTab = vm::onHerdrCreateTab,
+                                hostChipLabel = activeTab?.let(::terminalTabDisplayLabel),
                             )
                         }
 
@@ -1780,6 +1795,11 @@ fun TerminalScreen(
                             onTabSelected = { id -> vm.selectTab(id) },
                             onAddTab = openAnotherSessionForCurrentHost,
                             onOpenManager = { showGlobalTabManager = true },
+                            herdrEnabled = herdrUiState.enabled,
+                            herdrState = herdrUiState.control,
+                            onHerdrFocusTab = vm::onHerdrFocusTab,
+                            onHerdrCreateTab = vm::onHerdrCreateTab,
+                            hostChipLabel = activeTab?.let(::terminalTabDisplayLabel),
                         )
                         Box(
                             modifier = Modifier.weight(1f).fillMaxWidth(),

@@ -30,7 +30,17 @@ import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.theme.ChuColors
+import com.jossephus.chuchu.ui.theme.ChuColorPalette
 import com.jossephus.chuchu.ui.theme.ChuTypography
+
+internal fun herdrAgentStatusColor(status: HerdrAgentStatus, colors: ChuColorPalette): Color =
+    when (status) {
+        HerdrAgentStatus.Working -> colors.accent
+        HerdrAgentStatus.Blocked -> colors.error
+        HerdrAgentStatus.Done -> colors.success
+        HerdrAgentStatus.Idle -> colors.textMuted
+        HerdrAgentStatus.Unknown -> colors.disabledText
+    }
 
 @Composable
 fun HerdrPanel(
@@ -259,13 +269,7 @@ private fun HerdrPaneRow(pane: HerdrPane, onFocusPane: (String) -> Unit) {
 private fun HerdrStatusBadge(status: HerdrAgentStatus) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
-    val color = when (status) {
-        HerdrAgentStatus.Working -> colors.accent
-        HerdrAgentStatus.Blocked -> colors.error
-        HerdrAgentStatus.Done -> colors.success
-        HerdrAgentStatus.Idle -> colors.textMuted
-        HerdrAgentStatus.Unknown -> colors.disabledText
-    }
+    val color = herdrAgentStatusColor(status, colors)
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         Box(modifier = Modifier.size(6.dp).background(color))
         ChuText(status.name.lowercase(), style = typography.labelSmall, color = color)
