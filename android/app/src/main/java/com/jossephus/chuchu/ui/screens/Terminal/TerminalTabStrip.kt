@@ -85,6 +85,7 @@ fun TerminalTabStrip(
     onHerdrCreateTab: (String) -> Unit = {},
     onHerdrHome: () -> Unit = {},
     herdrNativeMode: Boolean = false,
+    herdrFocusedTabId: String? = null,
     hostChipLabel: String? = null,
     onHerdrSplitPane: (HerdrSplitDirection) -> Unit = {},
     onHerdrRequestClosePane: () -> Unit = {},
@@ -107,7 +108,8 @@ fun TerminalTabStrip(
             ?.sortedBy { it.number }
             .orEmpty()
     val showHerdrTabs = herdrEnabled && herdrSnapshot != null && herdrTabs.isNotEmpty()
-    val focusedHerdrTabId = herdrTabs.firstOrNull { it.focused }?.tabId ?: herdrSnapshot?.focusedTabId
+    val focusedHerdrTabId =
+        herdrFocusedTabId ?: herdrTabs.firstOrNull { it.focused }?.tabId ?: herdrSnapshot?.focusedTabId
     val scrollTargetId = if (showHerdrTabs) focusedHerdrTabId else activeTabId
 
     LaunchedEffect(scrollTargetId) {
@@ -167,7 +169,7 @@ fun TerminalTabStrip(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     herdrTabs.forEach { tab ->
-                        val isFocused = tab.focused
+                        val isFocused = herdrFocusedTabId?.let { tab.tabId == it } ?: tab.focused
                         val label = tab.label?.takeIf { it.isNotBlank() } ?: "tab ${tab.number}"
                         val statusColor = herdrAgentStatusColor(tab.agentStatus, colors)
 

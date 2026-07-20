@@ -51,14 +51,17 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class TerminalViewModel(application: Application) : AndroidViewModel(application) {
@@ -81,6 +84,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     private var multiplexerSessionListGeneration = 0L
     private val _herdrActionError = MutableStateFlow<String?>(null)
     private val _herdrHomeVisible = MutableStateFlow(true)
+    private val _herdrOptimisticTabId = MutableStateFlow<String?>(null)
     val herdrHomeVisible: StateFlow<Boolean> = _herdrHomeVisible.asStateFlow()
 
     private val _tailscaleActive = MutableStateFlow(tailscaleStatusChecker.isActive())
@@ -112,14 +116,17 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                         tab.engine.herdrPaneStates,
                         sessionRepository.herdrFocusedPaneId,
                         herdrHomeVisible,
-                    ) { control, panes, focusedPaneId, homeVisible ->
+                        _herdrOptimisticTabId,
+                    ) { control, panes, focusedPaneId, homeVisible, optimisticTabId ->
                         val snapshot = (control as? HerdrControlState.Active)?.snapshot
+                        val effectiveTabId = optimisticTabId ?: snapshot?.focusedTabId
                         HerdrNativeUiState(
                             enabled = true,
                             snapshot = snapshot,
-                            layout = snapshot?.layouts?.firstOrNull { it.tabId == snapshot.focusedTabId },
+                            layout = snapshot?.layouts?.firstOrNull { it.tabId == effectiveTabId },
                             panes = panes,
                             focusedPaneId = focusedPaneId,
+                            focusedTabId = effectiveTabId,
                             homeVisible = homeVisible,
                         )
                     }
@@ -139,6 +146,13 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             activeTabId.collect { id ->
                 val tab = sessionRepository.tabs.value.firstOrNull { it.id == id }
                 if (tab?.spec?.usesHerdrNativeMode == true) _herdrHomeVisible.value = true
+            }
+        }
+        viewModelScope.launch {
+            activeTabId.drop(1).collect {
+                val optimisticTabId = _herdrOptimisticTabId.value ?: return@collect
+                _herdrOptimisticTabId.value = null
+                sessionRepository.clearHerdrOptimisticFocusTab(optimisticTabId)
             }
         }
     }
@@ -471,7 +485,35 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
 
     fun onHerdrFocusTab(tabId: String) {
         showHerdrSplitsIfNative()
-        runHerdrCommand { it.herdrFocusTab(tabId) }
+        val engine = sessionRepository.activeTab.value?.engine ?: return
+        val snapshot = (engine.herdrState.value as? HerdrControlState.Active)?.snapshot
+        val layout = snapshot?.layouts?.firstOrNull { it.tabId == tabId }
+        if (layout == null) {
+            runHerdrCommand { it.herdrFocusTab(tabId) }
+            return
+        }
+
+        _herdrOptimisticTabId.value = tabId
+        sessionRepository.setHerdrOptimisticFocusTab(tabId)
+        layout.focusedPaneId?.let(sessionRepository::setHerdrNativeFocus)
+        viewModelScope.launch {
+            val result =
+                runCatching { engine.herdrFocusTab(tabId) }.getOrElse { error ->
+                    MultiplexerCommandResult(1, "", error.message ?: "Herdr command failed")
+                }
+            updateHerdrActionError(result)
+            if (result.exitCode != 0) {
+                clearHerdrOptimisticTab(tabId)
+                return@launch
+            }
+
+            withTimeoutOrNull(4_000) {
+                engine.herdrState.first { control ->
+                    (control as? HerdrControlState.Active)?.snapshot?.focusedTabId == tabId
+                }
+            }
+            clearHerdrOptimisticTab(tabId)
+        }
     }
 
     fun onHerdrFocusPane(paneId: String) {
@@ -576,6 +618,12 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     private fun showHerdrSplitsIfNative() {
         if (sessionRepository.activeTab.value?.spec?.usesHerdrNativeMode == true) {
             _herdrHomeVisible.value = false
+        }
+    }
+
+    private fun clearHerdrOptimisticTab(tabId: String) {
+        if (_herdrOptimisticTabId.compareAndSet(tabId, null)) {
+            sessionRepository.clearHerdrOptimisticFocusTab(tabId)
         }
     }
 
@@ -942,5 +990,6 @@ data class HerdrNativeUiState(
     val layout: HerdrTabLayout? = null,
     val panes: Map<String, HerdrPaneState> = emptyMap(),
     val focusedPaneId: String? = null,
+    val focusedTabId: String? = null,
     val homeVisible: Boolean = true,
 )

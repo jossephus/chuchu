@@ -52,14 +52,53 @@ data class HerdrTabLayout(
     val zoomed: Boolean = false,
 )
 
+const val MAX_WARM_PANE_STREAMS = 12
+const val MAX_RECENT_TABS = 2
+
 fun desiredHerdrPaneStreams(
     snapshot: HerdrSnapshot?,
     nativeModeActive: Boolean,
     foreground: Boolean,
+    recentTabIds: List<String> = emptyList(),
+    focusedTabIdOverride: String? = null,
 ): Set<String> {
     if (!nativeModeActive || !foreground || snapshot == null) return emptySet()
-    val layout = snapshot.layouts.firstOrNull { it.tabId == snapshot.focusedTabId } ?: return emptySet()
-    val focusedPaneId = snapshot.focusedPaneId ?: layout.focusedPaneId
+
+    val focusedTabId = focusedTabIdOverride ?: snapshot.focusedTabId
+    val focused = desiredFocusedHerdrPaneStreams(snapshot, focusedTabId)
+    val desired = LinkedHashSet<String>(MAX_WARM_PANE_STREAMS)
+    desired.addAll(focused)
+
+    recentTabIds
+        .asSequence()
+        .filterNot { it == focusedTabId }
+        .forEach { tabId ->
+            val layout = snapshot.layouts.firstOrNull { it.tabId == tabId } ?: return@forEach
+            val paneIds =
+                if (layout.zoomed) {
+                    listOfNotNull(layout.focusedPaneId?.takeIf { it.isNotBlank() })
+                } else {
+                    layout.panes.map { it.paneId }.filter { it.isNotBlank() }
+                }
+            paneIds.forEach { paneId ->
+                if (desired.size < MAX_WARM_PANE_STREAMS) desired.add(paneId)
+            }
+        }
+
+    return desired
+}
+
+private fun desiredFocusedHerdrPaneStreams(
+    snapshot: HerdrSnapshot,
+    focusedTabId: String?,
+): Set<String> {
+    val layout = snapshot.layouts.firstOrNull { it.tabId == focusedTabId } ?: return emptySet()
+    val focusedPaneId =
+        if (focusedTabId == snapshot.focusedTabId) {
+            snapshot.focusedPaneId ?: layout.focusedPaneId
+        } else {
+            layout.focusedPaneId
+        }
     if (layout.zoomed) return focusedPaneId?.let(::setOf) ?: emptySet()
     val paneIds = layout.panes.map { it.paneId }.filter { it.isNotBlank() }.toMutableSet()
     if (paneIds.size <= 6) return paneIds

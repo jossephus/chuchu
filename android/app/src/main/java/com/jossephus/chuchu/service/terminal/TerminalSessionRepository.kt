@@ -7,6 +7,7 @@ import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.multiplexer.HerdrControlState
+import com.jossephus.chuchu.service.multiplexer.MAX_RECENT_TABS
 import com.jossephus.chuchu.service.multiplexer.MultiplexerRegistry
 import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerSession
 import com.jossephus.chuchu.service.multiplexer.desiredHerdrPaneStreams
@@ -50,6 +51,9 @@ class TerminalSessionRepository private constructor(application: Application) {
     private val herdrAgentNotifier = HerdrAgentNotifier(appContext)
     private val herdrStateJobs = mutableMapOf<String, Job>()
     private val herdrCadenceByTab = mutableMapOf<String, Long>()
+    private val herdrRecentTabsByTab = mutableMapOf<String, ArrayDeque<String>>()
+    private val herdrOptimisticFocusLock = Any()
+    @Volatile private var herdrOptimisticFocusTabId: String? = null
 
     private fun publishTerminalClipboard(tabId: String, text: String) {
         if (!canPublishTerminalClipboard(tabId)) return
@@ -290,6 +294,7 @@ class TerminalSessionRepository private constructor(application: Application) {
         val tab = _tabs.value.firstOrNull { it.id == id } ?: return
         herdrStateJobs.remove(id)?.cancel()
         herdrCadenceByTab.remove(id)
+        herdrRecentTabsByTab.remove(id)
         herdrAgentNotifier.removeTab(id)
         val remaining = _tabs.value.filterNot { it.id == id }
         _tabs.value = remaining
@@ -354,6 +359,7 @@ class TerminalSessionRepository private constructor(application: Application) {
         herdrStateJobs.values.forEach(Job::cancel)
         herdrStateJobs.clear()
         herdrCadenceByTab.clear()
+        herdrRecentTabsByTab.clear()
         _herdrFocusedPaneId.value = null
         tabs.forEach { herdrAgentNotifier.removeTab(it.id) }
         tabs.forEach { it.engine.dispose() }
@@ -408,14 +414,30 @@ class TerminalSessionRepository private constructor(application: Application) {
         _tabs.value.forEach { tab ->
             if (tab.id == activeTab?.id && tab.spec.usesHerdrNativeMode) {
                 val snapshot = (tab.engine.herdrState.value as? HerdrControlState.Active)?.snapshot
+                val focusedTabIdOverride = herdrOptimisticFocusTabId
+                val effectiveFocusedTabId = focusedTabIdOverride ?: snapshot?.focusedTabId
+                val recentTabIds =
+                    effectiveFocusedTabId?.let { focusedTabId ->
+                        herdrRecentTabsByTab.getOrPut(tab.id) { ArrayDeque() }.apply {
+                            remove(focusedTabId)
+                            addFirst(focusedTabId)
+                            while (size > MAX_RECENT_TABS + 1) removeLast()
+                        }.toList()
+                    } ?: emptyList()
                 val desired =
                     desiredHerdrPaneStreams(
                         snapshot = snapshot,
                         nativeModeActive = true,
                         foreground = attachedClients > 0,
+                        recentTabIds = recentTabIds,
+                        focusedTabIdOverride = focusedTabIdOverride,
                     )
                 tab.engine.retainHerdrPaneStreams(desired)
-                if (snapshot != null && _herdrFocusedPaneId.value != snapshot.focusedPaneId) {
+                if (
+                    snapshot != null &&
+                    (focusedTabIdOverride == null || focusedTabIdOverride == snapshot.focusedTabId) &&
+                    _herdrFocusedPaneId.value != snapshot.focusedPaneId
+                ) {
                     setHerdrNativeFocus(snapshot.focusedPaneId)
                 }
                 val existing = tab.engine.herdrPanes.value.keys
@@ -457,6 +479,26 @@ class TerminalSessionRepository private constructor(application: Application) {
     fun setHerdrNativeFocus(paneId: String?) {
         _herdrFocusedPaneId.value = paneId
         activeEngine()?.setHerdrFocusedPaneStream(paneId)
+    }
+
+    fun setHerdrOptimisticFocusTab(tabId: String?) {
+        synchronized(herdrOptimisticFocusLock) {
+            herdrOptimisticFocusTabId = tabId
+        }
+        updateHerdrPaneStreams()
+    }
+
+    fun clearHerdrOptimisticFocusTab(tabId: String) {
+        val cleared =
+            synchronized(herdrOptimisticFocusLock) {
+                if (herdrOptimisticFocusTabId != tabId) {
+                    false
+                } else {
+                    herdrOptimisticFocusTabId = null
+                    true
+                }
+            }
+        if (cleared) updateHerdrPaneStreams()
     }
 
     fun herdrTakeover() {
