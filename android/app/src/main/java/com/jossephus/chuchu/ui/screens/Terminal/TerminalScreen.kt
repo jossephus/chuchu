@@ -326,7 +326,11 @@ fun TerminalScreen(
         darkThemeName = currentTheme,
         lightThemeName = lightThemeName,
     )
-    val tabMode by settingsRepo.terminalTabMode.collectAsStateWithLifecycle()
+    val tabModeSetting by settingsRepo.terminalTabMode.collectAsStateWithLifecycle()
+    // Native herdr splits rely on the tab strip (herdr tabs live there); force it
+    // regardless of the general tab-interface setting.
+    val tabMode =
+        if (activeTab?.spec?.usesHerdrNativeMode == true) TerminalTabMode.Strip else tabModeSetting
     val currentAccessoryLayoutIds by settingsRepo.accessoryLayoutIds.collectAsStateWithLifecycle()
     val useSingleRowAccessoryBar by settingsRepo.accessoryBarSingleRow.collectAsStateWithLifecycle()
     val currentTerminalCustomKeyGroups by
@@ -477,6 +481,10 @@ fun TerminalScreen(
                 passphraseFromPicker = fromPicker
                 pendingTabSpec = preparedSpec
                 showPassphrasePrompt = true
+            } else if (preparedSpec.usesHerdrNativeMode) {
+                // Native herdr always attaches to the default session; skip the
+                // multiplexer session-picker preflight so it connects immediately.
+                vm.openTab(preparedSpec.copy(multiplexerSessionName = "default"))
             } else if (preparedSpec.usesRuntimeMultiplexer) {
                 vm.initiateMultiplexerOpen(preparedSpec)
             } else {
