@@ -65,6 +65,22 @@ object HerdrMultiplexer : Multiplexer {
             "while IFS= read -r _; do printf 'CHUCHU_SNAP_BEGIN\\n'; herdr api snapshot 2>/dev/null; " +
             "printf '\\nCHUCHU_SNAP_END\\n'; done"
 
+    fun terminalSessionCommand(
+        paneId: String,
+        cols: Int,
+        rows: Int,
+        mode: HerdrStreamMode,
+    ): String {
+        val command = when (mode) {
+            HerdrStreamMode.Control,
+            HerdrStreamMode.ControlTakeover,
+            -> "control"
+            HerdrStreamMode.Observe -> "observe"
+        }
+        val takeover = if (mode == HerdrStreamMode.ControlTakeover) " --takeover" else ""
+        return pathPrelude + "herdr terminal session $command ${shellQuote(paneId)} --cols $cols --rows $rows$takeover"
+    }
+
     fun focusTabCommand(tabId: String): String =
         pathPrelude + "herdr tab focus ${shellQuote(tabId)}"
 

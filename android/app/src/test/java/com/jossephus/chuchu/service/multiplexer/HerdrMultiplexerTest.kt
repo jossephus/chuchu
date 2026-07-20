@@ -112,4 +112,31 @@ class HerdrMultiplexerTest {
             command,
         )
     }
+
+    @Test
+    fun terminalSessionCommandUsesRequestedModeAndQuotesPaneId() {
+        val prelude = "PATH=\"\$HOME/.local/bin:/usr/local/bin:/opt/homebrew/bin:\$PATH\"; "
+
+        assertEquals(
+            prelude + "herdr terminal session control 'pane-1' --cols 83 --rows 28",
+            HerdrMultiplexer.terminalSessionCommand("pane-1", 83, 28, HerdrStreamMode.Control),
+        )
+        assertEquals(
+            prelude + "herdr terminal session control 'pane-1' --cols 83 --rows 28 --takeover",
+            HerdrMultiplexer.terminalSessionCommand("pane-1", 83, 28, HerdrStreamMode.ControlTakeover),
+        )
+        assertEquals(
+            prelude + "herdr terminal session observe 'pane-1' --cols 83 --rows 28",
+            HerdrMultiplexer.terminalSessionCommand("pane-1", 83, 28, HerdrStreamMode.Observe),
+        )
+        assertEquals(
+            prelude + "herdr terminal session control 'pane'\\''; touch /tmp/nope; '\\''' --cols 83 --rows 28",
+            HerdrMultiplexer.terminalSessionCommand(
+                "pane'; touch /tmp/nope; '",
+                83,
+                28,
+                HerdrStreamMode.Control,
+            ),
+        )
+    }
 }
