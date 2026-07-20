@@ -1401,6 +1401,7 @@ fun TerminalScreen(
                                             onPaneTap = vm::onHerdrPaneTap,
                                             onPaneViewport = vm::onHerdrPaneViewport,
                                             onPaneScroll = vm::onHerdrPaneScroll,
+                                            onFontSizeChange = { sizeSp -> terminalFontSizeSp = sizeSp },
                                             onTakeover = vm::onHerdrTakeover,
                                             requestInputFocus = requestInputFocus,
                                             modifier = Modifier.fillMaxSize(),
@@ -1421,6 +1422,8 @@ fun TerminalScreen(
                                             TerminalCanvas(
                                                 snapshot = terminalSnapshot,
                                                 fontSizeSp = terminalFontSizeSp,
+                                                minFontSizeSp = SettingsRepository.MIN_TERMINAL_FONT_SIZE,
+                                                maxFontSizeSp = SettingsRepository.MAX_TERMINAL_FONT_SIZE,
                                                 cursorColor =
                                                     ghosttyTheme?.cursorColor
                                                         ?: Color.White.copy(alpha = 0.28f),
@@ -1439,14 +1442,7 @@ fun TerminalScreen(
                                                 onPrimaryClick = vm::onPrimaryMouseClick,
                                                 onAppSelectionDrag = vm::onAppSelectionDrag,
                                                 onScroll = vm::onScroll,
-                                                onZoom = { zoomFactor ->
-                                                    terminalFontSizeSp =
-                                                        (terminalFontSizeSp * zoomFactor)
-                                                            .coerceIn(
-                                                                SettingsRepository.MIN_TERMINAL_FONT_SIZE,
-                                                                SettingsRepository.MAX_TERMINAL_FONT_SIZE,
-                                                            )
-                                                },
+                                                onFontSizeChange = { sizeSp -> terminalFontSizeSp = sizeSp },
                                                 onSelectionChanged = { state -> selectionState = state },
                                             )
                                         }

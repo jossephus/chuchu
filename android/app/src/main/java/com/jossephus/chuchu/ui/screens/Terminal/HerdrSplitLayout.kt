@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.service.terminal.HerdrPaneStreamStatus
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
@@ -39,6 +40,7 @@ fun HerdrSplitLayout(
     onPaneTap: (String) -> Unit,
     onPaneViewport: (String, Int, Int, Int, Int, Int, Int) -> Unit,
     onPaneScroll: (String, Int) -> Unit,
+    onFontSizeChange: (Float) -> Unit,
     onTakeover: () -> Unit,
     requestInputFocus: () -> Unit,
     modifier: Modifier = Modifier,
@@ -87,6 +89,7 @@ fun HerdrSplitLayout(
                 onPaneTap = onPaneTap,
                 onPaneViewport = onPaneViewport,
                 onPaneScroll = onPaneScroll,
+                onFontSizeChange = onFontSizeChange,
                 onTakeover = onTakeover,
                 requestInputFocus = requestInputFocus,
                 modifier = paneModifier,
@@ -109,6 +112,7 @@ private fun HerdrSplitPane(
     onPaneTap: (String) -> Unit,
     onPaneViewport: (String, Int, Int, Int, Int, Int, Int) -> Unit,
     onPaneScroll: (String, Int) -> Unit,
+    onFontSizeChange: (Float) -> Unit,
     onTakeover: () -> Unit,
     requestInputFocus: () -> Unit,
     modifier: Modifier,
@@ -135,6 +139,8 @@ private fun HerdrSplitPane(
                 terminalHandle = paneState.handle,
                 enableGestures = focused,
                 fontSizeSp = fontSizeSp,
+                minFontSizeSp = SettingsRepository.MIN_TERMINAL_FONT_SIZE,
+                maxFontSizeSp = SettingsRepository.MAX_TERMINAL_FONT_SIZE,
                 cursorColor = ghosttyTheme?.cursorColor ?: Color.White.copy(alpha = 0.28f),
                 cursorTextColor = ghosttyTheme?.cursorText,
                 selectionBackgroundColor = ghosttyTheme?.selectionBackground ?: colors.accent.copy(alpha = 0.45f),
@@ -154,7 +160,7 @@ private fun HerdrSplitPane(
                 onPrimaryClick = { _, _ -> },
                 onAppSelectionDrag = { _, _, _ -> },
                 onScroll = { delta, _, _ -> onPaneScroll(paneId, delta) },
-                onZoom = {},
+                onFontSizeChange = onFontSizeChange,
                 onSelectionChanged = if (focused) onSelectionChanged else { _: TerminalSelectionState? -> },
                 modifier = Modifier.fillMaxSize(),
             )
