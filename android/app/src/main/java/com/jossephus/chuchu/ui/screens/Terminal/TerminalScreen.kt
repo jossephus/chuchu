@@ -408,6 +408,10 @@ fun TerminalScreen(
         }
     val multiplexerState by vm.multiplexerState.collectAsStateWithLifecycle()
     val herdrUiState by vm.herdrUiState.collectAsStateWithLifecycle()
+    val herdrNativeState by vm.herdrNativeState.collectAsStateWithLifecycle()
+    var herdrSelection by remember(herdrNativeState.focusedPaneId) { mutableStateOf<TerminalSelection?>(null) }
+    var herdrSelectionState by
+        remember(herdrNativeState.focusedPaneId) { mutableStateOf<TerminalSelectionState?>(null) }
 
     LaunchedEffect(terminalFontSizeSp) {
         settingsRepo.setTerminalFontSize(terminalFontSizeSp)
@@ -808,7 +812,7 @@ fun TerminalScreen(
         SessionStatus.Reconnecting -> {
             val isReconnecting = sessionState.status == SessionStatus.Reconnecting
             val snapshot = sessionState.snapshot
-            if (snapshot != null) {
+            if (snapshot != null || herdrNativeState.enabled) {
                 var modifierState by remember { mutableStateOf(ModifierState()) }
                 val inputViewRef = remember { mutableStateOf<TerminalInputView?>(null) }
                 var menuSize by remember { mutableStateOf(IntSize.Zero) }
@@ -1269,37 +1273,71 @@ fun TerminalScreen(
                             }
                         } else {
                             Box(modifier = Modifier.weight(1f)) {
-                                TerminalCanvas(
-                                    snapshot = snapshot,
-                                    fontSizeSp = terminalFontSizeSp,
-                                    cursorColor =
-                                        ghosttyTheme?.cursorColor
-                                            ?: Color.White.copy(alpha = 0.28f),
-                                    cursorTextColor = ghosttyTheme?.cursorText,
-                                    selectionBackgroundColor =
-                                        ghosttyTheme?.selectionBackground
-                                            ?: colors.accent.copy(alpha = 0.45f),
-                                    selectionForegroundColor =
-                                        ghosttyTheme?.selectionForeground ?: colors.onAccent,
-                                    selection = selection,
-                                    onSelectionChange = { selection = it },
-                                    terminalHandle = sessionState.handle,
-                                    modifier = Modifier.fillMaxSize(),
-                                    onResize = vm::onCanvasSizeChanged,
-                                    onTap = requestInputFocus,
-                                    onPrimaryClick = vm::onPrimaryMouseClick,
-                                    onAppSelectionDrag = vm::onAppSelectionDrag,
-                                    onScroll = vm::onScroll,
-                                    onZoom = { zoomFactor ->
-                                        terminalFontSizeSp =
-                                            (terminalFontSizeSp * zoomFactor)
-                                                .coerceIn(
-                                                    SettingsRepository.MIN_TERMINAL_FONT_SIZE,
-                                                    SettingsRepository.MAX_TERMINAL_FONT_SIZE,
-                                                )
-                                    },
-                                    onSelectionChanged = { state -> selectionState = state },
-                                )
+                                when {
+                                    herdrNativeState.enabled &&
+                                        herdrNativeState.layout?.panes?.isNotEmpty() == true -> {
+                                        HerdrSplitLayout(
+                                            state = herdrNativeState,
+                                            fontSizeSp = terminalFontSizeSp,
+                                            ghosttyTheme = ghosttyTheme,
+                                            colors = colors,
+                                            selection = herdrSelection,
+                                            onSelectionChange = { herdrSelection = it },
+                                            onSelectionChanged = { herdrSelectionState = it },
+                                            onPaneTap = vm::onHerdrPaneTap,
+                                            onPaneViewport = vm::onHerdrPaneViewport,
+                                            onPaneScroll = vm::onHerdrPaneScroll,
+                                            onTakeover = vm::onHerdrTakeover,
+                                            requestInputFocus = requestInputFocus,
+                                            modifier = Modifier.fillMaxSize(),
+                                        )
+                                    }
+
+                                    herdrNativeState.enabled -> {
+                                        ChuText(
+                                            "preparing herdr…",
+                                            style = typography.labelSmall,
+                                            color = colors.textMuted,
+                                            modifier = Modifier.align(Alignment.Center),
+                                        )
+                                    }
+
+                                    else -> {
+                                        snapshot?.let { terminalSnapshot ->
+                                            TerminalCanvas(
+                                                snapshot = terminalSnapshot,
+                                                fontSizeSp = terminalFontSizeSp,
+                                                cursorColor =
+                                                    ghosttyTheme?.cursorColor
+                                                        ?: Color.White.copy(alpha = 0.28f),
+                                                cursorTextColor = ghosttyTheme?.cursorText,
+                                                selectionBackgroundColor =
+                                                    ghosttyTheme?.selectionBackground
+                                                        ?: colors.accent.copy(alpha = 0.45f),
+                                                selectionForegroundColor =
+                                                    ghosttyTheme?.selectionForeground ?: colors.onAccent,
+                                                selection = selection,
+                                                onSelectionChange = { selection = it },
+                                                terminalHandle = sessionState.handle,
+                                                modifier = Modifier.fillMaxSize(),
+                                                onResize = vm::onCanvasSizeChanged,
+                                                onTap = requestInputFocus,
+                                                onPrimaryClick = vm::onPrimaryMouseClick,
+                                                onAppSelectionDrag = vm::onAppSelectionDrag,
+                                                onScroll = vm::onScroll,
+                                                onZoom = { zoomFactor ->
+                                                    terminalFontSizeSp =
+                                                        (terminalFontSizeSp * zoomFactor)
+                                                            .coerceIn(
+                                                                SettingsRepository.MIN_TERMINAL_FONT_SIZE,
+                                                                SettingsRepository.MAX_TERMINAL_FONT_SIZE,
+                                                            )
+                                                },
+                                                onSelectionChanged = { state -> selectionState = state },
+                                            )
+                                        }
+                                    }
+                                }
 
                                 Row(
                                     modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),

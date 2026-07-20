@@ -55,6 +55,15 @@ object HerdrMultiplexer : Multiplexer {
         }
     }
 
+    fun nativeModeLaunchCommand(sessionName: String): String {
+        val target = shellQuote(sessionName)
+        val pattern = shellQuote("\"name\":\"$sessionName\"")
+        return pathPrelude +
+            "if ! herdr session list --json 2>/dev/null | grep -Fq -- $pattern; then " +
+            "printf 'herdr session %s is not running on this host\\n' $target; exit 1; fi; " +
+            "while :; do sleep 3600; done"
+    }
+
     override fun defaultSessionName(
         remoteSessions: Collection<RemoteMultiplexerSession>,
         localSessionNames: Collection<String>,
