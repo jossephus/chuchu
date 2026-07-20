@@ -63,7 +63,16 @@ fun HerdrSwitcherHome(
             )
         }
 
+        val needsYou = snapshot.agents
+            .filter { it.agentStatus == HerdrAgentStatus.Blocked || it.agentStatus == HerdrAgentStatus.Done }
+            .sortedBy { if (it.agentStatus == HerdrAgentStatus.Blocked) 0 else 1 }
+
         LazyColumn(modifier = Modifier.fillMaxSize()) {
+            if (needsYou.isNotEmpty()) {
+                item(key = "needs-you") {
+                    HerdrNeedsYou(agents = needsYou, onEnterAgent = onEnterAgent)
+                }
+            }
             item(key = "connections") {
                 HerdrConnections(
                     connections = connections,
@@ -88,6 +97,54 @@ fun HerdrSwitcherHome(
                         agents = snapshot.agents.filter { it.workspaceId == workspace.workspaceId },
                         onEnterWorkspace = onEnterWorkspace,
                         onEnterAgent = onEnterAgent,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HerdrNeedsYou(
+    agents: List<HerdrAgent>,
+    onEnterAgent: (agentPaneId: String, tabId: String) -> Unit,
+) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+
+    ChuText(
+        "needs you",
+        style = typography.label,
+        color = colors.textSecondary,
+        modifier = Modifier.padding(start = 12.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+    )
+    agents.forEach { agent ->
+        val color = herdrAgentStatusColor(agent.agentStatus, colors)
+        val name = agent.agent?.takeIf { it.isNotBlank() } ?: "shell"
+        val title = agent.terminalTitleStripped?.takeIf { it.isNotBlank() }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 2.dp)
+                .border(1.dp, color.copy(alpha = 0.55f))
+                .clickable { onEnterAgent(agent.paneId, agent.tabId) }
+                .padding(horizontal = 10.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Box(modifier = Modifier.size(6.dp).background(color))
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ChuText(name, style = typography.body, color = colors.textSecondary)
+                    ChuText(agent.agentStatus.name.lowercase(), style = typography.labelSmall, color = color)
+                }
+                title?.let {
+                    ChuText(
+                        it,
+                        style = typography.labelSmall,
+                        color = colors.textMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
