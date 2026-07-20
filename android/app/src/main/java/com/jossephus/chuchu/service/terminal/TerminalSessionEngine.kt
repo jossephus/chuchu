@@ -711,6 +711,8 @@ class TerminalSessionEngine(
             _herdrPaneHosts.value = _herdrPaneHosts.value + (paneId to host)
             host.start(cols, rows, HerdrStreamMode.Control)
             host.setViewport(cols, rows, cellWidthPx, cellHeightPx)
+            pendingColorScheme?.let { host.setColorScheme(it == 1) }
+            pendingDefaultColors?.let { host.setDefaultColors(it.fg, it.bg, it.cursor, it.palette) }
             if (focused) herdrFocusedPaneId = paneId
         }
     }
