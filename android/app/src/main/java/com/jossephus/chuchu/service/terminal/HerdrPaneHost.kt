@@ -12,13 +12,14 @@ import com.jossephus.chuchu.service.multiplexer.herdrResizeJson
 import com.jossephus.chuchu.service.multiplexer.herdrScrollCommand
 import com.jossephus.chuchu.service.multiplexer.herdrScrollJson
 import com.jossephus.chuchu.service.multiplexer.parseHerdrStreamMessage
-import com.jossephus.chuchu.service.ssh.NativeSshService
+import com.jossephus.chuchu.service.ssh.SharedSshConnection
 import java.util.concurrent.Executors
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
@@ -48,7 +49,7 @@ data class HerdrPaneState(
 
 class HerdrPaneHost(
     val paneId: String,
-    private val sshFactory: () -> NativeSshService,
+    private val connection: SharedSshConnection,
     private val runCommand: (HerdrStreamMode, Int, Int) -> String,
     private val scope: CoroutineScope,
 ) {
@@ -58,7 +59,7 @@ class HerdrPaneHost(
     }
 
     private data class PendingCommand(
-        val service: NativeSshService,
+        val channelId: Int,
         val json: String,
     )
 
@@ -73,7 +74,7 @@ class HerdrPaneHost(
     val state: StateFlow<HerdrPaneState> = _state.asStateFlow()
 
     @Volatile private var disposed = false
-    @Volatile private var streamService: NativeSshService? = null
+    @Volatile private var streamChannelId: Int? = null
     private var streamJob: Job? = null
     private var handle = 0L
     private var cols = 80
@@ -181,10 +182,9 @@ class HerdrPaneHost(
         disposed = true
         streamJob?.cancel()
         streamJob = null
-        streamService?.let { service -> runCatching { service.close() } }
-        streamService = null
         runBlocking {
             withContext(dispatcher) {
+                closeStreamChannel()
                 snapshotScheduled = false
                 if (handle != 0L) {
                     bridge.nativeDestroy(handle)
@@ -196,11 +196,10 @@ class HerdrPaneHost(
         dispatcher.close()
     }
 
-    private fun restartStream() {
+    private suspend fun restartStream() {
         streamJob?.cancel()
         streamJob = null
-        streamService?.let { service -> runCatching { service.close() } }
-        streamService = null
+        closeStreamChannel()
         _state.value =
             _state.value.copy(
                 status = HerdrPaneStreamStatus.Connecting,
@@ -215,18 +214,15 @@ class HerdrPaneHost(
         var mode = initialMode
         var retryDelayMs = 2_000L
         while (currentCoroutineContext().isActive && !disposed) {
-            var service: NativeSshService? = null
+            var channelId: Int? = null
             var failed = false
             try {
                 setConnecting(mode)
-                service = sshFactory()
                 val (commandCols, commandRows) = withContext(dispatcher) { cols to rows }
-                if (!service.openExec(runCommand(mode, commandCols, commandRows))) {
-                    throw IllegalStateException("Remote server did not open an exec channel")
-                }
-                streamService = service
+                channelId = connection.openExecChannel(runCommand(mode, commandCols, commandRows))
+                streamChannelId = channelId
                 retryDelayMs = 2_000L
-                when (readFrames(service, mode)) {
+                when (readFrames(channelId, mode)) {
                     StreamEnd.Restart -> Unit
                     StreamEnd.ControlRefused -> {
                         mode = HerdrStreamMode.Observe
@@ -239,8 +235,10 @@ class HerdrPaneHost(
                 failed = true
                 setError(error.message ?: "Herdr terminal stream failed")
             } finally {
-                if (streamService === service) streamService = null
-                service?.let { runCatching { it.close() } }
+                if (streamChannelId == channelId) streamChannelId = null
+                channelId?.let { id ->
+                    withContext(NonCancellable) { runCatching { connection.closeChannel(id) } }
+                }
             }
             if (failed && !disposed) {
                 delay(retryDelayMs)
@@ -249,12 +247,12 @@ class HerdrPaneHost(
         }
     }
 
-    private suspend fun readFrames(service: NativeSshService, mode: HerdrStreamMode): StreamEnd {
+    private suspend fun readFrames(channelId: Int, mode: HerdrStreamMode): StreamEnd {
         val buffer = StringBuilder()
         var lastSeq: Long? = null
         while (currentCoroutineContext().isActive && !disposed) {
-            writePendingCommands(service)
-            val chunk = service.read(8192)
+            writePendingCommands(channelId)
+            val chunk = connection.readChannel(channelId, 8192)
             if (chunk != null && chunk.isNotEmpty()) {
                 for (line in appendHerdrNdjsonChunk(buffer, chunk.toString(Charsets.UTF_8))) {
                     when (val message = parseHerdrStreamMessage(line)) {
@@ -278,7 +276,7 @@ class HerdrPaneHost(
                         null -> Unit
                     }
                 }
-            } else if (service.isChannelEof()) {
+            } else if (connection.channelEof(channelId)) {
                 throw IllegalStateException("Herdr terminal stream ended")
             } else {
                 delay(25)
@@ -287,11 +285,11 @@ class HerdrPaneHost(
         throw CancellationException()
     }
 
-    private fun writePendingCommands(service: NativeSshService) {
+    private suspend fun writePendingCommands(channelId: Int) {
         while (true) {
             val pending = pendingCommands.tryReceive().getOrNull() ?: return
-            if (pending.service === service) {
-                service.write((pending.json + "\n").toByteArray(Charsets.UTF_8))
+            if (pending.channelId == channelId) {
+                connection.writeChannel(channelId, (pending.json + "\n").toByteArray(Charsets.UTF_8))
             }
         }
     }
@@ -348,8 +346,14 @@ class HerdrPaneHost(
 
     private fun sendCommand(json: String, allowReadOnly: Boolean = false) {
         if (disposed || (!allowReadOnly && _state.value.readOnly)) return
-        val service = streamService ?: return
-        pendingCommands.trySend(PendingCommand(service, json))
+        val channelId = streamChannelId ?: return
+        pendingCommands.trySend(PendingCommand(channelId, json))
+    }
+
+    private suspend fun closeStreamChannel() {
+        val channelId = streamChannelId ?: return
+        streamChannelId = null
+        runCatching { connection.closeChannel(channelId) }
     }
 
     private fun requestSnapshot(force: Boolean = false) {

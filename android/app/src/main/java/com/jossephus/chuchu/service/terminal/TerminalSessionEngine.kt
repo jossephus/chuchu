@@ -21,6 +21,7 @@ import com.jossephus.chuchu.service.multiplexer.appendHerdrStreamChunk
 import com.jossephus.chuchu.service.multiplexer.parseHerdrSnapshot
 import com.jossephus.chuchu.service.ssh.HostKeyStore
 import com.jossephus.chuchu.service.ssh.NativeSshService
+import com.jossephus.chuchu.service.ssh.SharedSshConnection
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
 import java.util.concurrent.Executors
 import kotlinx.coroutines.CancellationException
@@ -45,6 +46,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
@@ -147,6 +150,8 @@ class TerminalSessionEngine(
     private var lastConnectionParams: ConnectionParams? = null
     private var reconnectJob: Job? = null
     private var disconnectRequested = false
+    private var herdrConnection: SharedSshConnection? = null
+    private val herdrConnectionMutex = Mutex()
     private var herdrStreamJob: Job? = null
     @Volatile private var herdrStreamService: NativeSshService? = null
     private val herdrPoke = Channel<Unit>(Channel.CONFLATED)
@@ -689,20 +694,7 @@ class TerminalSessionEngine(
             val host =
                 HerdrPaneHost(
                     paneId = paneId,
-                    sshFactory = {
-                        NativeSshService(hostKeyPolicy = ::verifyHostKey).also { service ->
-                            service.connect(
-                                host = params.host,
-                                port = params.port,
-                                username = params.username,
-                                authMethod = params.authMethod,
-                                password = if (params.authMethod == AuthMethod.Password) params.password else "",
-                                publicKeyOpenSsh = params.publicKeyOpenSsh,
-                                privateKeyPem = params.privateKeyPem,
-                                keyPassphrase = params.keyPassphrase,
-                            )
-                        }
-                    },
+                    connection = ensureHerdrConnection(params),
                     runCommand = { mode, commandCols, commandRows ->
                         HerdrMultiplexer.terminalSessionCommand(paneId, commandCols, commandRows, mode)
                     },
@@ -749,7 +741,31 @@ class TerminalSessionEngine(
         _herdrPaneHosts.value.values.forEach(HerdrPaneHost::dispose)
         _herdrPaneHosts.value = emptyMap()
         herdrFocusedPaneId = null
+        herdrConnection?.close()
+        herdrConnection = null
     }
+
+    private suspend fun ensureHerdrConnection(params: ConnectionParams): SharedSshConnection =
+        herdrConnectionMutex.withLock {
+            val current = herdrConnection
+            if (current?.connected == true) return@withLock current
+            current?.close()
+            herdrConnection = null
+            val connection: SharedSshConnection = SharedSshConnection(
+                host = params.host,
+                port = params.port,
+                username = params.username,
+                authMethod = params.authMethod,
+                password = if (params.authMethod == AuthMethod.Password) params.password else "",
+                publicKeyOpenSsh = params.publicKeyOpenSsh,
+                privateKeyPem = params.privateKeyPem,
+                keyPassphrase = params.keyPassphrase,
+                hostKeyPolicy = ::verifyHostKey,
+            )
+            connection.connect()
+            herdrConnection = connection
+            connection
+        }
 
     private fun cancelHostKeyPrompt() {
         hostKeyDecision?.cancel()
@@ -1169,7 +1185,13 @@ class TerminalSessionEngine(
                     stderr = "Herdr control is only available for an active Herdr SSH session",
                 )
             }
-            val result = runMultiplexerCommand(params, command())
+            val connection = runCatching { ensureHerdrConnection(params) }.getOrNull()
+            val result =
+                if (connection?.connected == true) {
+                    connection.runCommand(command())
+                } else {
+                    runMultiplexerCommand(params, command())
+                }
             pokeHerdr()
             result
         }
