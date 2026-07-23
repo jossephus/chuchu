@@ -41,6 +41,12 @@ enum class MoshState(val code: Int) {
 class NativeMoshService(
     private val bridge: NativeMoshBridge = NativeMoshBridge(),
 ) : Closeable {
+    private companion object {
+        const val INITIAL_OUTPUT_BUFFER_SIZE = 4096
+        const val MAX_OUTPUT_BUFFER_SIZE = 1024 * 1024
+        const val OUTPUT_BUFFER_TOO_SMALL = 6
+    }
+
     private var handle: Long = 0L
     private val outputMeta = LongArray(5)
     private val stateBuf = LongArray(7)
@@ -81,20 +87,28 @@ class NativeMoshService(
     /// Poll one output event. Returns null if no event is queued.
     fun pollOutput(): MoshOutputEvent? {
         if (handle == 0L) return null
-        val buf = ByteArray(4096)
-        val rc = bridge.nativePollOutput(handle, buf, outputMeta)
-        if (rc != 0) return null
-        val eventType = outputMeta[0].toInt()
-        if (eventType == 0) return null // MOSH_EVENT_NONE
-        val written = outputMeta[1].toInt()
-        val payload = if (written > 0) buf.copyOfRange(0, written) else ByteArray(0)
-        return MoshOutputEvent(
-            eventType = eventType,
-            payload = payload,
-            cols = outputMeta[2].toInt(),
-            rows = outputMeta[3].toInt(),
-            echoAck = outputMeta[4],
-        )
+        var capacity = INITIAL_OUTPUT_BUFFER_SIZE
+        while (true) {
+            val buf = ByteArray(capacity)
+            val rc = bridge.nativePollOutput(handle, buf, outputMeta)
+            if (rc == OUTPUT_BUFFER_TOO_SMALL && capacity < MAX_OUTPUT_BUFFER_SIZE) {
+                capacity = (capacity * 2).coerceAtMost(MAX_OUTPUT_BUFFER_SIZE)
+                continue
+            }
+            check(rc == 0) { "Failed to poll mosh output (error $rc, buffer $capacity bytes)" }
+
+            val eventType = outputMeta[0].toInt()
+            if (eventType == 0) return null // MOSH_EVENT_NONE
+            val written = outputMeta[1].toInt()
+            val payload = if (written > 0) buf.copyOfRange(0, written) else ByteArray(0)
+            return MoshOutputEvent(
+                eventType = eventType,
+                payload = payload,
+                cols = outputMeta[2].toInt(),
+                rows = outputMeta[3].toInt(),
+                echoAck = outputMeta[4],
+            )
+        }
     }
 
     fun pollState(): MoshRuntimeState? {
