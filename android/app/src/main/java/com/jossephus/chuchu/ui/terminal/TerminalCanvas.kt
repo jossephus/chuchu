@@ -143,7 +143,9 @@ fun TerminalCanvas(
         }
     }
     val drawBuffer = remember { StringBuilder(256) }
-    val singleGlyphCache = remember {
+    // Keyed on the typeface because displayGlyph() stores font-dependent
+    // fallback substitutions in it.
+    val singleGlyphCache = remember(primaryTypeface) {
         HashMap<Int, String>(256).apply {
             for (cp in 33..126) this[cp] = cp.toChar().toString()
         }
@@ -594,6 +596,7 @@ fun TerminalCanvas(
                             cache = singlePaintChoiceCache,
                             primaryPaint = primaryTextPaint,
                             symbolsPaint = symbolsTextPaint,
+                            emojiPaint = emojiTextPaint,
                         )
                     } else {
                         pickPaintChoice(
@@ -604,7 +607,11 @@ fun TerminalCanvas(
                         )
                     }
                     sb.setLength(0)
-                    if (firstGlyph == null) sb.appendCodePoint(cp) else sb.append(firstGlyph)
+                    if (firstGlyph == null) {
+                        sb.append(displayGlyph(cp, singleGlyphCache, primaryTextPaint, emojiTextPaint))
+                    } else {
+                        sb.append(firstGlyph)
+                    }
                     val startCol = i - rowStart
                     var j = i + 1
 
@@ -639,6 +646,7 @@ fun TerminalCanvas(
                                 cache = singlePaintChoiceCache,
                                 primaryPaint = primaryTextPaint,
                                 symbolsPaint = symbolsTextPaint,
+                                emojiPaint = emojiTextPaint,
                             )
                         } else {
                             pickPaintChoice(
@@ -650,7 +658,11 @@ fun TerminalCanvas(
                         }
                         if (nextPaintChoice != firstPaintChoice) break
 
-                        if (glyph == null) sb.appendCodePoint(c) else sb.append(glyph)
+                        if (glyph == null) {
+                            sb.append(displayGlyph(c, singleGlyphCache, primaryTextPaint, emojiTextPaint))
+                        } else {
+                            sb.append(glyph)
+                        }
                         j++
                     }
 
@@ -706,7 +718,7 @@ fun TerminalCanvas(
                     if (codepoint != 0 && codepoint != 32) {
                         val extras = snapshot.graphemeExtras[cursorIndex]
                         val glyph = if (extras == null || extras.isEmpty()) {
-                            singleGlyphCache.getOrPut(codepoint) { String(Character.toChars(codepoint)) }
+                            displayGlyph(codepoint, singleGlyphCache, primaryTextPaint, emojiTextPaint)
                         } else {
                             snapshot.glyphAt(cursorIndex)
                         }
@@ -717,6 +729,7 @@ fun TerminalCanvas(
                                 cache = singlePaintChoiceCache,
                                 primaryPaint = primaryTextPaint,
                                 symbolsPaint = symbolsTextPaint,
+                                emojiPaint = emojiTextPaint,
                             )
                         } else {
                             pickPaintChoice(
@@ -835,6 +848,47 @@ private const val PAINT_SYMBOLS: Int = 1
 private const val PAINT_EMOJI: Int = 2
 
 /**
+ * Render-only fallback chains for symbols that the selectable terminal fonts,
+ * the bundled Nerd Font symbols, and some devices' system fallback fonts all
+ * lack. Each chain is walked until a paint can draw the candidate, ending in
+ * an ASCII glyph the primary font always has.
+ *
+ * U+23F4..U+23F7 are the media-control triangles Claude Code uses in its
+ * permission-mode indicator ("⏵⏵ bypass permissions on"). Unlike their
+ * siblings U+23F8..U+23FA they are not emoji, so NotoColorEmoji does not
+ * cover them and availability depends on the device's symbol fonts.
+ *
+ * Only the glyph handed to the canvas is substituted — the terminal snapshot,
+ * selection, and copied text keep the original codepoint.
+ */
+private val RENDER_FALLBACK_CHAINS: Map<Int, Array<String>> = mapOf(
+    0x23F4 to arrayOf("◀", "<"), // ⏴ → ◀ → <
+    0x23F5 to arrayOf("▶", ">"), // ⏵ → ▶ → >
+    0x23F6 to arrayOf("▲", "^"), // ⏶ → ▲ → ^
+    0x23F7 to arrayOf("▼", "v"), // ⏷ → ▼ → v
+)
+
+/**
+ * Resolve the string actually drawn for a single-codepoint cell. Returns the
+ * codepoint itself unless no available paint can render it and a fallback
+ * chain exists for it, so devices whose fonts do cover these symbols keep the
+ * authentic glyphs.
+ */
+private fun displayGlyph(
+    codepoint: Int,
+    glyphCache: HashMap<Int, String>,
+    primaryPaint: Paint,
+    emojiPaint: Paint,
+): String = glyphCache.getOrPut(codepoint) {
+    val original = String(Character.toChars(codepoint))
+    val chain = RENDER_FALLBACK_CHAINS[codepoint] ?: return@getOrPut original
+    if (primaryPaint.hasGlyph(original) || emojiPaint.hasGlyph(original)) {
+        return@getOrPut original
+    }
+    chain.firstOrNull { primaryPaint.hasGlyph(it) || emojiPaint.hasGlyph(it) } ?: chain.last()
+}
+
+/**
  * Decide which paint should render a grapheme cluster.
  *
  * Order of preference:
@@ -869,12 +923,13 @@ private fun pickPaintChoice(
     cache: HashMap<Int, Int>,
     primaryPaint: Paint,
     symbolsPaint: Paint,
+    emojiPaint: Paint,
 ): Int {
     // Fast path for the overwhelmingly common command-output ASCII glyphs.
     if (codepoint in 0x21..0x7E) return PAINT_PRIMARY
 
     return cache.getOrPut(codepoint) {
-        val glyph = glyphCache.getOrPut(codepoint) { String(Character.toChars(codepoint)) }
+        val glyph = displayGlyph(codepoint, glyphCache, primaryPaint, emojiPaint)
         if (primaryPaint.hasGlyph(glyph)) return@getOrPut PAINT_PRIMARY
         if (isNerdFontPrivateUse(codepoint) && symbolsPaint.hasGlyph(glyph)) {
             return@getOrPut PAINT_SYMBOLS
