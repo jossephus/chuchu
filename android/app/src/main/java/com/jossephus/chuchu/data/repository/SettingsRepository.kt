@@ -53,6 +53,9 @@ class SettingsRepository(context: Context) {
     private val _localShellEnabled = MutableStateFlow(prefs.getBoolean(KEY_LOCAL_SHELL_ENABLED, true))
     val localShellEnabled: StateFlow<Boolean> = _localShellEnabled.asStateFlow()
 
+    private val _keepScreenAwake = MutableStateFlow(prefs.getBoolean(KEY_KEEP_SCREEN_AWAKE, false))
+    val keepScreenAwake: StateFlow<Boolean> = _keepScreenAwake.asStateFlow()
+
     private val _terminalTabMode = MutableStateFlow(
         parseTabMode(prefs.getString(KEY_TAB_MODE, TerminalTabMode.Classic.name)),
     )
@@ -131,6 +134,11 @@ class SettingsRepository(context: Context) {
         _localShellEnabled.value = enabled
     }
 
+    fun setKeepScreenAwake(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_KEEP_SCREEN_AWAKE, enabled).apply()
+        _keepScreenAwake.value = enabled
+    }
+
     fun setThemeMode(mode: ThemeMode) {
         prefs.edit().putString(KEY_THEME_MODE, mode.name).apply()
         _themeMode.value = mode
@@ -193,6 +201,7 @@ class SettingsRepository(context: Context) {
         private const val KEY_APP_LOCK_ENABLED = "app_lock_enabled"
         private const val KEY_REQUIRE_AUTH_ON_CONNECT = "require_auth_on_connect"
         private const val KEY_LOCAL_SHELL_ENABLED = "local_shell_enabled"
+        private const val KEY_KEEP_SCREEN_AWAKE = "keep_screen_awake"
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_LIGHT_THEME = "light_theme_name"
         private const val KEY_TERMINAL_FONT_SIZE = "terminal_font_size_sp"
