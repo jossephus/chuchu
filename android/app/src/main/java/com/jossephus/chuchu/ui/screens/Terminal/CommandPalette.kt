@@ -212,7 +212,7 @@ fun CommandPalette(
                     onTap = {},
                     onPrimaryClick = { _, _ -> },
                     onScroll = { _, _, _ -> },
-                    onZoom = {},
+                    onFontSizeChange = {},
                     onSelectionChanged = {},
                     modifier = Modifier.fillMaxSize(),
                 )
