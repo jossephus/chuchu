@@ -10,16 +10,24 @@ import com.jossephus.chuchu.data.repository.HostRepository
 import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.data.repository.SshKeyRepository
 import com.jossephus.chuchu.model.HostProfile
+import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.Transport
+import com.jossephus.chuchu.service.multiplexer.HerdrControlState
+import com.jossephus.chuchu.service.multiplexer.HerdrSnapshot
+import com.jossephus.chuchu.service.multiplexer.HerdrSplitDirection
+import com.jossephus.chuchu.service.multiplexer.HerdrTabLayout
 import com.jossephus.chuchu.service.multiplexer.MultiplexerRegistry
+import com.jossephus.chuchu.service.multiplexer.MultiplexerCommandResult
 import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerSession
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
 import com.jossephus.chuchu.service.terminal.HostKeyPrompt
+import com.jossephus.chuchu.service.terminal.HerdrPaneState
 import com.jossephus.chuchu.service.terminal.SessionState
 import com.jossephus.chuchu.service.terminal.TabSession
 import com.jossephus.chuchu.service.terminal.TabSpec
 import com.jossephus.chuchu.service.terminal.TerminalMouseAction
 import com.jossephus.chuchu.service.terminal.TerminalMouseButton
+import com.jossephus.chuchu.service.terminal.TerminalSessionEngine
 import com.jossephus.chuchu.service.terminal.TerminalSessionRepository
 import com.jossephus.chuchu.ui.screens.Files.ConnectionTab
 import com.jossephus.chuchu.ui.screens.Files.FileBrowserEntry
@@ -42,12 +50,18 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class TerminalViewModel(application: Application) : AndroidViewModel(application) {
@@ -68,6 +82,10 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     private var pendingMultiplexerAction: PendingMultiplexerAction? = null
     private var multiplexerActionGeneration = 0L
     private var multiplexerSessionListGeneration = 0L
+    private val _herdrActionError = MutableStateFlow<String?>(null)
+    private val _herdrHomeVisible = MutableStateFlow(true)
+    private val _herdrOptimisticTabId = MutableStateFlow<String?>(null)
+    val herdrHomeVisible: StateFlow<Boolean> = _herdrHomeVisible.asStateFlow()
 
     private val _tailscaleActive = MutableStateFlow(tailscaleStatusChecker.isActive())
     val tailscaleActive: StateFlow<Boolean> = _tailscaleActive.asStateFlow()
@@ -77,6 +95,46 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     val activeTab: StateFlow<TabSession?> = sessionRepository.activeTab
     val sessionState: StateFlow<SessionState> = sessionRepository.sessionState
     val hostKeyPrompt: StateFlow<HostKeyPrompt?> = sessionRepository.hostKeyPrompt
+    val herdrUiState: StateFlow<HerdrUiState> =
+        activeTab
+            .flatMapLatest { tab ->
+                if (tab != null && tab.spec.usesHerdrNativeMode) {
+                    combine(tab.engine.herdrState, _herdrActionError) { control, actionError ->
+                        HerdrUiState(control = control, enabled = true, actionError = actionError)
+                    }
+                } else {
+                    flowOf(HerdrUiState())
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, HerdrUiState())
+    val herdrNativeState: StateFlow<HerdrNativeUiState> =
+        activeTab
+            .flatMapLatest { tab ->
+                if (tab?.spec?.usesHerdrNativeMode == true) {
+                    combine(
+                        tab.engine.herdrState,
+                        tab.engine.herdrPaneStates,
+                        sessionRepository.herdrFocusedPaneId,
+                        herdrHomeVisible,
+                        _herdrOptimisticTabId,
+                    ) { control, panes, focusedPaneId, homeVisible, optimisticTabId ->
+                        val snapshot = (control as? HerdrControlState.Active)?.snapshot
+                        val effectiveTabId = optimisticTabId ?: snapshot?.focusedTabId
+                        HerdrNativeUiState(
+                            enabled = true,
+                            snapshot = snapshot,
+                            layout = snapshot?.layouts?.firstOrNull { it.tabId == effectiveTabId },
+                            panes = panes,
+                            focusedPaneId = focusedPaneId,
+                            focusedTabId = effectiveTabId,
+                            homeVisible = homeVisible,
+                        )
+                    }
+                } else {
+                    flowOf(HerdrNativeUiState())
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, HerdrNativeUiState())
     val hosts: StateFlow<List<HostProfile>> =
         hostRepository.observeAll().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val hostsLoaded: StateFlow<Boolean> =
@@ -84,6 +142,19 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
 
     init {
         sessionRepository.attachClient()
+        viewModelScope.launch {
+            activeTabId.collect { id ->
+                val tab = sessionRepository.tabs.value.firstOrNull { it.id == id }
+                if (tab?.spec?.usesHerdrNativeMode == true) _herdrHomeVisible.value = true
+            }
+        }
+        viewModelScope.launch {
+            activeTabId.drop(1).collect {
+                val optimisticTabId = _herdrOptimisticTabId.value ?: return@collect
+                _herdrOptimisticTabId.value = null
+                sessionRepository.clearHerdrOptimisticFocusTab(optimisticTabId)
+            }
+        }
     }
 
     private val _connectionTabByTab = MutableStateFlow<Map<String, ConnectionTab>>(emptyMap())
@@ -410,6 +481,156 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
 
     fun selectTab(id: String) {
         sessionRepository.selectTab(id)
+    }
+
+    fun onHerdrFocusTab(tabId: String) {
+        showHerdrSplitsIfNative()
+        val engine = sessionRepository.activeTab.value?.engine ?: return
+        val snapshot = (engine.herdrState.value as? HerdrControlState.Active)?.snapshot
+        val layout = snapshot?.layouts?.firstOrNull { it.tabId == tabId }
+        if (layout == null) {
+            runHerdrCommand { it.herdrFocusTab(tabId) }
+            return
+        }
+
+        _herdrOptimisticTabId.value = tabId
+        sessionRepository.setHerdrOptimisticFocusTab(tabId)
+        layout.focusedPaneId?.let(sessionRepository::setHerdrNativeFocus)
+        viewModelScope.launch {
+            val result =
+                runCatching { engine.herdrFocusTab(tabId) }.getOrElse { error ->
+                    MultiplexerCommandResult(1, "", error.message ?: "Herdr command failed")
+                }
+            updateHerdrActionError(result)
+            if (result.exitCode != 0) {
+                clearHerdrOptimisticTab(tabId)
+                return@launch
+            }
+
+            withTimeoutOrNull(4_000) {
+                engine.herdrState.first { control ->
+                    (control as? HerdrControlState.Active)?.snapshot?.focusedTabId == tabId
+                }
+            }
+            clearHerdrOptimisticTab(tabId)
+        }
+    }
+
+    fun onHerdrFocusPane(paneId: String) {
+        showHerdrSplitsIfNative()
+        runHerdrCommand { it.herdrFocusPane(paneId) }
+    }
+
+    fun onHerdrPaneTap(paneId: String) {
+        sessionRepository.setHerdrNativeFocus(paneId)
+        onHerdrFocusPane(paneId)
+    }
+
+    fun onHerdrPaneViewport(
+        paneId: String,
+        cols: Int,
+        rows: Int,
+        cellWidth: Int,
+        cellHeight: Int,
+        wPx: Int,
+        hPx: Int,
+    ) {
+        sessionRepository.resizeHerdrPane(paneId, cols, rows, cellWidth, cellHeight)
+    }
+
+    fun onHerdrPaneScroll(paneId: String, delta: Int) {
+        sessionRepository.scrollHerdrPane(paneId, delta)
+    }
+
+    fun onHerdrTakeover() {
+        sessionRepository.herdrTakeover()
+    }
+
+    fun onHerdrCreateTab(workspaceId: String) {
+        runHerdrCommand { it.herdrCreateTab(workspaceId) }
+    }
+
+    fun onHerdrCreateWorkspace(label: String?) {
+        runHerdrCommand { it.herdrCreateWorkspace(label) }
+    }
+
+    fun onEnterHerdrWorkspace(workspaceId: String) {
+        _herdrHomeVisible.value = false
+        runHerdrCommand { it.herdrFocusWorkspace(workspaceId) }
+    }
+
+    fun onEnterHerdrTab(tabId: String) {
+        _herdrHomeVisible.value = false
+        runHerdrCommand { it.herdrFocusTab(tabId) }
+    }
+
+    fun onEnterHerdrAgent(paneId: String, tabId: String) {
+        val engine = sessionRepository.activeTab.value?.engine ?: return
+        _herdrHomeVisible.value = false
+        viewModelScope.launch {
+            val tabResult = engine.herdrFocusTab(tabId)
+            if (tabResult.exitCode != 0) {
+                updateHerdrActionError(tabResult)
+                return@launch
+            }
+            sessionRepository.setHerdrNativeFocus(paneId)
+            updateHerdrActionError(engine.herdrFocusPane(paneId))
+        }
+    }
+
+    fun onShowHerdrHome() {
+        _herdrHomeVisible.value = true
+    }
+
+    fun onHerdrCloseTab(tabId: String) {
+        runHerdrCommand { it.herdrCloseTab(tabId) }
+    }
+
+    fun onHerdrSplitPane(paneId: String, direction: HerdrSplitDirection) {
+        runHerdrCommand { it.herdrSplitPane(paneId, direction) }
+    }
+
+    fun onHerdrClosePane(paneId: String) {
+        runHerdrCommand { it.herdrClosePane(paneId) }
+    }
+
+    fun onHerdrCloseWorkspace(workspaceId: String) {
+        runHerdrCommand { it.herdrCloseWorkspace(workspaceId) }
+    }
+
+    fun onHerdrPanelOpened() {
+        _herdrActionError.value = null
+        sessionRepository.activeTab.value?.engine?.pokeHerdr()
+    }
+
+    private fun runHerdrCommand(
+        command: suspend (TerminalSessionEngine) -> MultiplexerCommandResult,
+    ) {
+        val engine = sessionRepository.activeTab.value?.engine ?: return
+        viewModelScope.launch {
+            val result = runCatching { command(engine) }.getOrElse {
+                MultiplexerCommandResult(1, "", it.message ?: "Herdr command failed")
+            }
+            updateHerdrActionError(result)
+        }
+    }
+
+    private fun showHerdrSplitsIfNative() {
+        if (sessionRepository.activeTab.value?.spec?.usesHerdrNativeMode == true) {
+            _herdrHomeVisible.value = false
+        }
+    }
+
+    private fun clearHerdrOptimisticTab(tabId: String) {
+        if (_herdrOptimisticTabId.compareAndSet(tabId, null)) {
+            sessionRepository.clearHerdrOptimisticFocusTab(tabId)
+        }
+    }
+
+    private fun updateHerdrActionError(result: MultiplexerCommandResult) {
+        _herdrActionError.value =
+            if (result.exitCode == 0) null
+            else result.stderr.ifBlank { result.stdout.ifBlank { "Herdr command failed" } }
     }
 
     fun closeTab(id: String) {
@@ -755,4 +976,20 @@ data class MultiplexerUiState(
     val sessionsSourceTabId: String? = null,
     val sessionsSourceHostId: Long? = null,
     val reconnectRecovery: Boolean = false,
+)
+
+data class HerdrUiState(
+    val control: HerdrControlState = HerdrControlState.Inactive,
+    val enabled: Boolean = false,
+    val actionError: String? = null,
+)
+
+data class HerdrNativeUiState(
+    val enabled: Boolean = false,
+    val snapshot: HerdrSnapshot? = null,
+    val layout: HerdrTabLayout? = null,
+    val panes: Map<String, HerdrPaneState> = emptyMap(),
+    val focusedPaneId: String? = null,
+    val focusedTabId: String? = null,
+    val homeVisible: Boolean = true,
 )

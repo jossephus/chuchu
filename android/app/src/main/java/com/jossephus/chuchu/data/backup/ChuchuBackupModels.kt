@@ -64,6 +64,7 @@ data class BackupHostProfile(
     val requireAuthOnConnect: Boolean,
     val postConnectCommand: String?,
     val multiplexer: MultiplexerType?,
+    val herdrNativeMode: Boolean = true,
 ) {
     fun toEntity(
         idOverride: Long = id,
@@ -82,6 +83,7 @@ data class BackupHostProfile(
         requireAuthOnConnect = requireAuthOnConnect,
         postConnectCommand = postConnectCommand,
         multiplexer = multiplexer,
+        herdrNativeMode = herdrNativeMode,
     )
 
     companion object {
@@ -99,6 +101,7 @@ data class BackupHostProfile(
             requireAuthOnConnect = host.requireAuthOnConnect,
             postConnectCommand = host.postConnectCommand,
             multiplexer = host.multiplexer,
+            herdrNativeMode = host.herdrNativeMode,
         )
     }
 }

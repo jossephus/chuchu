@@ -21,7 +21,7 @@ class NativeSshService(
         return nativeError
     }
 
-    private object Ipc {
+    internal object Ipc {
         private const val VERSION: Byte = 1
         private const val TAG_WRITE: Byte = 1
         private const val TAG_READ: Byte = 2
@@ -96,6 +96,9 @@ class NativeSshService(
     }
 
     private var handle: Long = 0L
+
+    internal val sessionHandle: Long
+        get() = handle
 
     fun isAvailable(): Boolean = bridge.isLoaded()
 

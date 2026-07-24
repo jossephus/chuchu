@@ -11,7 +11,7 @@ import com.jossephus.chuchu.model.Transport
 
 object ChuchuBackupCodec {
     const val FORMAT_VERSION: Int = 1
-    const val PAYLOAD_VERSION: Int = 2
+    const val PAYLOAD_VERSION: Int = 3
     const val KDF_ID_PBKDF2_HMAC_SHA1: Int = 1
     const val CIPHER_ID_AES_256_GCM: Int = 1
     const val KDF_ITERATIONS: Int = 210_000
@@ -102,6 +102,7 @@ object ChuchuBackupCodec {
             writer.writeBoolean(host.requireAuthOnConnect)
             writeNullableStringField(host.postConnectCommand, "post-connect command")
             writeNullableStringField(host.multiplexer?.id, "multiplexer")
+            writer.writeBoolean(host.herdrNativeMode)
         }
 
         val encoded = writer.toByteArray()
@@ -173,6 +174,7 @@ object ChuchuBackupCodec {
                 } else {
                     null
                 }
+                val herdrNativeMode = if (version >= 3) reader.readBoolean() else true
                 if (transport != Transport.LocalShell) {
                     add(
                         BackupHostProfile(
@@ -189,6 +191,7 @@ object ChuchuBackupCodec {
                             requireAuthOnConnect = requireAuthOnConnect,
                             postConnectCommand = postConnectCommand,
                             multiplexer = multiplexer,
+                            herdrNativeMode = herdrNativeMode,
                         ),
                     )
                 }

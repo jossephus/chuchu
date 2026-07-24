@@ -3,10 +3,14 @@ package com.jossephus.chuchu.service.terminal
 import android.app.Application
 import android.content.ClipData
 import android.content.ClipboardManager
+import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.Transport
+import com.jossephus.chuchu.service.multiplexer.HerdrControlState
+import com.jossephus.chuchu.service.multiplexer.MAX_RECENT_TABS
 import com.jossephus.chuchu.service.multiplexer.MultiplexerRegistry
 import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerSession
+import com.jossephus.chuchu.service.multiplexer.desiredHerdrPaneStreams
 import com.jossephus.chuchu.service.ssh.HostKeyStore
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
 import java.util.UUID
@@ -40,9 +44,16 @@ class TerminalSessionRepository private constructor(application: Application) {
 
     private val hostKeyStore =
         HostKeyStore(appContext.getSharedPreferences("host_keys", Application.MODE_PRIVATE))
+    private val settingsRepository = SettingsRepository.getInstance(appContext)
     private val tailscaleStatusChecker = TailscaleStatusChecker(appContext)
     private val clipboard = appContext.getSystemService(ClipboardManager::class.java)
     private val osc52ClipboardPolicy = Osc52ClipboardPolicy.Deny
+    private val herdrAgentNotifier = HerdrAgentNotifier(appContext)
+    private val herdrStateJobs = mutableMapOf<String, Job>()
+    private val herdrCadenceByTab = mutableMapOf<String, Long>()
+    private val herdrRecentTabsByTab = mutableMapOf<String, ArrayDeque<String>>()
+    private val herdrOptimisticFocusLock = Any()
+    @Volatile private var herdrOptimisticFocusTabId: String? = null
 
     private fun publishTerminalClipboard(tabId: String, text: String) {
         if (!canPublishTerminalClipboard(tabId)) return
@@ -59,6 +70,17 @@ class TerminalSessionRepository private constructor(application: Application) {
 
     private val _activeTabId = MutableStateFlow<String?>(null)
     val activeTabId: StateFlow<String?> = _activeTabId.asStateFlow()
+
+    private val _herdrFocusedPaneId = MutableStateFlow<String?>(null)
+    val herdrFocusedPaneId: StateFlow<String?> = _herdrFocusedPaneId.asStateFlow()
+
+    // Last real pane geometry measured by a native canvas, used to bootstrap
+    // newly opened pane streams (e.g. on a workspace switch) close to their
+    // final size so a full-screen TUI doesn't flash at the 80x24 fallback.
+    @Volatile private var lastHerdrPaneCols = BOOTSTRAP_PANE_COLS
+    @Volatile private var lastHerdrPaneRows = BOOTSTRAP_PANE_ROWS
+    @Volatile private var lastHerdrPaneCellW = BOOTSTRAP_CELL_PX
+    @Volatile private var lastHerdrPaneCellH = BOOTSTRAP_CELL_PX
 
     val activeTab: StateFlow<TabSession?> =
         combine(_tabs, _activeTabId) { tabs, id -> tabs.firstOrNull { it.id == id } }
@@ -113,6 +135,9 @@ class TerminalSessionRepository private constructor(application: Application) {
 
     init {
         scope.launch {
+            settingsRepository.herdrNotificationsEnabled.collect { updateHerdrCadence() }
+        }
+        scope.launch {
             combine(_tabs, _activeTabId) { tabs, _ -> tabs }
                 .flatMapLatest { tabs ->
                     if (tabs.isEmpty()) {
@@ -124,6 +149,8 @@ class TerminalSessionRepository private constructor(application: Application) {
                     }
                 }
                 .collect { pairs ->
+                    updateHerdrCadence()
+                    updateHerdrPaneStreams()
                     val anyAlive =
                         pairs.any { (_, state) ->
                             state.status == SessionStatus.Connecting ||
@@ -146,10 +173,14 @@ class TerminalSessionRepository private constructor(application: Application) {
 
     fun attachClient() {
         attachedClients += 1
+        updateHerdrCadence()
+        updateHerdrPaneStreams()
     }
 
     fun detachClient() {
         attachedClients = (attachedClients - 1).coerceAtLeast(0)
+        updateHerdrCadence()
+        updateHerdrPaneStreams()
     }
 
     private fun currentNotificationLabel(): String {
@@ -228,6 +259,7 @@ class TerminalSessionRepository private constructor(application: Application) {
         val tab = TabSession(id, spec, engine)
         _tabs.value = _tabs.value + tab
         _activeTabId.value = id
+        observeHerdrState(tab)
         engine.connect(
             host = spec.host,
             port = spec.port,
@@ -243,24 +275,35 @@ class TerminalSessionRepository private constructor(application: Application) {
             multiplexer = spec.multiplexer,
             multiplexerSessionName = spec.multiplexerSessionName,
             multiplexerCreateIfMissing = spec.multiplexerCreateIfMissing,
+            herdrNativeMode = spec.herdrNativeMode,
         )
+        updateHerdrCadence()
+        updateHerdrPaneStreams()
         return tab
     }
 
     fun selectTab(id: String) {
         if (_tabs.value.any { it.id == id }) {
             _activeTabId.value = id
+            updateHerdrCadence()
+            updateHerdrPaneStreams()
         }
     }
 
     fun closeTab(id: String) {
         val tab = _tabs.value.firstOrNull { it.id == id } ?: return
+        herdrStateJobs.remove(id)?.cancel()
+        herdrCadenceByTab.remove(id)
+        herdrRecentTabsByTab.remove(id)
+        herdrAgentNotifier.removeTab(id)
         val remaining = _tabs.value.filterNot { it.id == id }
         _tabs.value = remaining
         if (_activeTabId.value == id) {
             val nextSameHost = remaining.firstOrNull { it.spec.hostId == tab.spec.hostId }
             _activeTabId.value = nextSameHost?.id ?: remaining.firstOrNull()?.id
         }
+        updateHerdrCadence()
+        updateHerdrPaneStreams()
         tab.engine.dispose()
     }
 
@@ -300,6 +343,7 @@ class TerminalSessionRepository private constructor(application: Application) {
             multiplexer = spec.multiplexer,
             multiplexerSessionName = spec.multiplexerSessionName,
             multiplexerCreateIfMissing = spec.multiplexerCreateIfMissing,
+            herdrNativeMode = spec.herdrNativeMode,
         )
     }
 
@@ -312,10 +356,181 @@ class TerminalSessionRepository private constructor(application: Application) {
         val tabs = _tabs.value
         _tabs.value = emptyList()
         _activeTabId.value = null
+        herdrStateJobs.values.forEach(Job::cancel)
+        herdrStateJobs.clear()
+        herdrCadenceByTab.clear()
+        herdrRecentTabsByTab.clear()
+        _herdrFocusedPaneId.value = null
+        tabs.forEach { herdrAgentNotifier.removeTab(it.id) }
         tabs.forEach { it.engine.dispose() }
     }
 
+    private fun observeHerdrState(tab: TabSession) {
+        if (tab.spec.multiplexer != MultiplexerType.Herdr) return
+        herdrStateJobs[tab.id] =
+            scope.launch {
+                tab.engine.herdrState.collect { state ->
+                    if (state is HerdrControlState.Active) {
+                        herdrAgentNotifier.onSnapshot(
+                            tabSessionId = tab.id,
+                            tabLabel = tab.spec.tabLabel,
+                            snapshot = state.snapshot,
+                            foreground = attachedClients > 0,
+                            enabled = settingsRepository.herdrNotificationsEnabled.value,
+                        )
+                    }
+                    updateHerdrPaneStreams()
+                }
+            }
+    }
+
+    private fun updateHerdrCadence() {
+        val foreground = attachedClients > 0
+        val activeTabId = _activeTabId.value
+        val notificationsEnabled = settingsRepository.herdrNotificationsEnabled.value
+        _tabs.value
+            .asSequence()
+            .filter { tab ->
+                tab.spec.multiplexer == MultiplexerType.Herdr &&
+                    tab.sessionState.value.status == SessionStatus.Connected
+            }
+            .forEach { tab ->
+                val cadence =
+                    when {
+                        foreground && tab.id == activeTabId -> 3_000L
+                        foreground -> 15_000L
+                        notificationsEnabled -> 25_000L
+                        else -> 60_000L
+                    }
+                if (herdrCadenceByTab[tab.id] != cadence) {
+                    herdrCadenceByTab[tab.id] = cadence
+                    tab.engine.setHerdrCadence(cadence)
+                }
+            }
+    }
+
+    private fun updateHerdrPaneStreams() {
+        val activeTab = _tabs.value.firstOrNull { it.id == _activeTabId.value }
+        _tabs.value.forEach { tab ->
+            if (tab.id == activeTab?.id && tab.spec.usesHerdrNativeMode) {
+                val snapshot = (tab.engine.herdrState.value as? HerdrControlState.Active)?.snapshot
+                val focusedTabIdOverride = herdrOptimisticFocusTabId
+                val effectiveFocusedTabId = focusedTabIdOverride ?: snapshot?.focusedTabId
+                val recentTabIds =
+                    effectiveFocusedTabId?.let { focusedTabId ->
+                        herdrRecentTabsByTab.getOrPut(tab.id) { ArrayDeque() }.apply {
+                            remove(focusedTabId)
+                            addFirst(focusedTabId)
+                            while (size > MAX_RECENT_TABS + 1) removeLast()
+                        }.toList()
+                    } ?: emptyList()
+                val desired =
+                    desiredHerdrPaneStreams(
+                        snapshot = snapshot,
+                        nativeModeActive = true,
+                        foreground = attachedClients > 0,
+                        recentTabIds = recentTabIds,
+                        focusedTabIdOverride = focusedTabIdOverride,
+                    )
+                tab.engine.retainHerdrPaneStreams(desired)
+                if (
+                    snapshot != null &&
+                    (focusedTabIdOverride == null || focusedTabIdOverride == snapshot.focusedTabId) &&
+                    _herdrFocusedPaneId.value != snapshot.focusedPaneId
+                ) {
+                    setHerdrNativeFocus(snapshot.focusedPaneId)
+                }
+                val existing = tab.engine.herdrPanes.value.keys
+                val newPanes = desired.filterNot { it in existing }
+                // A single-pane tab fills the whole area, so the last measured
+                // geometry is exact; with splits it is an approximation that is
+                // still far closer than the 80x24 fallback.
+                val bootstrapCols = if (newPanes.size == 1) lastHerdrPaneCols else BOOTSTRAP_PANE_COLS
+                val bootstrapRows = if (newPanes.size == 1) lastHerdrPaneRows else BOOTSTRAP_PANE_ROWS
+                val bootstrapCellW = if (newPanes.size == 1) lastHerdrPaneCellW else BOOTSTRAP_CELL_PX
+                val bootstrapCellH = if (newPanes.size == 1) lastHerdrPaneCellH else BOOTSTRAP_CELL_PX
+                newPanes.forEach { paneId ->
+                    tab.engine.ensureHerdrPaneStream(
+                        paneId = paneId,
+                        cols = bootstrapCols,
+                        rows = bootstrapRows,
+                        cellWidthPx = bootstrapCellW,
+                        cellHeightPx = bootstrapCellH,
+                        focused = paneId == snapshot?.focusedPaneId,
+                    )
+                }
+            } else {
+                tab.engine.retainHerdrPaneStreams(emptySet())
+            }
+        }
+        if (activeTab?.spec?.usesHerdrNativeMode != true) {
+            _herdrFocusedPaneId.value = null
+        }
+    }
+
     private fun activeEngine(): TerminalSessionEngine? = activeTab.value?.engine
+
+    private fun focusedHerdrPaneHost(): HerdrPaneHost? {
+        val tab = activeTab.value ?: return null
+        if (!tab.spec.usesHerdrNativeMode) return null
+        return tab.engine.herdrPanes.value[_herdrFocusedPaneId.value]
+    }
+
+    fun setHerdrNativeFocus(paneId: String?) {
+        _herdrFocusedPaneId.value = paneId
+        activeEngine()?.setHerdrFocusedPaneStream(paneId)
+    }
+
+    fun setHerdrOptimisticFocusTab(tabId: String?) {
+        synchronized(herdrOptimisticFocusLock) {
+            herdrOptimisticFocusTabId = tabId
+        }
+        updateHerdrPaneStreams()
+    }
+
+    fun clearHerdrOptimisticFocusTab(tabId: String) {
+        val cleared =
+            synchronized(herdrOptimisticFocusLock) {
+                if (herdrOptimisticFocusTabId != tabId) {
+                    false
+                } else {
+                    herdrOptimisticFocusTabId = null
+                    true
+                }
+            }
+        if (cleared) updateHerdrPaneStreams()
+    }
+
+    fun herdrTakeover() {
+        activeEngine()?.herdrTakeoverFocusedPane()
+    }
+
+    fun resizeHerdrPane(
+        paneId: String,
+        cols: Int,
+        rows: Int,
+        cellWidth: Int,
+        cellHeight: Int,
+    ) {
+        if (cols > 0 && rows > 0 && cellWidth > 0 && cellHeight > 0) {
+            lastHerdrPaneCols = cols
+            lastHerdrPaneRows = rows
+            lastHerdrPaneCellW = cellWidth
+            lastHerdrPaneCellH = cellHeight
+        }
+        activeEngine()?.ensureHerdrPaneStream(
+            paneId = paneId,
+            cols = cols,
+            rows = rows,
+            cellWidthPx = cellWidth,
+            cellHeightPx = cellHeight,
+            focused = paneId == _herdrFocusedPaneId.value,
+        )
+    }
+
+    fun scrollHerdrPane(paneId: String, delta: Int) {
+        activeEngine()?.herdrPanes?.value?.get(paneId)?.scrollLines(delta)
+    }
 
     private fun sessionKeyFor(tab: TabSession): String =
         if (tab.spec.transport == Transport.LocalShell) {
@@ -341,30 +556,37 @@ class TerminalSessionRepository private constructor(application: Application) {
         screenWidth: Int,
         screenHeight: Int,
     ) {
+        if (activeTab.value?.spec?.usesHerdrNativeMode == true) return
         activeEngine()?.resize(cols, rows, cellWidth, cellHeight, screenWidth, screenHeight)
     }
 
     fun scroll(delta: Int, x: Float, y: Float) {
-        activeEngine()?.scroll(delta, x, y)
+        focusedHerdrPaneHost()?.scrollLines(delta) ?: activeEngine()?.scroll(delta, x, y)
     }
 
     fun scrollToActive() {
+        if (activeTab.value?.spec?.usesHerdrNativeMode == true) return
         activeEngine()?.scrollToActive()
     }
 
     fun writeKey(key: Int, codepoint: Int, mods: Int, action: Int, utf8: String? = null) {
-        activeEngine()?.writeKey(key, codepoint, mods, action, utf8)
+        focusedHerdrPaneHost()?.writeKey(key, codepoint, mods, action, utf8)
+            ?: activeEngine()?.writeKey(key, codepoint, mods, action, utf8)
     }
 
     fun writeText(text: String) {
-        activeEngine()?.writeText(text)
+        focusedHerdrPaneHost()?.writeText(text) ?: activeEngine()?.writeText(text)
     }
 
     fun writePaste(text: String) {
-        activeEngine()?.writePaste(text)
+        focusedHerdrPaneHost()?.writePaste(text) ?: activeEngine()?.writePaste(text)
     }
 
     fun sendFocusEvent(focused: Boolean) {
+        if (activeTab.value?.spec?.usesHerdrNativeMode == true) {
+            focusedHerdrPaneHost()?.sendFocus(focused)
+            return
+        }
         activeEngine()?.sendFocusEvent(focused)
     }
 
@@ -377,15 +599,24 @@ class TerminalSessionRepository private constructor(application: Application) {
         anyButtonPressed: Boolean,
         trackLastCell: Boolean,
     ) {
+        if (activeTab.value?.spec?.usesHerdrNativeMode == true) return
         activeEngine()?.sendMouseEvent(action, button, mods, x, y, anyButtonPressed, trackLastCell)
     }
 
     fun setColorScheme(isDark: Boolean) {
-        _tabs.value.forEach { it.engine.setColorScheme(isDark) }
+        _tabs.value.forEach { tab ->
+            tab.engine.setColorScheme(isDark)
+            tab.engine.herdrPanes.value.values.forEach { it.setColorScheme(isDark) }
+        }
     }
 
     fun setDefaultColors(fg: IntArray?, bg: IntArray?, cursor: IntArray?, palette: ByteArray?) {
-        _tabs.value.forEach { it.engine.setDefaultColors(fg, bg, cursor, palette) }
+        _tabs.value.forEach { tab ->
+            tab.engine.setDefaultColors(fg, bg, cursor, palette)
+            tab.engine.herdrPanes.value.values.forEach {
+                it.setDefaultColors(fg, bg, cursor, palette)
+            }
+        }
     }
 
     fun respondToHostKey(accepted: Boolean) {
@@ -436,6 +667,10 @@ class TerminalSessionRepository private constructor(application: Application) {
     }
 
     companion object {
+        private const val BOOTSTRAP_PANE_COLS = 80
+        private const val BOOTSTRAP_PANE_ROWS = 24
+        private const val BOOTSTRAP_CELL_PX = 10
+
         @Volatile private var instance: TerminalSessionRepository? = null
 
         fun getInstance(application: Application): TerminalSessionRepository {

@@ -73,6 +73,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.Transport
+import com.jossephus.chuchu.service.multiplexer.HerdrSnapshot
+import com.jossephus.chuchu.service.multiplexer.HerdrSplitDirection
 import com.jossephus.chuchu.service.terminal.SessionStatus
 import com.jossephus.chuchu.service.terminal.TabSpec
 import com.jossephus.chuchu.ui.components.ChuButton
@@ -326,7 +328,11 @@ fun TerminalScreen(
         darkThemeName = currentTheme,
         lightThemeName = lightThemeName,
     )
-    val tabMode by settingsRepo.terminalTabMode.collectAsStateWithLifecycle()
+    val tabModeSetting by settingsRepo.terminalTabMode.collectAsStateWithLifecycle()
+    // Native herdr splits rely on the tab strip (herdr tabs live there); force it
+    // regardless of the general tab-interface setting.
+    val tabMode =
+        if (activeTab?.spec?.usesHerdrNativeMode == true) TerminalTabMode.Strip else tabModeSetting
     val currentAccessoryLayoutIds by settingsRepo.accessoryLayoutIds.collectAsStateWithLifecycle()
     val useSingleRowAccessoryBar by settingsRepo.accessoryBarSingleRow.collectAsStateWithLifecycle()
     val currentTerminalCustomKeyGroups by
@@ -344,6 +350,9 @@ fun TerminalScreen(
     var selectionState by remember { mutableStateOf<TerminalSelectionState?>(null) }
     var showPassphrasePrompt by remember { mutableStateOf(false) }
     var passphraseInput by remember { mutableStateOf("") }
+    var showCreateWorkspacePrompt by remember { mutableStateOf(false) }
+    var newWorkspaceName by remember { mutableStateOf("") }
+    var pendingHerdrClose by remember { mutableStateOf<HerdrCloseTarget?>(null) }
     var pendingTabSpec by remember { mutableStateOf<TabSpec?>(null) }
     var passphraseFromPicker by remember { mutableStateOf(false) }
     var showTabSheet by remember { mutableStateOf(false) }
@@ -407,6 +416,25 @@ fun TerminalScreen(
             )
         }
     val multiplexerState by vm.multiplexerState.collectAsStateWithLifecycle()
+    val herdrUiState by vm.herdrUiState.collectAsStateWithLifecycle()
+    val herdrNativeState by vm.herdrNativeState.collectAsStateWithLifecycle()
+    var herdrSelection by remember(herdrNativeState.focusedPaneId) { mutableStateOf<TerminalSelection?>(null) }
+    var herdrSelectionState by
+        remember(herdrNativeState.focusedPaneId) { mutableStateOf<TerminalSelectionState?>(null) }
+    val herdrFocusedPaneId = herdrNativeState.focusedPaneId ?: herdrNativeState.layout?.focusedPaneId
+    val onHerdrSplitFocusedPane: (HerdrSplitDirection) -> Unit = { direction ->
+        herdrFocusedPaneId?.let { vm.onHerdrSplitPane(it, direction) }
+    }
+    val onHerdrRequestClosePane: () -> Unit = {
+        herdrFocusedPaneId?.let { paneId ->
+            pendingHerdrClose = HerdrCloseTarget(
+                HerdrCloseKind.Pane, paneId, herdrPaneLabel(herdrNativeState.snapshot, paneId),
+            )
+        }
+    }
+    val onHerdrRequestCloseTab: (String, String) -> Unit = { tabId, label ->
+        pendingHerdrClose = HerdrCloseTarget(HerdrCloseKind.Tab, tabId, label)
+    }
 
     LaunchedEffect(terminalFontSizeSp) {
         settingsRepo.setTerminalFontSize(terminalFontSizeSp)
@@ -472,6 +500,11 @@ fun TerminalScreen(
                 passphraseFromPicker = fromPicker
                 pendingTabSpec = preparedSpec
                 showPassphrasePrompt = true
+            } else if (preparedSpec.usesHerdr) {
+                // Herdr (native or classic) always attaches to the default session;
+                // skip the tmux/zmx-style session-picker preflight so it connects
+                // immediately instead of showing an empty "no sessions" state.
+                vm.openTab(preparedSpec.copy(multiplexerSessionName = "default"))
             } else if (preparedSpec.usesRuntimeMultiplexer) {
                 vm.initiateMultiplexerOpen(preparedSpec)
             } else {
@@ -567,10 +600,18 @@ fun TerminalScreen(
         }
     }
 
+    LaunchedEffect(showTabSheet, herdrUiState.enabled) {
+        if (showTabSheet && herdrUiState.enabled) vm.onHerdrPanelOpened()
+    }
+
     LaunchedEffect(showGlobalTabManager, activeTab?.id) {
         if (showGlobalTabManager && activeTab?.spec?.usesRuntimeMultiplexer == true) {
             vm.listMultiplexerSessionsForCurrentHost()
         }
+    }
+
+    LaunchedEffect(showGlobalTabManager, herdrUiState.enabled) {
+        if (showGlobalTabManager && herdrUiState.enabled) vm.onHerdrPanelOpened()
     }
 
     if (showPassphrasePrompt) {
@@ -609,6 +650,52 @@ fun TerminalScreen(
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+
+    if (showCreateWorkspacePrompt) {
+        ChuDialog(
+            title = "New herdr workspace",
+            confirmLabel = "Create",
+            onConfirm = {
+                showCreateWorkspacePrompt = false
+                vm.onHerdrCreateWorkspace(newWorkspaceName.trim().ifBlank { null })
+                newWorkspaceName = ""
+            },
+            onDismiss = {
+                showCreateWorkspacePrompt = false
+                newWorkspaceName = ""
+            },
+        ) {
+            ChuTextField(
+                value = newWorkspaceName,
+                onValueChange = { newWorkspaceName = it },
+                label = "Name (optional)",
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+
+    pendingHerdrClose?.let { target ->
+        ChuDialog(
+            title = "Close ${target.kind.label} “${target.label}”?",
+            confirmLabel = "Close",
+            dismissLabel = "Cancel",
+            onConfirm = {
+                when (target.kind) {
+                    HerdrCloseKind.Pane -> vm.onHerdrClosePane(target.id)
+                    HerdrCloseKind.Tab -> vm.onHerdrCloseTab(target.id)
+                    HerdrCloseKind.Workspace -> vm.onHerdrCloseWorkspace(target.id)
+                }
+                pendingHerdrClose = null
+            },
+            onDismiss = { pendingHerdrClose = null },
+        ) {
+            ChuText(
+                "Any agent running in this ${target.kind.label} will be terminated.",
+                style = typography.body,
             )
         }
     }
@@ -677,6 +764,17 @@ fun TerminalScreen(
                         onTabSelected = { id -> vm.selectTab(id) },
                         onAddTab = openAnotherSessionForCurrentHost,
                         onOpenManager = { showGlobalTabManager = true },
+                        herdrEnabled = herdrUiState.enabled,
+                        herdrState = herdrUiState.control,
+                        onHerdrFocusTab = vm::onHerdrFocusTab,
+                        onHerdrCreateTab = vm::onHerdrCreateTab,
+                        onHerdrHome = vm::onShowHerdrHome,
+                        herdrNativeMode = herdrNativeState.enabled,
+                        herdrFocusedTabId = herdrNativeState.focusedTabId,
+                        hostChipLabel = activeTab?.let(::terminalTabDisplayLabel),
+                        onHerdrSplitPane = onHerdrSplitFocusedPane,
+                        onHerdrRequestClosePane = onHerdrRequestClosePane,
+                        onHerdrRequestCloseTab = onHerdrRequestCloseTab,
                     )
                     Box(
                         modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -761,6 +859,17 @@ fun TerminalScreen(
                         onTabSelected = { id -> vm.selectTab(id) },
                         onAddTab = openAnotherSessionForCurrentHost,
                         onOpenManager = { showGlobalTabManager = true },
+                        herdrEnabled = herdrUiState.enabled,
+                        herdrState = herdrUiState.control,
+                        onHerdrFocusTab = vm::onHerdrFocusTab,
+                        onHerdrCreateTab = vm::onHerdrCreateTab,
+                        onHerdrHome = vm::onShowHerdrHome,
+                        herdrNativeMode = herdrNativeState.enabled,
+                        herdrFocusedTabId = herdrNativeState.focusedTabId,
+                        hostChipLabel = activeTab?.let(::terminalTabDisplayLabel),
+                        onHerdrSplitPane = onHerdrSplitFocusedPane,
+                        onHerdrRequestClosePane = onHerdrRequestClosePane,
+                        onHerdrRequestCloseTab = onHerdrRequestCloseTab,
                     )
                     Box(
                         modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -789,7 +898,7 @@ fun TerminalScreen(
         SessionStatus.Reconnecting -> {
             val isReconnecting = sessionState.status == SessionStatus.Reconnecting
             val snapshot = sessionState.snapshot
-            if (snapshot != null) {
+            if (snapshot != null || herdrNativeState.enabled) {
                 var modifierState by remember { mutableStateOf(ModifierState()) }
                 val inputViewRef = remember { mutableStateOf<TerminalInputView?>(null) }
                 var menuSize by remember { mutableStateOf(IntSize.Zero) }
@@ -1080,6 +1189,17 @@ fun TerminalScreen(
                                 onOpenManager = {
                                     showGlobalTabManager = true
                                 },
+                                herdrEnabled = herdrUiState.enabled,
+                                herdrState = herdrUiState.control,
+                                onHerdrFocusTab = vm::onHerdrFocusTab,
+                                onHerdrCreateTab = vm::onHerdrCreateTab,
+                                onHerdrHome = vm::onShowHerdrHome,
+                                herdrNativeMode = herdrNativeState.enabled,
+                                herdrFocusedTabId = herdrNativeState.focusedTabId,
+                                hostChipLabel = activeTab?.let(::terminalTabDisplayLabel),
+                                onHerdrSplitPane = onHerdrSplitFocusedPane,
+                                onHerdrRequestClosePane = onHerdrRequestClosePane,
+                                onHerdrRequestCloseTab = onHerdrRequestCloseTab,
                             )
                         }
 
@@ -1245,37 +1365,92 @@ fun TerminalScreen(
                             }
                         } else {
                             Box(modifier = Modifier.weight(1f)) {
-                                TerminalCanvas(
-                                    snapshot = snapshot,
-                                    fontSizeSp = terminalFontSizeSp,
-                                    cursorColor =
-                                        ghosttyTheme?.cursorColor
-                                            ?: Color.White.copy(alpha = 0.28f),
-                                    cursorTextColor = ghosttyTheme?.cursorText,
-                                    selectionBackgroundColor =
-                                        ghosttyTheme?.selectionBackground
-                                            ?: colors.accent.copy(alpha = 0.45f),
-                                    selectionForegroundColor =
-                                        ghosttyTheme?.selectionForeground ?: colors.onAccent,
-                                    selection = selection,
-                                    onSelectionChange = { selection = it },
-                                    terminalHandle = sessionState.handle,
-                                    modifier = Modifier.fillMaxSize(),
-                                    onResize = vm::onCanvasSizeChanged,
-                                    onTap = requestInputFocus,
-                                    onPrimaryClick = vm::onPrimaryMouseClick,
-                                    onAppSelectionDrag = vm::onAppSelectionDrag,
-                                    onScroll = vm::onScroll,
-                                    onZoom = { zoomFactor ->
-                                        terminalFontSizeSp =
-                                            (terminalFontSizeSp * zoomFactor)
-                                                .coerceIn(
-                                                    SettingsRepository.MIN_TERMINAL_FONT_SIZE,
-                                                    SettingsRepository.MAX_TERMINAL_FONT_SIZE,
+                                val herdrSnapshot = herdrNativeState.snapshot
+                                when {
+                                    herdrNativeState.enabled &&
+                                        herdrNativeState.homeVisible &&
+                                        herdrSnapshot != null -> {
+                                        HerdrSwitcherHome(
+                                            snapshot = herdrSnapshot,
+                                            onEnterWorkspace = vm::onEnterHerdrWorkspace,
+                                            onEnterAgent = vm::onEnterHerdrAgent,
+                                            onCreateWorkspace = { showCreateWorkspacePrompt = true },
+                                            onCloseWorkspace = { workspaceId, label ->
+                                                pendingHerdrClose = HerdrCloseTarget(
+                                                    HerdrCloseKind.Workspace, workspaceId, label,
                                                 )
-                                    },
-                                    onSelectionChanged = { state -> selectionState = state },
-                                )
+                                            },
+                                            onEnterTab = vm::onEnterHerdrTab,
+                                            colors = colors,
+                                            sessionHint = activeTab?.spec?.tabLabel,
+                                            connections = tabs,
+                                            activeConnectionId = activeTabId,
+                                            onSelectConnection = { id -> vm.selectTab(id) },
+                                            onOpenServerList = onBack,
+                                            modifier = Modifier.fillMaxSize(),
+                                        )
+                                    }
+
+                                    herdrNativeState.enabled &&
+                                        herdrNativeState.layout?.panes?.isNotEmpty() == true -> {
+                                        HerdrSplitLayout(
+                                            state = herdrNativeState,
+                                            fontSizeSp = terminalFontSizeSp,
+                                            ghosttyTheme = ghosttyTheme,
+                                            colors = colors,
+                                            selection = herdrSelection,
+                                            onSelectionChange = { herdrSelection = it },
+                                            onSelectionChanged = { herdrSelectionState = it },
+                                            onPaneTap = vm::onHerdrPaneTap,
+                                            onPaneViewport = vm::onHerdrPaneViewport,
+                                            onPaneScroll = vm::onHerdrPaneScroll,
+                                            onFontSizeChange = { sizeSp -> terminalFontSizeSp = sizeSp },
+                                            onTakeover = vm::onHerdrTakeover,
+                                            requestInputFocus = requestInputFocus,
+                                            modifier = Modifier.fillMaxSize(),
+                                        )
+                                    }
+
+                                    herdrNativeState.enabled -> {
+                                        ChuText(
+                                            "preparing herdr…",
+                                            style = typography.labelSmall,
+                                            color = colors.textMuted,
+                                            modifier = Modifier.align(Alignment.Center),
+                                        )
+                                    }
+
+                                    else -> {
+                                        snapshot?.let { terminalSnapshot ->
+                                            TerminalCanvas(
+                                                snapshot = terminalSnapshot,
+                                                fontSizeSp = terminalFontSizeSp,
+                                                minFontSizeSp = SettingsRepository.MIN_TERMINAL_FONT_SIZE,
+                                                maxFontSizeSp = SettingsRepository.MAX_TERMINAL_FONT_SIZE,
+                                                cursorColor =
+                                                    ghosttyTheme?.cursorColor
+                                                        ?: Color.White.copy(alpha = 0.28f),
+                                                cursorTextColor = ghosttyTheme?.cursorText,
+                                                selectionBackgroundColor =
+                                                    ghosttyTheme?.selectionBackground
+                                                        ?: colors.accent.copy(alpha = 0.45f),
+                                                selectionForegroundColor =
+                                                    ghosttyTheme?.selectionForeground ?: colors.onAccent,
+                                                selection = selection,
+                                                onSelectionChange = { selection = it },
+                                                terminalHandle = sessionState.handle,
+                                                modifier = Modifier.fillMaxSize(),
+                                                onResize = vm::onCanvasSizeChanged,
+                                                onTap = requestInputFocus,
+                                                onPrimaryClick = vm::onPrimaryMouseClick,
+                                                onAppSelectionDrag = vm::onAppSelectionDrag,
+                                                onScroll = vm::onScroll,
+                                                onFontSizeChange = { sizeSp -> terminalFontSizeSp = sizeSp },
+                                                onSelectionChanged = { state -> selectionState = state },
+                                            )
+                                        }
+                                    }
+                                }
 
                                 Row(
                                     modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
@@ -1751,6 +1926,14 @@ fun TerminalScreen(
                         onMultiplexerAttach = { name ->
                             vm.switchToMultiplexerSession(name, multiplexerState.sessionsSourceTabId)
                         },
+                        herdrEnabled = herdrUiState.enabled,
+                        herdrState = herdrUiState.control,
+                        herdrActionError = herdrUiState.actionError,
+                        onHerdrFocusTab = vm::onHerdrFocusTab,
+                        onHerdrFocusPane = vm::onHerdrFocusPane,
+                        onHerdrCreateTab = vm::onHerdrCreateTab,
+                        onHerdrCloseTab = vm::onHerdrCloseTab,
+                        onHerdrRefresh = vm::onHerdrPanelOpened,
                     )
                 }
 
@@ -1763,6 +1946,17 @@ fun TerminalScreen(
                             onTabSelected = { id -> vm.selectTab(id) },
                             onAddTab = openAnotherSessionForCurrentHost,
                             onOpenManager = { showGlobalTabManager = true },
+                            herdrEnabled = herdrUiState.enabled,
+                            herdrState = herdrUiState.control,
+                            onHerdrFocusTab = vm::onHerdrFocusTab,
+                            onHerdrCreateTab = vm::onHerdrCreateTab,
+                            onHerdrHome = vm::onShowHerdrHome,
+                            herdrNativeMode = herdrNativeState.enabled,
+                            herdrFocusedTabId = herdrNativeState.focusedTabId,
+                            hostChipLabel = activeTab?.let(::terminalTabDisplayLabel),
+                            onHerdrSplitPane = onHerdrSplitFocusedPane,
+                            onHerdrRequestClosePane = onHerdrRequestClosePane,
+                            onHerdrRequestCloseTab = onHerdrRequestCloseTab,
                         )
                         Box(
                             modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -1829,6 +2023,14 @@ fun TerminalScreen(
             onMultiplexerAttach = { name ->
                 vm.switchToMultiplexerSession(name, multiplexerState.sessionsSourceTabId)
             },
+            herdrEnabled = herdrUiState.enabled,
+            herdrState = herdrUiState.control,
+            herdrActionError = herdrUiState.actionError,
+            onHerdrFocusTab = vm::onHerdrFocusTab,
+            onHerdrFocusPane = vm::onHerdrFocusPane,
+            onHerdrCreateTab = vm::onHerdrCreateTab,
+            onHerdrCloseTab = vm::onHerdrCloseTab,
+            onHerdrRefresh = vm::onHerdrPanelOpened,
         )
     }
 }
@@ -1959,4 +2161,21 @@ private fun UploadProgressDialog(progress: UploadProgress) {
             )
         }
     }
+}
+
+private enum class HerdrCloseKind(val label: String) {
+    Pane("pane"),
+    Tab("tab"),
+    Workspace("workspace"),
+}
+
+private data class HerdrCloseTarget(
+    val kind: HerdrCloseKind,
+    val id: String,
+    val label: String,
+)
+
+private fun herdrPaneLabel(snapshot: HerdrSnapshot?, paneId: String): String {
+    val agent = snapshot?.agents?.firstOrNull { it.paneId == paneId }
+    return agent?.agent?.takeIf { it.isNotBlank() } ?: paneId
 }

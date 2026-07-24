@@ -9,12 +9,20 @@ import com.jossephus.chuchu.service.mosh.MoshBootstrapParser
 import com.jossephus.chuchu.service.mosh.MoshEventType
 import com.jossephus.chuchu.service.mosh.MoshState
 import com.jossephus.chuchu.service.mosh.NativeMoshService
+import com.jossephus.chuchu.service.multiplexer.HerdrControlState
+import com.jossephus.chuchu.service.multiplexer.HerdrMultiplexer
+import com.jossephus.chuchu.service.multiplexer.HerdrSnapshot
+import com.jossephus.chuchu.service.multiplexer.HerdrSplitDirection
+import com.jossephus.chuchu.service.multiplexer.HerdrStreamMode
 import com.jossephus.chuchu.service.multiplexer.MultiplexerAvailability
 import com.jossephus.chuchu.service.multiplexer.MultiplexerCommandResult
 import com.jossephus.chuchu.service.multiplexer.MultiplexerRegistry
 import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerSession
+import com.jossephus.chuchu.service.multiplexer.appendHerdrStreamChunk
+import com.jossephus.chuchu.service.multiplexer.parseHerdrSnapshot
 import com.jossephus.chuchu.service.ssh.HostKeyStore
 import com.jossephus.chuchu.service.ssh.NativeSshService
+import com.jossephus.chuchu.service.ssh.SharedSshConnection
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
 import java.util.concurrent.Executors
 import kotlinx.coroutines.CancellationException
@@ -24,15 +32,26 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 
 enum class SessionStatus {
@@ -85,11 +104,15 @@ class TerminalSessionEngine(
         val multiplexer: MultiplexerType? = null,
         val multiplexerSessionName: String? = null,
         val multiplexerCreateIfMissing: Boolean = true,
+        val herdrNativeMode: Boolean = false,
     ) {
         fun multiplexerStartupCommand(): String? {
             val type = multiplexer ?: return null
             if (!type.runtimeSupported || transport == Transport.Mosh || transport == Transport.LocalShell) return null
             val sessionName = multiplexerSessionName?.takeIf { it.isNotBlank() } ?: return null
+            if (type == MultiplexerType.Herdr && herdrNativeMode) {
+                return HerdrMultiplexer.nativeModeLaunchCommand(sessionName)
+            }
             val runtime = MultiplexerRegistry.forType(type) ?: return null
             return runtime.launchCommand(
                 sessionName = sessionName,
@@ -129,6 +152,12 @@ class TerminalSessionEngine(
     private var lastConnectionParams: ConnectionParams? = null
     private var reconnectJob: Job? = null
     private var disconnectRequested = false
+    private var herdrConnection: SharedSshConnection? = null
+    private val herdrConnectionMutex = Mutex()
+    private var herdrStreamJob: Job? = null
+    private val herdrPoke = Channel<Unit>(Channel.CONFLATED)
+    private val herdrCadenceMs = MutableStateFlow(3_000L)
+    @Volatile private var herdrIdleStretch = 0
 
 
     private val nativeVersion =
@@ -140,6 +169,26 @@ class TerminalSessionEngine(
 
     private val _state = MutableStateFlow(SessionState(nativeVersion = nativeVersion))
     val state: StateFlow<SessionState> = _state.asStateFlow()
+
+    private val _herdrState = MutableStateFlow<HerdrControlState>(HerdrControlState.Inactive)
+    val herdrState: StateFlow<HerdrControlState> = _herdrState.asStateFlow()
+
+    private val _herdrPaneHosts = MutableStateFlow<Map<String, HerdrPaneHost>>(emptyMap())
+    val herdrPanes: StateFlow<Map<String, HerdrPaneHost>> = _herdrPaneHosts.asStateFlow()
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val herdrPaneStates: StateFlow<Map<String, HerdrPaneState>> =
+        herdrPanes
+            .flatMapLatest { paneHosts ->
+                if (paneHosts.isEmpty()) {
+                    flowOf(emptyMap())
+                } else {
+                    combine(paneHosts.map { (paneId, host) -> host.state.map { paneId to it } }) {
+                        states -> states.associate { it }
+                    }
+                }
+            }
+            .stateIn(scope, SharingStarted.Eagerly, emptyMap())
+    private var herdrFocusedPaneId: String? = null
 
     data class DefaultColors(
         val fg: IntArray?,
@@ -167,8 +216,11 @@ class TerminalSessionEngine(
         multiplexer: MultiplexerType? = null,
         multiplexerSessionName: String? = null,
         multiplexerCreateIfMissing: Boolean = true,
+        herdrNativeMode: Boolean = false,
     ) {
         disconnectRequested = false
+        stopHerdrStream()
+        stopHerdrPaneStreams()
         val params =
             ConnectionParams(
                 host = host,
@@ -184,6 +236,7 @@ class TerminalSessionEngine(
                 multiplexer = multiplexer,
                 multiplexerSessionName = multiplexerSessionName,
                 multiplexerCreateIfMissing = multiplexerCreateIfMissing,
+                herdrNativeMode = herdrNativeMode,
             )
         lastConnectionParams = params
         scope.launch(dispatcher) {
@@ -263,6 +316,7 @@ class TerminalSessionEngine(
                 requestSnapshot(force = true)
                 startReadLoop()
                 sendStartupCommand(params)
+                if (isHerdrSshSession(params)) startHerdrStream(params)
             } catch (e: LinkageError) {
                 Log.e("TerminalSession", "Connect failed", e)
                 _state.value =
@@ -476,7 +530,7 @@ class TerminalSessionEngine(
     suspend fun checkMultiplexerAvailability(spec: TabSpec): MultiplexerAvailability =
         withContext(dispatcher) { checkMultiplexerAvailability(spec.toConnectionParams()) }
 
-    private fun checkMultiplexerAvailability(params: ConnectionParams): MultiplexerAvailability {
+    private suspend fun checkMultiplexerAvailability(params: ConnectionParams): MultiplexerAvailability {
         val type = params.multiplexer ?: return MultiplexerAvailability.Available
         val multiplexer = MultiplexerRegistry.forType(type)
             ?: return MultiplexerAvailability.UnsupportedMultiplexer(type)
@@ -559,10 +613,49 @@ class TerminalSessionEngine(
         multiplexer.defaultSessionName(remoteSessions, localSessionNames)
     }
 
+    fun setHerdrCadence(ms: Long) {
+        herdrCadenceMs.value = ms.coerceIn(1_000L, 60_000L)
+        pokeHerdr()
+    }
+
+    fun pokeHerdr() {
+        herdrIdleStretch = 0
+        herdrPoke.trySend(Unit)
+    }
+
+    suspend fun herdrFocusTab(tabId: String): MultiplexerCommandResult =
+        runHerdrControl { HerdrMultiplexer.focusTabCommand(tabId, lastConnectionParams?.multiplexerSessionName) }
+
+    suspend fun herdrFocusWorkspace(workspaceId: String): MultiplexerCommandResult =
+        runHerdrControl { HerdrMultiplexer.focusWorkspaceCommand(workspaceId, lastConnectionParams?.multiplexerSessionName) }
+
+    suspend fun herdrFocusPane(paneId: String): MultiplexerCommandResult =
+        runHerdrControl { HerdrMultiplexer.focusPaneCommand(paneId, lastConnectionParams?.multiplexerSessionName) }
+
+    suspend fun herdrCreateTab(workspaceId: String): MultiplexerCommandResult =
+        runHerdrControl { HerdrMultiplexer.createTabCommand(workspaceId, lastConnectionParams?.multiplexerSessionName) }
+
+    suspend fun herdrCreateWorkspace(label: String?): MultiplexerCommandResult =
+        runHerdrControl { HerdrMultiplexer.createWorkspaceCommand(label, lastConnectionParams?.multiplexerSessionName) }
+
+    suspend fun herdrCloseTab(tabId: String): MultiplexerCommandResult =
+        runHerdrControl { HerdrMultiplexer.closeTabCommand(tabId, lastConnectionParams?.multiplexerSessionName) }
+
+    suspend fun herdrSplitPane(paneId: String, direction: HerdrSplitDirection): MultiplexerCommandResult =
+        runHerdrControl { HerdrMultiplexer.splitPaneCommand(paneId, direction, lastConnectionParams?.multiplexerSessionName) }
+
+    suspend fun herdrClosePane(paneId: String): MultiplexerCommandResult =
+        runHerdrControl { HerdrMultiplexer.closePaneCommand(paneId, lastConnectionParams?.multiplexerSessionName) }
+
+    suspend fun herdrCloseWorkspace(workspaceId: String): MultiplexerCommandResult =
+        runHerdrControl { HerdrMultiplexer.closeWorkspaceCommand(workspaceId, lastConnectionParams?.multiplexerSessionName) }
+
     fun disconnect() {
         disconnectRequested = true
         reconnectJob?.cancel()
         reconnectJob = null
+        stopHerdrStream()
+        stopHerdrPaneStreams()
         lastConnectionParams = null
         cancelHostKeyPrompt()
         scope.launch(dispatcher) {
@@ -593,6 +686,112 @@ class TerminalSessionEngine(
         disposed = true
         disconnect()
         dispatcher.close()
+    }
+
+    fun ensureHerdrPaneStream(
+        paneId: String,
+        cols: Int,
+        rows: Int,
+        cellWidthPx: Int,
+        cellHeightPx: Int,
+        focused: Boolean,
+    ) {
+        scope.launch(dispatcher) {
+            val params = lastConnectionParams ?: return@launch
+            if (!isHerdrSshSession(params)) return@launch
+            val existing = _herdrPaneHosts.value[paneId]
+            if (existing != null) {
+                existing.setViewport(cols, rows, cellWidthPx, cellHeightPx)
+                return@launch
+            }
+            val host =
+                HerdrPaneHost(
+                    paneId = paneId,
+                    connectionProvider = { ensureHerdrConnection(params) },
+                    runCommand = { mode, commandCols, commandRows ->
+                        HerdrMultiplexer.terminalSessionCommand(paneId, commandCols, commandRows, mode, params.multiplexerSessionName)
+                    },
+                    scope = scope,
+                )
+            _herdrPaneHosts.value = _herdrPaneHosts.value + (paneId to host)
+            host.start(cols, rows, HerdrStreamMode.Control)
+            host.setViewport(cols, rows, cellWidthPx, cellHeightPx)
+            pendingColorScheme?.let { host.setColorScheme(it == 1) }
+            pendingDefaultColors?.let { host.setDefaultColors(it.fg, it.bg, it.cursor, it.palette) }
+            if (focused) herdrFocusedPaneId = paneId
+        }
+    }
+
+    fun retainHerdrPaneStreams(paneIds: Set<String>) {
+        scope.launch(dispatcher) {
+            val params = lastConnectionParams ?: return@launch
+            if (!isHerdrSshSession(params)) return@launch
+            val removed = _herdrPaneHosts.value.filterKeys { it !in paneIds }
+            if (removed.isEmpty()) return@launch
+            removed.values.forEach(HerdrPaneHost::dispose)
+            _herdrPaneHosts.value = _herdrPaneHosts.value - removed.keys
+            if (herdrFocusedPaneId !in paneIds) herdrFocusedPaneId = null
+        }
+    }
+
+    fun setHerdrFocusedPaneStream(paneId: String?) {
+        scope.launch(dispatcher) {
+            val params = lastConnectionParams ?: return@launch
+            if (!isHerdrSshSession(params)) return@launch
+            herdrFocusedPaneId = paneId
+        }
+    }
+
+    fun herdrTakeoverFocusedPane() {
+        scope.launch(dispatcher) {
+            val params = lastConnectionParams ?: return@launch
+            if (!isHerdrSshSession(params)) return@launch
+            _herdrPaneHosts.value[herdrFocusedPaneId]?.setMode(HerdrStreamMode.ControlTakeover)
+        }
+    }
+
+    private fun stopHerdrPaneStreams() {
+        _herdrPaneHosts.value.values.forEach(HerdrPaneHost::dispose)
+        _herdrPaneHosts.value = emptyMap()
+        herdrFocusedPaneId = null
+        herdrConnection?.close()
+        herdrConnection = null
+    }
+
+    private suspend fun ensureHerdrConnection(params: ConnectionParams): SharedSshConnection =
+        herdrConnectionMutex.withLock {
+            val current = herdrConnection
+            if (current?.connected == true) return@withLock current
+            current?.close()
+            herdrConnection = null
+            val connection: SharedSshConnection = SharedSshConnection(
+                host = params.host,
+                port = params.port,
+                username = params.username,
+                authMethod = params.authMethod,
+                password = if (params.authMethod == AuthMethod.Password) params.password else "",
+                publicKeyOpenSsh = params.publicKeyOpenSsh,
+                privateKeyPem = params.privateKeyPem,
+                keyPassphrase = params.keyPassphrase,
+                hostKeyPolicy = ::verifyHostKey,
+            )
+            try {
+                connection.connect()
+                herdrConnection = connection
+                connection
+            } catch (error: Exception) {
+                connection.close()
+                throw error
+            }
+        }
+
+    private suspend fun invalidateHerdrConnection(connection: SharedSshConnection?) {
+        if (connection == null) return
+        herdrConnectionMutex.withLock {
+            if (herdrConnection !== connection) return@withLock
+            herdrConnection = null
+            connection.close()
+        }
     }
 
     private fun cancelHostKeyPrompt() {
@@ -955,7 +1154,7 @@ class TerminalSessionEngine(
         multiplexerCreateIfMissing = multiplexerCreateIfMissing,
     )
 
-    private fun runMultiplexerCommand(
+    private suspend fun runMultiplexerCommand(
         params: ConnectionParams,
         command: String,
         timeoutMs: Long = 20_000,
@@ -982,7 +1181,7 @@ class TerminalSessionEngine(
     private fun withExitEnvelope(command: String): String =
         "$command; printf '\nCHUCHU_EXIT:%s\n' \"\$?\""
 
-    private fun readExecOutput(
+    private suspend fun readExecOutput(
         service: NativeSshService,
         timeoutMs: Long,
     ): MultiplexerCommandResult {
@@ -995,10 +1194,157 @@ class TerminalSessionEngine(
             } else if (service.isChannelEof()) {
                 return parseCommandEnvelope(output.toString())
             } else {
-                Thread.sleep(25)
+                delay(25)
             }
         }
         return MultiplexerCommandResult(124, output.toString(), "Command timed out")
+    }
+
+    private suspend fun runHerdrControl(
+        command: () -> String,
+    ): MultiplexerCommandResult =
+        withContext(dispatcher) {
+            val params = lastConnectionParams
+            if (params == null || !isHerdrSshSession(params)) {
+                return@withContext MultiplexerCommandResult(
+                    exitCode = 1,
+                    stdout = "",
+                    stderr = "Herdr control is only available for an active Herdr SSH session",
+                )
+            }
+            val connection = runCatching { ensureHerdrConnection(params) }.getOrNull()
+            val result =
+                try {
+                    if (connection?.connected == true) {
+                        connection.runCommand(command())
+                    } else {
+                        runMultiplexerCommand(params, command())
+                    }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    invalidateHerdrConnection(connection)
+                    MultiplexerCommandResult(1, "", error.message ?: "Herdr command failed")
+                }
+            pokeHerdr()
+            result
+        }
+
+    private fun isHerdrSshSession(params: ConnectionParams): Boolean =
+        params.multiplexer == MultiplexerType.Herdr &&
+            (params.transport == Transport.SSH || params.transport == Transport.TailscaleSSH)
+
+    private fun isHerdrStreamCurrent(params: ConnectionParams): Boolean =
+        !disconnectRequested && lastConnectionParams == params && _state.value.status == SessionStatus.Connected
+
+    private fun startHerdrStream(params: ConnectionParams) {
+        stopHerdrStream()
+        if (!isHerdrSshSession(params)) return
+        herdrStreamJob =
+            scope.launch(Dispatchers.IO) {
+                var retryDelayMs = 2_000L
+                while (currentCoroutineContext().isActive && isHerdrStreamCurrent(params)) {
+                    _herdrState.value = HerdrControlState.Connecting
+                    var service: NativeSshService? = null
+                    var failed = false
+                    try {
+                        service = NativeSshService(hostKeyPolicy = ::verifyHostKey)
+                        service.connect(
+                            host = params.host,
+                            port = params.port,
+                            username = params.username,
+                            authMethod = params.authMethod,
+                            password = if (params.authMethod == AuthMethod.Password) params.password else "",
+                            publicKeyOpenSsh = params.publicKeyOpenSsh,
+                            privateKeyPem = params.privateKeyPem,
+                            keyPassphrase = params.keyPassphrase,
+                        )
+                        if (!service.openExec(HerdrMultiplexer.snapshotStreamCommand(params.multiplexerSessionName))) {
+                            throw IllegalStateException("Remote server did not open an exec channel")
+                        }
+                        retryDelayMs = 2_000L
+                        streamHerdrSnapshots(params, service)
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        currentCoroutineContext().ensureActive()
+                        failed = true
+                        if (isHerdrStreamCurrent(params)) {
+                            _herdrState.value =
+                                HerdrControlState.Error(
+                                    error.message ?: "Herdr snapshot stream failed",
+                                )
+                        }
+                    } finally {
+                        service?.let { runCatching { it.close() } }
+                    }
+                    if (failed && isHerdrStreamCurrent(params)) {
+                        delay(retryDelayMs)
+                        retryDelayMs = (retryDelayMs * 2).coerceAtMost(60_000L)
+                    }
+                }
+            }
+    }
+
+    private fun stopHerdrStream() {
+        herdrStreamJob?.cancel()
+        herdrStreamJob = null
+        herdrIdleStretch = 0
+        _herdrState.value = HerdrControlState.Inactive
+    }
+
+    private suspend fun streamHerdrSnapshots(
+        params: ConnectionParams,
+        service: NativeSshService,
+    ) {
+        val buffer = StringBuilder()
+        var previousSnapshot: HerdrSnapshot? = null
+        while (currentCoroutineContext().isActive && isHerdrStreamCurrent(params)) {
+            val snapshot = readHerdrSnapshot(service, buffer)
+            herdrIdleStretch =
+                if (snapshot == previousSnapshot) herdrIdleStretch + 1 else 1
+            previousSnapshot = snapshot
+            val cadence = herdrCadenceMs.value
+            val effectiveWait =
+                if (herdrIdleStretch >= 5 && cadence < 15_000L) {
+                    minOf(cadence * 5, 15_000L)
+                } else {
+                    cadence
+                }
+            if (withTimeoutOrNull(effectiveWait) { herdrPoke.receive() } != null) {
+                herdrIdleStretch = 0
+            }
+        }
+    }
+
+    private suspend fun readHerdrSnapshot(
+        service: NativeSshService,
+        buffer: StringBuilder,
+    ): HerdrSnapshot {
+        service.write("\n".toByteArray(Charsets.UTF_8))
+        val deadline = System.currentTimeMillis() + 10_000L
+        while (System.currentTimeMillis() < deadline) {
+            val chunk = service.read(8192)
+            if (chunk != null && chunk.isNotEmpty()) {
+                var snapshot: HerdrSnapshot? = null
+                appendHerdrStreamChunk(buffer, String(chunk, Charsets.UTF_8)).forEach { frame ->
+                    parseHerdrSnapshot(frame)?.let { parsed ->
+                        _herdrState.value =
+                            HerdrControlState.Active(
+                                snapshot = parsed,
+                                protocolWarning = parsed.protocol != 16,
+                            )
+                        snapshot = parsed
+                    }
+                }
+                if (snapshot != null) return snapshot
+            } else if (service.isChannelEof()) {
+                throw IllegalStateException("Herdr snapshot stream reached EOF")
+            } else {
+                delay(25)
+            }
+        }
+        throw IllegalStateException("Herdr snapshot read timed out")
     }
 
     private fun parseCommandEnvelope(output: String): MultiplexerCommandResult {
@@ -1024,6 +1370,8 @@ class TerminalSessionEngine(
                     _state.value = _state.value.copy(status = SessionStatus.Disconnected)
                     return
                 }
+        stopHerdrStream()
+        stopHerdrPaneStreams()
         if (reconnectJob?.isActive == true) return
         reconnectJob =
             scope.launch(dispatcher) {
@@ -1059,6 +1407,7 @@ class TerminalSessionEngine(
                         requestSnapshot(force = true)
                         startReadLoop()
                         sendStartupCommand(params)
+                        if (isHerdrSshSession(params)) startHerdrStream(params)
                         return@launch
                     } catch (e: Exception) {
                         Log.e("TerminalSession", "Reconnect attempt $attempt failed", e)

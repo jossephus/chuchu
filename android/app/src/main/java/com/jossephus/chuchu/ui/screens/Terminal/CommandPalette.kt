@@ -40,6 +40,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jossephus.chuchu.service.multiplexer.HerdrControlState
 import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerSession
 import com.jossephus.chuchu.service.terminal.TabSession
 import com.jossephus.chuchu.ui.components.ChuButton
@@ -79,6 +80,14 @@ fun CommandPalette(
     onMultiplexerRefresh: () -> Unit = {},
     onMultiplexerNew: () -> Unit = {},
     onMultiplexerAttach: (String) -> Unit = {},
+    herdrEnabled: Boolean = false,
+    herdrState: HerdrControlState = HerdrControlState.Inactive,
+    herdrActionError: String? = null,
+    onHerdrFocusTab: (String) -> Unit = {},
+    onHerdrFocusPane: (String) -> Unit = {},
+    onHerdrCreateTab: (String) -> Unit = {},
+    onHerdrCloseTab: (String) -> Unit = {},
+    onHerdrRefresh: () -> Unit = {},
 ) {
   val colors = ChuColors.current
   val typography = ChuTypography.current
@@ -212,7 +221,7 @@ fun CommandPalette(
                     onTap = {},
                     onPrimaryClick = { _, _ -> },
                     onScroll = { _, _, _ -> },
-                    onZoom = {},
+                    onFontSizeChange = {},
                     onSelectionChanged = {},
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -238,7 +247,17 @@ fun CommandPalette(
             ChuText("+ new", style = typography.labelSmall, color = colors.accent)
           }
         }
-        if (multiplexerEnabled) {
+        if (herdrEnabled) {
+          HerdrPanel(
+              state = herdrState,
+              onFocusTab = onHerdrFocusTab,
+              onFocusPane = onHerdrFocusPane,
+              onCreateTab = onHerdrCreateTab,
+              onCloseTab = onHerdrCloseTab,
+              onRefresh = onHerdrRefresh,
+              actionError = herdrActionError,
+          )
+        } else if (multiplexerEnabled) {
           MultiplexerSessionPanel(
               sessions = multiplexerSessions,
               loading = multiplexerSessionsLoading,

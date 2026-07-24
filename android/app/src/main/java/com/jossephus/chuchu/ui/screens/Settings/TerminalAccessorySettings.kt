@@ -93,6 +93,8 @@ internal fun TerminalSettings(
     onTabModeChanged: (TerminalTabMode) -> Unit = {},
     localShellEnabled: Boolean = false,
     onLocalShellEnabledChanged: (Boolean) -> Unit = {},
+    herdrNotificationsEnabled: Boolean = true,
+    onHerdrNotificationsEnabledChanged: (Boolean) -> Unit = {},
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
@@ -483,6 +485,33 @@ internal fun TerminalSettings(
                 ChuSwitch(
                     checked = localShellEnabled,
                     onCheckedChange = onLocalShellEnabledChanged,
+                )
+            }
+        }
+
+        ChuCard(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .defaultMinSize(minHeight = 48.dp)
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    ChuText("Herdr agent notifications", style = typography.label)
+                    ChuText(
+                        "alert when background agents need attention or finish",
+                        style = typography.bodySmall,
+                        color = colors.textMuted,
+                    )
+                }
+                ChuSwitch(
+                    checked = herdrNotificationsEnabled,
+                    onCheckedChange = onHerdrNotificationsEnabledChanged,
                 )
             }
         }
