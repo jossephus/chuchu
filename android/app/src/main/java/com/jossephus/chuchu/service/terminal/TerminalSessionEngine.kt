@@ -7,6 +7,7 @@ import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.mosh.MoshBootstrapParser
 import com.jossephus.chuchu.service.mosh.MoshEventType
+import com.jossephus.chuchu.service.mosh.MoshReconnectPolicy
 import com.jossephus.chuchu.service.mosh.MoshState
 import com.jossephus.chuchu.service.mosh.NativeMoshService
 import com.jossephus.chuchu.service.multiplexer.MultiplexerAvailability
@@ -414,13 +415,19 @@ class TerminalSessionEngine(
                 }
             } catch (e: Exception) {
                 Log.e("TerminalSession", "Resize failed", e)
+                val transport = lastConnectionParams?.transport
                 val shouldReconnect =
                     !disconnectRequested &&
                         lastConnectionParams != null &&
-                        lastConnectionParams?.transport != Transport.LocalShell
+                        readLoopExitAction(transport) == ReadLoopExitAction.AutomaticReconnect
                 if (shouldReconnect) {
                     scheduleReconnect("Connection interrupted: ${e.message ?: "resize failed"}")
                 } else {
+                    if (transport == Transport.Mosh) {
+                        readJob?.cancel()
+                        readJob = null
+                        moshService.close()
+                    }
                     _state.value =
                         _state.value.copy(
                             status = SessionStatus.Error,
@@ -643,9 +650,10 @@ class TerminalSessionEngine(
             scope.launch(dispatcher) {
                 val transport = lastConnectionParams?.transport
                 var failed = false
+                var moshFailureCode: Int? = null
                 try {
                     when (transport) {
-                        Transport.Mosh -> startMoshReadLoop()
+                        Transport.Mosh -> moshFailureCode = startMoshReadLoop()
                         Transport.LocalShell -> startLocalShellReadLoop()
                         else -> startSshReadLoop()
                     }
@@ -662,13 +670,25 @@ class TerminalSessionEngine(
                             )
                     }
                 }
-                if (transport == Transport.LocalShell) {
-                    localShellService.close()
-                    if (!disconnectRequested && !failed) {
-                        _state.value = _state.value.copy(status = SessionStatus.Disconnected)
+                when (readLoopExitAction(transport)) {
+                    ReadLoopExitAction.Disconnect -> {
+                        localShellService.close()
+                        if (!disconnectRequested && !failed) {
+                            _state.value = _state.value.copy(status = SessionStatus.Disconnected)
+                        }
                     }
-                } else {
-                    scheduleReconnect("Connection interrupted")
+                    ReadLoopExitAction.RequireManualReconnect -> {
+                        moshService.close()
+                        if (!disconnectRequested) {
+                            val failure = moshFailureCode?.let { " (failure code $it)" }.orEmpty()
+                            _state.value =
+                                _state.value.copy(
+                                    status = SessionStatus.Error,
+                                    error = "Mosh session ended$failure. Reconnect to start a new session.",
+                                )
+                        }
+                    }
+                    ReadLoopExitAction.AutomaticReconnect -> scheduleReconnect("Connection interrupted")
                 }
             }
     }
@@ -724,10 +744,11 @@ class TerminalSessionEngine(
         }
     }
 
-    private suspend fun startMoshReadLoop() {
+    private suspend fun startMoshReadLoop(): Int? {
         Log.d("TerminalSession", "MOSH: read loop started")
         var loopCount = 0
         var lastActivityMs = System.currentTimeMillis()
+        var failureCode: Int? = null
         while (currentCoroutineContext().isActive) {
             loopCount++
 
@@ -783,7 +804,8 @@ class TerminalSessionEngine(
             val runtime = moshService.pollState()
             if (runtime != null) {
                 if (runtime.state == MoshState.Failed.code) {
-                    Log.e("TerminalSession", "MOSH: session FAILED code=${runtime.lastFailureCode}")
+                    failureCode = runtime.lastFailureCode
+                    Log.e("TerminalSession", "MOSH: session FAILED code=$failureCode")
                     break
                 }
             }
@@ -793,6 +815,7 @@ class TerminalSessionEngine(
             delay(idleReadDelayMs(System.currentTimeMillis() - lastActivityMs))
         }
         Log.d("TerminalSession", "MOSH: read loop exited after $loopCount iterations")
+        return failureCode
     }
 
     private suspend fun establishConnection(params: ConnectionParams, username: String) {
@@ -852,7 +875,7 @@ class TerminalSessionEngine(
         )
         // Use exec channel to bypass shell init noise and MOTD.
         // Falls back to shell if the remote server doesn't support exec.
-        val moshCommand = "env LANG=C.UTF-8 LC_ALL=C.UTF-8 PATH=\"/opt/homebrew/bin:/usr/local/bin:/home/linuxbrew/.linuxbrew/bin:/opt/local/bin:\$PATH\" mosh-server new -s -c 256"
+        val moshCommand = MoshReconnectPolicy.bootstrapCommand()
         val execOpened = runCatching { nativeSsh.openExec(moshCommand) }.getOrDefault(false)
         if (!execOpened) {
             Log.w("TerminalSession", "MOSH: exec channel unavailable, falling back to shell")
@@ -889,6 +912,8 @@ class TerminalSessionEngine(
                                     put("host", result.endpoint.host)
                                     put("port", result.endpoint.port)
                                     put("keyBase64_22", result.endpoint.key)
+                                    put("networkTimeoutMs", MoshReconnectPolicy.CLIENT_NETWORK_TIMEOUT_MS)
+                                    put("maxRetransmitCount", MoshReconnectPolicy.CLIENT_MAX_RETRANSMIT_COUNT)
                                     put("useNetworkCrypto", true)
                                 }
                                 .toString()
