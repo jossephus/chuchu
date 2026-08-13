@@ -436,6 +436,7 @@ fun TerminalTabManager(
                         onNew = onMultiplexerNew,
                         onAttach = onMultiplexerAttach,
                         onDismiss = onDismiss,
+                        modifier = Modifier.weight(1f, fill = false),
                     )
                 }
             }

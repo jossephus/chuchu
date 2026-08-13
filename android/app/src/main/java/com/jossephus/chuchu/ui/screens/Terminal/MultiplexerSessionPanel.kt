@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -63,7 +62,7 @@ fun MultiplexerSessionPanel(
             )
         }
         if (visibleSessions.isNotEmpty()) {
-            LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 150.dp)) {
+            LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f, fill = false)) {
                 items(visibleSessions) { session ->
                     MultiplexerSessionRow(
                         session = session,
