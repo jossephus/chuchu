@@ -94,11 +94,13 @@ class TerminalInputView(context: Context) : EditText(context) {
 
     private fun emitTerminalText(source: String, text: String) {
         logInput("emit source=$source text=${describeText(text)}")
+        activeInputConnection?.clearImeCaretAnchor()
         onTerminalText?.invoke(text)
     }
 
     private fun emitBackspaceText(source: String) {
         logInput("emit source=$source text=<BS>")
+        activeInputConnection?.clearImeCaretAnchor()
         onTerminalText?.invoke("\u007f")
     }
 
@@ -238,6 +240,10 @@ class TerminalInputView(context: Context) : EditText(context) {
 
         private fun logConn(message: String) {
             view.logInput("conn=$connectionId $message")
+        }
+
+        fun clearImeCaretAnchor() {
+            imeCaretAnchor = null
         }
 
         fun armSuppression() {
