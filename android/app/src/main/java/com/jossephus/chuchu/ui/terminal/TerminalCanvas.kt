@@ -688,12 +688,14 @@ fun TerminalCanvas(
                     sb.setLength(0)
                     if (firstGlyph == null) sb.appendCodePoint(cp) else sb.append(firstGlyph)
                     val startCol = i - rowStart
-                    var j = i + 1
+                    val firstIsWide = i + 1 < rowEnd && snapshot.isSpacerContinuation(i + 1)
+                    var j = if (firstIsWide) i + 2 else i + 1
 
                     while (j < rowEnd) {
                         val c = snapshot.codepoints[j]
                         if (c == 0) break
                         if (c == 32 && !snapshot.isSpacerContinuation(j)) break
+                        if (j + 1 < rowEnd && snapshot.isSpacerContinuation(j + 1)) break
 
                         val jFlags = snapshot.flags[j].toInt()
                         val jSelected = hasSel && j in selStart..selEnd
