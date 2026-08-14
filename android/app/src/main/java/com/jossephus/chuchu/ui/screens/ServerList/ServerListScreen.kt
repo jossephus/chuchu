@@ -54,6 +54,7 @@ import com.jossephus.chuchu.service.terminal.TerminalSessionRepository
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuCard
+import com.jossephus.chuchu.ui.components.ChuDialog
 import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.components.TuiBadge
 import com.jossephus.chuchu.ui.theme.ChuColors
@@ -81,6 +82,7 @@ fun ServerListScreen(
     val hasOpenLocalShell = openTabs.any { it.spec.transport == Transport.LocalShell }
 
     var selectedHostId by remember { mutableStateOf<Long?>(null) }
+    var pendingDisconnectHostId by remember { mutableStateOf<Long?>(null) }
     var pendingConnectHostId by remember { mutableStateOf<Long?>(null) }
     var pendingLocalShell by remember { mutableStateOf(false) }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
@@ -200,13 +202,7 @@ fun ServerListScreen(
                                 }
                             },
                             onDisconnect = {
-                                selectedHostId = null
-                                openTabs
-                                    .asSequence()
-                                    .filter { it.spec.hostId == host.id }
-                                    .map { it.id }
-                                    .toList()
-                                    .forEach(sessionRepo::closeTab)
+                                pendingDisconnectHostId = host.id
                             },
                         )
                     }
@@ -227,6 +223,33 @@ fun ServerListScreen(
             ChuText("+ add server", style = typography.label, color = colors.onAccent)
         }
 
+        val pendingDisconnectHost = hosts.firstOrNull { it.id == pendingDisconnectHostId }
+        if (pendingDisconnectHost != null) {
+            val sessionCount = openTabs.count { it.spec.hostId == pendingDisconnectHost.id }
+            ChuDialog(
+                title = "Disconnect ${pendingDisconnectHost.name}?",
+                confirmLabel = "Disconnect",
+                dismissLabel = "Cancel",
+                onConfirm = {
+                    selectedHostId = null
+                    openTabs
+                        .asSequence()
+                        .filter { it.spec.hostId == pendingDisconnectHost.id }
+                        .map { it.id }
+                        .toList()
+                        .forEach(sessionRepo::closeTab)
+                    pendingDisconnectHostId = null
+                },
+                onDismiss = { pendingDisconnectHostId = null },
+            ) {
+                val sessionLabel = if (sessionCount == 1) "session" else "sessions"
+                ChuText(
+                    "This closes $sessionCount $sessionLabel on this host.",
+                    style = typography.body,
+                    color = colors.warning,
+                )
+            }
+        }
     }
 }
 
@@ -425,7 +448,9 @@ private fun HostCard(
                             onDragEnd = {
                                 if (swipeOffsetX.value <= -disconnectThresholdPx) {
                                     onDisconnect()
-                                    scope.launch { swipeOffsetX.snapTo(0f) }
+                                    scope.launch {
+                                        swipeOffsetX.animateTo(0f, animationSpec = tween(140))
+                                    }
                                 } else {
                                     scope.launch {
                                         swipeOffsetX.animateTo(0f, animationSpec = tween(140))
