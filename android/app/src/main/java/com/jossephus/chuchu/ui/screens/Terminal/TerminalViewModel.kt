@@ -234,7 +234,14 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         }
         _multiplexerState.value = MultiplexerUiState(reconnectRecovery = reconnectRecovery)
         viewModelScope.launch(Dispatchers.IO) {
-            val result = runCatching { sessionRepository.resolveMultiplexerSessionName(spec) }
+            val result = runCatching {
+                sessionRepository.resolveMultiplexerSessionName(
+                    spec = spec,
+                    reuseDetachedChuchuSession =
+                        preparedAction is PendingMultiplexerAction.Open &&
+                            spec.multiplexerSessionName.isNullOrBlank(),
+                )
+            }
             withContext(Dispatchers.Main) {
                 if (!isCurrentMultiplexerAction(actionGeneration, preparedAction)) return@withContext
                 result.fold(

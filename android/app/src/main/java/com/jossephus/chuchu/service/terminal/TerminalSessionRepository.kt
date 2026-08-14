@@ -170,13 +170,17 @@ class TerminalSessionRepository private constructor(application: Application) {
         .filter { it.spec.multiplexer == multiplexer }
         .mapNotNull { it.spec.multiplexerSessionName }
 
-    suspend fun resolveMultiplexerSessionName(spec: TabSpec): String = withPreflightEngine { engine ->
+    suspend fun resolveMultiplexerSessionName(
+        spec: TabSpec,
+        reuseDetachedChuchuSession: Boolean = false,
+    ): String = withPreflightEngine { engine ->
         engine.resolveMultiplexerSessionName(
             spec = spec,
             localSessionNames = openMultiplexerSessionNamesForHost(
                 hostId = spec.hostId,
                 multiplexer = spec.multiplexer ?: MultiplexerRegistry.defaultType,
             ),
+            reuseDetachedChuchuSession = reuseDetachedChuchuSession,
         )
     }
 
