@@ -207,9 +207,12 @@ class TerminalInputView(context: Context) : EditText(context) {
         outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI or
             EditorInfo.IME_FLAG_NO_FULLSCREEN or
             EditorInfo.IME_ACTION_NONE
+        // URI variation stops IMEs applying prose conventions, such as auto-space
+        // after punctuation and suggestions, to shell input.
         outAttrs.inputType = android.text.InputType.TYPE_CLASS_TEXT or
             android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or
-            android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS or
+            android.text.InputType.TYPE_TEXT_VARIATION_URI
         outAttrs.initialSelStart = selectionStart
         outAttrs.initialSelEnd = selectionEnd
 
