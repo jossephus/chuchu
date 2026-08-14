@@ -1147,8 +1147,8 @@ class TerminalSessionEngine(
     }
 
     private suspend fun sendStartupCommand(params: ConnectionParams) {
-        val multiplexerCommand = params.multiplexerStartupCommand()?.trim().orEmpty()
-        if (multiplexerCommand.isNotEmpty() && params.transport != Transport.Mosh) return
+        // Multiplexer startup is dispatched through openExecPty before this runs. Later writes on
+        // that PTY follow the exec request, so the command is consumed by the attached session.
         sendPostConnectCommand(params.postConnectCommand)
     }
 
