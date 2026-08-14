@@ -48,6 +48,7 @@ fun SettingsScreen(
     localShellEnabled: Boolean,
     keepScreenAwake: Boolean,
     hideScreenContents: Boolean,
+    remoteClipboardWriteEnabled: Boolean,
     currentAccessoryLayoutIds: List<String>,
     accessoryBarSingleRow: Boolean,
     currentTerminalCustomKeyGroups: List<TerminalCustomKeyGroup>,
@@ -68,6 +69,7 @@ fun SettingsScreen(
     onLocalShellEnabledChanged: (Boolean) -> Unit,
     onKeepScreenAwakeChanged: (Boolean) -> Unit,
     onHideScreenContentsChanged: (Boolean) -> Unit,
+    onRemoteClipboardWriteEnabledChanged: (Boolean) -> Unit,
     onAccessoryLayoutChanged: (List<String>) -> Unit,
     onAccessoryBarSingleRowChanged: (Boolean) -> Unit,
     currentTerminalFontSize: Float = 14f,
@@ -195,6 +197,8 @@ fun SettingsScreen(
                         onKeepScreenAwakeChanged = onKeepScreenAwakeChanged,
                         hideScreenContents = hideScreenContents,
                         onHideScreenContentsChanged = onHideScreenContentsChanged,
+                        remoteClipboardWriteEnabled = remoteClipboardWriteEnabled,
+                        onRemoteClipboardWriteEnabledChanged = onRemoteClipboardWriteEnabledChanged,
                     )
                 }
             }
