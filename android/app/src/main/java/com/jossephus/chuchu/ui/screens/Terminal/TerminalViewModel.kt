@@ -454,6 +454,14 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
 
     private fun tabExists(tabId: String): Boolean = sessionRepository.tabs.value.any { it.id == tabId }
 
+    private fun currentSessionPwd(tabId: String): String? =
+        sessionRepository.tabs.value
+            .firstOrNull { it.id == tabId }
+            ?.sessionState
+            ?.value
+            ?.pwd
+            ?.takeIf { it.isNotBlank() }
+
     private suspend fun resolveRealpath(tabId: String, path: String): String? =
         try {
             sessionRepository.sftpRealpath(tabId, path).takeIf { it.isNotBlank() }
@@ -465,13 +473,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
 
     private fun resolveInitialFilePathAndRefresh(tabId: String) {
         if (!tabExists(tabId)) return
-        val pwd =
-            sessionRepository.tabs.value
-                .firstOrNull { it.id == tabId }
-                ?.sessionState
-                ?.value
-                ?.pwd
-                ?.takeIf { it.isNotBlank() }
+        val pwd = currentSessionPwd(tabId)
         if (pwd != null) {
             updateFileBrowserState(tabId) { it.copy(currentPath = pwd, resolvedHomePath = pwd) }
             refreshFileBrowser(tabId)
@@ -490,8 +492,9 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 val fallback = tabState?.engine?.state?.value?.pwd?.takeIf { it.isNotBlank() } ?: "/"
                 val resolved = resolveRealpath(tabId, ".") ?: resolveRealpath(tabId, "~")
                 if (!isActive || !tabExists(tabId)) return@launch
-                val initial = resolved ?: fallback
-                fileHomeByTab[tabId] = initial
+                val home = resolved ?: fallback
+                val initial = currentSessionPwd(tabId) ?: home
+                fileHomeByTab[tabId] = home
                 updateFileBrowserState(tabId) {
                     it.copy(currentPath = initial, resolvedHomePath = initial)
                 }
