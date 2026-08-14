@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -27,6 +28,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class TerminalSessionRepository private constructor(application: Application) {
@@ -332,6 +334,14 @@ class TerminalSessionRepository private constructor(application: Application) {
 
     private fun sftpEngineForTab(tabId: String): TerminalSessionEngine? =
         _tabs.value.firstOrNull { it.id == tabId && it.spec.transport != Transport.LocalShell }?.engine
+
+    suspend fun awaitTabConnected(tabId: String, timeoutMs: Long = 20_000) {
+        val tab = _tabs.value.firstOrNull { it.id == tabId && it.spec.transport != Transport.LocalShell } ?: return
+        if (tab.sessionState.value.status == SessionStatus.Connected) return
+        withTimeoutOrNull(timeoutMs) {
+            tab.sessionState.first { it.status == SessionStatus.Connected }
+        } ?: throw IllegalStateException("Timed out waiting for the session to reconnect")
+    }
 
     fun resize(
         cols: Int,

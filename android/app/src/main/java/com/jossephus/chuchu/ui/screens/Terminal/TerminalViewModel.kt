@@ -573,6 +573,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         val tabId = activeTabId.value ?: return
         val current = _fileBrowserStateByTab.value[tabId] ?: return
         val targetPath = current.currentPath.trimEnd('/') + "/" + fileName
+        sessionRepository.awaitTabConnected(tabId)
         sessionRepository.sftpOpenWrite(tabId, targetPath)
     }
 
@@ -617,6 +618,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     }
 
     suspend fun readFile(tabId: String, entry: FileBrowserEntry, maxBytes: Int): ByteArray {
+        sessionRepository.awaitTabConnected(tabId)
         return sessionRepository.sftpReadFile(tabId, entry.path, maxBytes)
     }
 
