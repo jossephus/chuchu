@@ -77,7 +77,7 @@ fn setLibssh2Error(session: *NativeSshSession, prefix: []const u8, rc: c_int) vo
         _ = c.libssh2_session_last_error(ssh_session, @ptrCast(&errmsg_ptr), &errmsg_len, 0);
     }
     if (errmsg_ptr != null and errmsg_len > 0) {
-        setError(session, "{s}: {s}", .{ prefix, errmsg_ptr[0..@intCast(errmsg_len)] });
+        setError(session, "{s}: {s} (rc={})", .{ prefix, errmsg_ptr[0..@intCast(errmsg_len)], rc });
     } else {
         setError(session, "{s}: rc={}", .{ prefix, rc });
     }
@@ -1364,10 +1364,24 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeSftpOpenWr
     defer allocator.free(path_z);
 
     if (session.upload_handle) |stale| {
-        while (true) {
+        const started_ms = nowMs();
+        var idle_since_ms = started_ms;
+        var eagain_count: u64 = 0;
+        close_stale: while (true) {
             const rc = c.libssh2_sftp_close_handle(stale);
             if (rc != c.LIBSSH2_ERROR_EAGAIN) break;
-            if (!waitSocket(session, io_wait_timeout_ms)) break;
+            eagain_count +%= 1;
+            switch (awaitSftpProgress(session, &idle_since_ms)) {
+                .retry => {},
+                .no_socket, .stalled => {
+                    const now = nowMs();
+                    logError(
+                        "SFTP close timed out after {}ms (idle {}ms, EAGAIN={})",
+                        .{ now - started_ms, now - idle_since_ms, eagain_count },
+                    );
+                    break :close_stale;
+                },
+            }
         }
         session.upload_handle = null;
     }
@@ -1389,19 +1403,31 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeSftpWriteC
     const data_ptr = env.*.*.GetByteArrayElements.?(env, data, null) orelse return -1;
     defer env.*.*.ReleaseByteArrayElements.?(env, data, data_ptr, c.JNI_ABORT);
     const ptr: [*]const u8 = @ptrCast(data_ptr);
-    const sftp_write_idle_limit_ms: i64 = 30_000;
     var written: usize = 0;
-    var idle_since_ms: i64 = std.time.milliTimestamp();
+    const started_ms = nowMs();
+    var idle_since_ms = started_ms;
+    var eagain_count: u64 = 0;
     while (written < @as(usize, @intCast(data_len))) {
         const remaining: usize = @as(usize, @intCast(data_len)) - written;
         const chunk_size: usize = @min(remaining, 32768);
         const rc = c.libssh2_sftp_write(sftp_handle, ptr + written, chunk_size);
         if (rc == c.LIBSSH2_ERROR_EAGAIN or rc == 0) {
-            if (waitSocket(session, io_wait_timeout_ms)) {
-                idle_since_ms = std.time.milliTimestamp();
-            } else if (std.time.milliTimestamp() - idle_since_ms > sftp_write_idle_limit_ms) {
-                setError(session, "SFTP write stalled (no socket activity for {d}ms)", .{sftp_write_idle_limit_ms});
-                return -1;
+            eagain_count +%= 1;
+            switch (awaitSftpProgress(session, &idle_since_ms)) {
+                .retry => {},
+                .no_socket, .stalled => {
+                    const now = nowMs();
+                    setError(
+                        session,
+                        "SFTP write timed out after {d}ms (idle {d}ms, EAGAIN={d})",
+                        .{ now - started_ms, now - idle_since_ms, eagain_count },
+                    );
+                    logError(
+                        "SFTP write timeout elapsed={}ms idle={}ms eagain={}",
+                        .{ now - started_ms, now - idle_since_ms, eagain_count },
+                    );
+                    return -1;
+                },
             }
             continue;
         }
@@ -1410,7 +1436,7 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeSftpWriteC
             return -1;
         }
         written += @intCast(rc);
-        idle_since_ms = std.time.milliTimestamp();
+        idle_since_ms = nowMs();
     }
 
     return @intCast(written);
@@ -1422,19 +1448,31 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeSftpCloseW
     const session = sessionFromHandle(handle) orelse return c.JNI_FALSE;
     const sftp_handle = session.upload_handle orelse return c.JNI_FALSE;
     session.upload_handle = null;
-    const close_idle_limit_ms: i64 = 10_000;
-    var idle_since_ms: i64 = std.time.milliTimestamp();
+    const started_ms = nowMs();
+    var idle_since_ms = started_ms;
+    var eagain_count: u64 = 0;
     while (true) {
         const rc = c.libssh2_sftp_close_handle(sftp_handle);
         if (rc == 0) return c.JNI_TRUE;
         if (rc == c.LIBSSH2_ERROR_EAGAIN) {
-            if (waitSocket(session, io_wait_timeout_ms)) {
-                idle_since_ms = std.time.milliTimestamp();
-                continue;
+            eagain_count +%= 1;
+            switch (awaitSftpProgress(session, &idle_since_ms)) {
+                .retry => {},
+                .no_socket, .stalled => {
+                    const now = nowMs();
+                    setError(
+                        session,
+                        "SFTP close timed out after {d}ms (idle {d}ms, EAGAIN={d})",
+                        .{ now - started_ms, now - idle_since_ms, eagain_count },
+                    );
+                    logError(
+                        "SFTP close timeout elapsed={}ms idle={}ms eagain={}",
+                        .{ now - started_ms, now - idle_since_ms, eagain_count },
+                    );
+                    return c.JNI_FALSE;
+                },
             }
-            if (std.time.milliTimestamp() - idle_since_ms < close_idle_limit_ms) continue;
-            setError(session, "SFTP close stalled (no socket activity for {d}ms)", .{close_idle_limit_ms});
-            return c.JNI_FALSE;
+            continue;
         }
         setLibssh2Error(session, "SFTP close failed", @intCast(rc));
         return c.JNI_FALSE;
@@ -1451,11 +1489,15 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeSftpReadFi
     defer allocator.free(path_z);
     const file = sftpOpenFile(session, sftp, path_z, c.LIBSSH2_FXF_READ, 0) orelse return null;
     defer {
+        var idle_since_ms = nowMs();
         while (true) {
             const rc = c.libssh2_sftp_close_handle(file);
             if (rc == 0) break;
             if (rc == c.LIBSSH2_ERROR_EAGAIN) {
-                if (waitSocket(session, io_wait_timeout_ms)) continue;
+                switch (awaitSftpProgress(session, &idle_since_ms)) {
+                    .retry => continue,
+                    .no_socket, .stalled => {},
+                }
             }
             logInfo("SFTP close handle failed rc={}", .{rc});
             break;
@@ -1466,15 +1508,37 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeSftpReadFi
     defer out.deinit(allocator);
     const limit: usize = if (max_bytes <= 0) 4096 else @intCast(max_bytes);
     var buf: [32768]u8 = undefined;
+    const started_ms = nowMs();
+    var idle_since_ms = started_ms;
+    var eagain_count: u64 = 0;
     while (out.items.len < limit) {
         const want = @min(buf.len, limit - out.items.len);
         const rc = c.libssh2_sftp_read(file, &buf, want);
         if (rc > 0) {
             out.appendSlice(allocator, buf[0..@intCast(rc)]) catch return null;
+            idle_since_ms = nowMs();
             continue;
         }
         if (rc == 0) break;
-        if (rc == c.LIBSSH2_ERROR_EAGAIN and waitSocket(session, io_wait_timeout_ms)) continue;
+        if (rc == c.LIBSSH2_ERROR_EAGAIN) {
+            eagain_count +%= 1;
+            switch (awaitSftpProgress(session, &idle_since_ms)) {
+                .retry => continue,
+                .no_socket, .stalled => {
+                    const now = nowMs();
+                    setError(
+                        session,
+                        "SFTP read timed out after {d}ms (idle {d}ms, EAGAIN={d})",
+                        .{ now - started_ms, now - idle_since_ms, eagain_count },
+                    );
+                    logError(
+                        "SFTP read timeout elapsed={}ms idle={}ms eagain={}",
+                        .{ now - started_ms, now - idle_since_ms, eagain_count },
+                    );
+                    return null;
+                },
+            }
+        }
         setLibssh2Error(session, "SFTP read failed", @intCast(rc));
         return null;
     }
@@ -1489,10 +1553,31 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeSftpDelete
     defer allocator.free(path_bytes);
     const path_z = dupSentinel(path_bytes) orelse return c.JNI_FALSE;
     defer allocator.free(path_z);
+    const started_ms = nowMs();
+    var idle_since_ms = started_ms;
+    var eagain_count: u64 = 0;
     while (true) {
         const rc = c.libssh2_sftp_unlink_ex(sftp, path_z.ptr, @intCast(path_z.len));
         if (rc == 0) return c.JNI_TRUE;
-        if (rc == c.LIBSSH2_ERROR_EAGAIN and waitSocket(session, io_wait_timeout_ms)) continue;
+        if (rc == c.LIBSSH2_ERROR_EAGAIN) {
+            eagain_count +%= 1;
+            switch (awaitSftpProgress(session, &idle_since_ms)) {
+                .retry => continue,
+                .no_socket, .stalled => {
+                    const now = nowMs();
+                    setError(
+                        session,
+                        "SFTP delete file timed out after {d}ms (idle {d}ms, EAGAIN={d})",
+                        .{ now - started_ms, now - idle_since_ms, eagain_count },
+                    );
+                    logError(
+                        "SFTP delete file timeout elapsed={}ms idle={}ms eagain={}",
+                        .{ now - started_ms, now - idle_since_ms, eagain_count },
+                    );
+                    return c.JNI_FALSE;
+                },
+            }
+        }
         setLibssh2Error(session, "SFTP delete file failed", @intCast(rc));
         return c.JNI_FALSE;
     }
@@ -1506,16 +1591,40 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeSftpDelete
     defer allocator.free(path_bytes);
     const path_z = dupSentinel(path_bytes) orelse return c.JNI_FALSE;
     defer allocator.free(path_z);
+    const started_ms = nowMs();
+    var idle_since_ms = started_ms;
+    var eagain_count: u64 = 0;
     while (true) {
         const rc = c.libssh2_sftp_rmdir_ex(sftp, path_z.ptr, @intCast(path_z.len));
         if (rc == 0) return c.JNI_TRUE;
-        if (rc == c.LIBSSH2_ERROR_EAGAIN and waitSocket(session, io_wait_timeout_ms)) continue;
+        if (rc == c.LIBSSH2_ERROR_EAGAIN) {
+            eagain_count +%= 1;
+            switch (awaitSftpProgress(session, &idle_since_ms)) {
+                .retry => continue,
+                .no_socket, .stalled => {
+                    const now = nowMs();
+                    setError(
+                        session,
+                        "SFTP delete directory timed out after {d}ms (idle {d}ms, EAGAIN={d})",
+                        .{ now - started_ms, now - idle_since_ms, eagain_count },
+                    );
+                    logError(
+                        "SFTP delete directory timeout elapsed={}ms idle={}ms eagain={}",
+                        .{ now - started_ms, now - idle_since_ms, eagain_count },
+                    );
+                    return c.JNI_FALSE;
+                },
+            }
+        }
         setLibssh2Error(session, "SFTP delete directory failed", @intCast(rc));
         return c.JNI_FALSE;
     }
 }
 
 fn sftpOpenFile(session: *NativeSshSession, sftp: *c.LIBSSH2_SFTP, path_z: [:0]u8, flags: c_ulong, mode: c_long) ?*c.LIBSSH2_SFTP_HANDLE {
+    const started_ms = nowMs();
+    var idle_since_ms = started_ms;
+    var eagain_count: u64 = 0;
     while (true) {
         const file = c.libssh2_sftp_open(sftp, path_z.ptr, flags, mode);
         if (file != null) return file;
@@ -1524,9 +1633,22 @@ fn sftpOpenFile(session: *NativeSshSession, sftp: *c.LIBSSH2_SFTP, path_z: [:0]u
             setLibssh2Error(session, "SFTP open failed", rc);
             return null;
         }
-        if (!waitSocket(session, io_wait_timeout_ms)) {
-            setError(session, "SFTP open timed out", .{});
-            return null;
+        eagain_count +%= 1;
+        switch (awaitSftpProgress(session, &idle_since_ms)) {
+            .retry => {},
+            .no_socket, .stalled => {
+                const now = nowMs();
+                setError(
+                    session,
+                    "SFTP open timed out after {d}ms (idle {d}ms, EAGAIN={d})",
+                    .{ now - started_ms, now - idle_since_ms, eagain_count },
+                );
+                logError(
+                    "SFTP open timeout elapsed={}ms idle={}ms eagain={}",
+                    .{ now - started_ms, now - idle_since_ms, eagain_count },
+                );
+                return null;
+            },
         }
     }
 }
