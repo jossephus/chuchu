@@ -128,6 +128,7 @@ fun ApplicationNavController() {
             val tabMode by settingsRepo.terminalTabMode.collectAsStateWithLifecycle()
             val localShellEnabled by settingsRepo.localShellEnabled.collectAsStateWithLifecycle()
             val keepScreenAwake by settingsRepo.keepScreenAwake.collectAsStateWithLifecycle()
+            val hideScreenContents by settingsRepo.hideScreenContents.collectAsStateWithLifecycle()
             val themeMode by settingsRepo.themeMode.collectAsStateWithLifecycle()
             val terminalFontSize by settingsRepo.terminalFontSize.collectAsStateWithLifecycle()
             val lightThemeName by settingsRepo.lightThemeName.collectAsStateWithLifecycle()
@@ -138,6 +139,7 @@ fun ApplicationNavController() {
                 requireAuthOnConnect = requireAuthOnConnect,
                 localShellEnabled = localShellEnabled,
                 keepScreenAwake = keepScreenAwake,
+                hideScreenContents = hideScreenContents,
                 currentAccessoryLayoutIds = accessoryLayoutIds,
                 accessoryBarSingleRow = accessoryBarSingleRow,
                 currentTerminalCustomKeyGroups = customKeyGroups,
@@ -157,6 +159,7 @@ fun ApplicationNavController() {
                 onRequireAuthOnConnectChanged = settingsRepo::setRequireAuthOnConnect,
                 onLocalShellEnabledChanged = settingsRepo::setLocalShellEnabled,
                 onKeepScreenAwakeChanged = settingsRepo::setKeepScreenAwake,
+                onHideScreenContentsChanged = settingsRepo::setHideScreenContents,
                 onAccessoryLayoutChanged = settingsRepo::setAccessoryLayoutIds,
                 onAccessoryBarSingleRowChanged = settingsRepo::setAccessoryBarSingleRow,
                 currentTerminalFontSize = terminalFontSize,

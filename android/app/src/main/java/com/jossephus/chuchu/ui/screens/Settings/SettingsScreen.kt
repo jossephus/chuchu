@@ -47,6 +47,7 @@ fun SettingsScreen(
     requireAuthOnConnect: Boolean,
     localShellEnabled: Boolean,
     keepScreenAwake: Boolean,
+    hideScreenContents: Boolean,
     currentAccessoryLayoutIds: List<String>,
     accessoryBarSingleRow: Boolean,
     currentTerminalCustomKeyGroups: List<TerminalCustomKeyGroup>,
@@ -66,6 +67,7 @@ fun SettingsScreen(
     onRequireAuthOnConnectChanged: (Boolean) -> Unit,
     onLocalShellEnabledChanged: (Boolean) -> Unit,
     onKeepScreenAwakeChanged: (Boolean) -> Unit,
+    onHideScreenContentsChanged: (Boolean) -> Unit,
     onAccessoryLayoutChanged: (List<String>) -> Unit,
     onAccessoryBarSingleRowChanged: (Boolean) -> Unit,
     currentTerminalFontSize: Float = 14f,
@@ -191,6 +193,8 @@ fun SettingsScreen(
                         onLocalShellEnabledChanged = onLocalShellEnabledChanged,
                         keepScreenAwake = keepScreenAwake,
                         onKeepScreenAwakeChanged = onKeepScreenAwakeChanged,
+                        hideScreenContents = hideScreenContents,
+                        onHideScreenContentsChanged = onHideScreenContentsChanged,
                     )
                 }
             }
