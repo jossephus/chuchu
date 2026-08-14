@@ -465,6 +465,18 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
 
     private fun resolveInitialFilePathAndRefresh(tabId: String) {
         if (!tabExists(tabId)) return
+        val pwd =
+            sessionRepository.tabs.value
+                .firstOrNull { it.id == tabId }
+                ?.sessionState
+                ?.value
+                ?.pwd
+                ?.takeIf { it.isNotBlank() }
+        if (pwd != null) {
+            updateFileBrowserState(tabId) { it.copy(currentPath = pwd, resolvedHomePath = pwd) }
+            refreshFileBrowser(tabId)
+            return
+        }
         val cachedHome = fileHomeByTab[tabId]
         if (cachedHome != null) {
             updateFileBrowserState(tabId) { it.copy(currentPath = cachedHome) }

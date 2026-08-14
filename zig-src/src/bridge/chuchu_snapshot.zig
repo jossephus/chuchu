@@ -45,6 +45,7 @@ const CELL_FLAG_SPACER: u8 = 1 << 7;
 const IMAGE_HEADER_BYTES = 52;
 const MAX_KITTY_IMAGES = 64;
 const MAX_OSC52_CLIPBOARD_BYTES = 1024 * 1024;
+const MAX_OSC7_PWD_BYTES = 4096;
 // Kitty Unicode graphics placeholder (U+10EEEE). These cells only mark where an
 // image is composited; we blank them so the raw glyph never shows through a gap
 // the image doesn't fully cover.
@@ -159,6 +160,9 @@ const ChuchuStreamHandler = struct {
         if (action == .clipboard_contents) {
             self.clipboardContents(value.kind, value.data);
         }
+        if (action == .report_pwd) {
+            self.reportPwd(value.url);
+        }
         self.inner.vt(action, value);
     }
 
@@ -166,9 +170,58 @@ const ChuchuStreamHandler = struct {
         if (std.mem.eql(u8, data, "?")) return;
         storeClipboardData(self.owner, data);
     }
+
+    fn reportPwd(self: *ChuchuStreamHandler, url: []const u8) void {
+        var decoded: [MAX_OSC7_PWD_BYTES]u8 = undefined;
+        const pwd = decodeOsc7FilePath(url, &decoded) orelse return;
+        // Chuchu terminals are remote, so their reported path is useful even when the URL host is not local.
+        self.owner.terminal.setPwd(pwd) catch return;
+    }
 };
 
 const ChuchuTerminalStream = ghostty.Stream(*ChuchuStreamHandler);
+
+fn decodeOsc7FilePath(url: []const u8, decoded: *[MAX_OSC7_PWD_BYTES]u8) ?[]const u8 {
+    const prefix = "file://";
+    if (!std.mem.startsWith(u8, url, prefix) or url.len > MAX_OSC7_PWD_BYTES) return null;
+
+    const host_and_path = url[prefix.len..];
+    const path_start = std.mem.indexOfScalar(u8, host_and_path, '/') orelse return null;
+    const encoded_path = host_and_path[path_start..];
+    if (encoded_path.len == 0) return null;
+
+    var encoded_index: usize = 0;
+    var decoded_len: usize = 0;
+    while (encoded_index < encoded_path.len) {
+        const byte = encoded_path[encoded_index];
+        if (byte == '%' and encoded_index + 2 < encoded_path.len) {
+            if (hexValue(encoded_path[encoded_index + 1])) |high| {
+                if (hexValue(encoded_path[encoded_index + 2])) |low| {
+                    decoded[decoded_len] = high * 16 + low;
+                    decoded_len += 1;
+                    encoded_index += 3;
+                    continue;
+                }
+            }
+        }
+        decoded[decoded_len] = byte;
+        decoded_len += 1;
+        encoded_index += 1;
+    }
+
+    const path = decoded[0..decoded_len];
+    if (!std.mem.startsWith(u8, path, "/")) return null;
+    return path;
+}
+
+fn hexValue(byte: u8) ?u8 {
+    return switch (byte) {
+        '0'...'9' => byte - '0',
+        'a'...'f' => byte - 'a' + 10,
+        'A'...'F' => byte - 'A' + 10,
+        else => null,
+    };
+}
 
 fn chuchuFromHandle(handle: c.jlong) ?*ChuchuTerminal {
     if (handle == 0) return null;
