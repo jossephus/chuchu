@@ -69,7 +69,7 @@ fun TerminalTabStrip(
     val colors = ChuColors.current
     val typography = ChuTypography.current
     val scrollState = rememberScrollState()
-    val trailingActionWidth = if (tabs.size > 1) 72.dp else 40.dp
+    val trailingActionWidth = if (tabs.isNotEmpty()) 72.dp else 40.dp
     val tabOffsets = remember { mutableStateMapOf<String, Int>() }
     val rowRootLeft = remember { mutableStateOf(0) }
 
@@ -146,7 +146,7 @@ fun TerminalTabStrip(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            if (tabs.size > 1) {
+            if (tabs.isNotEmpty()) {
                 ChuButton(
                     onClick = onOpenManager,
                     modifier = Modifier.defaultMinSize(minHeight = 32.dp, minWidth = 32.dp),
