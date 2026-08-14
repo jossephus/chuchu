@@ -11,7 +11,7 @@ object TmuxMultiplexer : Multiplexer {
 
     override fun listSessionsCommand(): String =
         "if ! command -v tmux >/dev/null 2>&1; then printf 'tmux executable not found\\n' >&2; false; " +
-            "else tmux list-sessions -F '#{session_name}\t#{session_attached}' 2>/dev/null; " +
+            "else tmux list-sessions -F '#{session_attached} #{session_name}' 2>/dev/null; " +
             "status=\$?; if [ \"\$status\" -eq 1 ]; then true; else [ \"\$status\" -eq 0 ]; fi; fi"
 
     override fun parseSessions(output: String): List<RemoteMultiplexerSession> =
@@ -20,11 +20,13 @@ object TmuxMultiplexer : Multiplexer {
             .mapNotNull { line ->
                 val trimmed = line.trimEnd('\r')
                 if (trimmed.isBlank()) return@mapNotNull null
-                val parts = trimmed.split('\t')
-                if (parts.isEmpty() || parts[0].isBlank()) return@mapNotNull null
+                val separatorIndex = trimmed.indexOf(' ')
+                if (separatorIndex == -1) return@mapNotNull null
+                val name = trimmed.substring(separatorIndex + 1)
+                if (name.isBlank()) return@mapNotNull null
                 RemoteMultiplexerSession(
-                    name = parts[0],
-                    attached = parts.getOrNull(1) == "1",
+                    name = name,
+                    attached = trimmed.substring(0, separatorIndex).toIntOrNull()?.let { it > 0 } == true,
                 )
             }
             .toList()
