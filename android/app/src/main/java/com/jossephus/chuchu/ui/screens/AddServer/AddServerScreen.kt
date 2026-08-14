@@ -71,7 +71,7 @@ fun AddServerScreen(
     ) {
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             ChuText("$ ", style = typography.headline, color = colors.textMuted)
-            ChuText("add server", style = typography.headline)
+            ChuText(if (form.id != null) "edit server" else "add server", style = typography.headline)
         }
 
         SectionHeader("CONNECTION")
@@ -273,19 +273,20 @@ fun AddServerScreen(
             modifier = Modifier.fillMaxWidth(),
         ) {
             val label = when (testState.status) {
+                ConnectionTestStatus.Idle -> "test connection"
                 ConnectionTestStatus.Running -> "testing…"
-                else -> "test connection"
+                ConnectionTestStatus.Success -> "connected"
+                ConnectionTestStatus.Error -> "test failed"
             }
             ChuText(label, style = typography.label)
         }
-        if (testState.message != null) {
+        if (testState.status == ConnectionTestStatus.Error && testState.message != null) {
             ChuText(
                 testState.message ?: "",
                 style = typography.bodySmall,
-                color = if (testState.status == ConnectionTestStatus.Error) colors.error else colors.success,
+                color = colors.error,
             )
         }
-
         ChuButton(
             onClick = { vm.save(onBack) },
             enabled = form.canSave(),
