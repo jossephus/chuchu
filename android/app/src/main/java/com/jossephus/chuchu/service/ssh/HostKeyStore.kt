@@ -44,7 +44,7 @@ class HostKeyStore(
 
     private fun fingerprintSha256(keyBytes: ByteArray): String {
         val digest = MessageDigest.getInstance("SHA-256").digest(keyBytes)
-        val encoded = Base64.encodeToString(digest, Base64.NO_WRAP)
+        val encoded = Base64.encodeToString(digest, Base64.NO_WRAP or Base64.NO_PADDING)
         return "SHA256:$encoded"
     }
 }
