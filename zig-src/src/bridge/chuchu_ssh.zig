@@ -144,9 +144,11 @@ fn clearHostKeyCopy(session: *NativeSshSession) void {
     session.hostkey_type = 0;
 }
 
-fn waitSocket(session: *NativeSshSession, timeout_ms: c_int) bool {
-    const ssh_session = session.session orelse return false;
-    if (session.socket_fd < 0) return false;
+const SocketWait = enum { ready, timeout, failed };
+
+fn pollSocket(session: *NativeSshSession, timeout_ms: c_int) SocketWait {
+    const ssh_session = session.session orelse return .failed;
+    if (session.socket_fd < 0) return .failed;
 
     const directions = c.libssh2_session_block_directions(ssh_session);
     var events: c_short = 0;
@@ -166,7 +168,17 @@ fn waitSocket(session: *NativeSshSession, timeout_ms: c_int) bool {
         .revents = 0,
     }};
     const poll_rc = c.poll(&poll_fds, 1, timeout_ms);
-    return poll_rc > 0;
+    if (poll_rc < 0) return .failed;
+    if (poll_rc == 0) return .timeout;
+
+    const revents = poll_fds[0].revents;
+    if ((revents & (c.POLLIN | c.POLLOUT)) != 0) return .ready;
+    if ((revents & (c.POLLERR | c.POLLHUP | c.POLLNVAL)) != 0) return .failed;
+    return .ready;
+}
+
+fn waitSocket(session: *NativeSshSession, timeout_ms: c_int) bool {
+    return pollSocket(session, timeout_ms) == .ready;
 }
 
 fn trySetChannelEnv(session: *NativeSshSession, channel: *c.LIBSSH2_CHANNEL, name: []const u8, value: []const u8) void {
@@ -256,10 +268,13 @@ const SftpProgress = enum {
 /// caller should retry. `idle_since_ms` is reset whenever the socket signals
 /// activity so the idle budget only measures genuinely silent periods.
 fn awaitSftpProgress(session: *NativeSshSession, idle_since_ms: *i64) SftpProgress {
-    if (session.session == null or session.socket_fd < 0) return .no_socket;
-    if (waitSocket(session, io_wait_timeout_ms)) {
-        idle_since_ms.* = nowMs();
-        return .retry;
+    switch (pollSocket(session, io_wait_timeout_ms)) {
+        .ready => {
+            idle_since_ms.* = nowMs();
+            return .retry;
+        },
+        .failed => return .no_socket,
+        .timeout => {},
     }
     if (nowMs() - idle_since_ms.* > sftp_idle_limit_ms) return .stalled;
     return .retry;
