@@ -64,6 +64,7 @@ fun TerminalTabStrip(
     onTabSelected: (String) -> Unit,
     onAddTab: () -> Unit,
     onOpenManager: () -> Unit,
+    newTabPicker: @Composable () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val colors = ChuColors.current
@@ -162,14 +163,17 @@ fun TerminalTabStrip(
                 }
             }
 
-            ChuButton(
-                onClick = onAddTab,
-                modifier = Modifier.defaultMinSize(minHeight = 32.dp, minWidth = 32.dp),
-                variant = ChuButtonVariant.Ghost,
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                contentDescription = "new connection",
-            ) {
-                ChuText("+", style = typography.label, color = colors.accent)
+            Box {
+                ChuButton(
+                    onClick = onAddTab,
+                    modifier = Modifier.defaultMinSize(minHeight = 32.dp, minWidth = 32.dp),
+                    variant = ChuButtonVariant.Ghost,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    contentDescription = "new connection",
+                ) {
+                    ChuText("+", style = typography.label, color = colors.accent)
+                }
+                newTabPicker()
             }
         }
     }
