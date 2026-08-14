@@ -178,7 +178,11 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     private fun startMultiplexerDuplicate(spec: TabSpec) {
         if (multiplexerDuplicateInFlight) return
         multiplexerDuplicateInFlight = true
-        _multiplexerState.value = _multiplexerState.value.copy(duplicateLoading = true)
+        _multiplexerState.value =
+            _multiplexerState.value.copy(
+                duplicateLoading = true,
+                preflightError = null,
+            )
         val duplicateSpec = spec.copy(
             multiplexer = spec.multiplexer ?: MultiplexerRegistry.defaultType,
             multiplexerSessionName = null,
