@@ -226,11 +226,13 @@ class TerminalInputView(context: Context) : EditText(context) {
         val connectionId: Int = System.identityHashCode(this)
 
         private val maxImeBufferChars = 1024
+        private val maxImeCursorMoveSteps = 32
 
         private var batchEditDepth = 0
         private var outerBatchBeforeText: String? = null
         private var outerBatchHadDirectEmission = false
         private var directMutationDepth = 0
+        private var imeCaretAnchor: Int? = null
 
         override fun getEditable(): Editable = view.editableText
 
@@ -249,6 +251,7 @@ class TerminalInputView(context: Context) : EditText(context) {
         }
 
         private fun clearImeBuffer(restart: Boolean) {
+            imeCaretAnchor = null
             val editable = getEditable()
             BaseInputConnection.removeComposingSpans(editable)
             if (editable.isNotEmpty()) editable.clear()
@@ -316,6 +319,7 @@ class TerminalInputView(context: Context) : EditText(context) {
             }
 
             emitDiff(source, before, after)
+            imeCaretAnchor = null
 
             if (after.contains('\n') || after.contains('\r') || after.length > maxImeBufferChars) {
                 clearImeBuffer(restart = true)
@@ -354,6 +358,7 @@ class TerminalInputView(context: Context) : EditText(context) {
         // Clear the mirror and composing spans without emitting bytes, keeping
         // it empty between commits so a later delete can't over-emit backspaces.
         private fun clearMirrorSilently() {
+            imeCaretAnchor = null
             val editable = getEditable()
             BaseInputConnection.removeComposingSpans(editable)
             if (editable.isNotEmpty()) editable.clear()
@@ -384,6 +389,7 @@ class TerminalInputView(context: Context) : EditText(context) {
 
         override fun finishComposingText(): Boolean {
             logConn("finishComposingText")
+            imeCaretAnchor = null
             val ok = super.finishComposingText()
             // Composing region is committed; drop the mirror copy so a later
             // backspace can't mass-delete it.
@@ -398,7 +404,48 @@ class TerminalInputView(context: Context) : EditText(context) {
 
         override fun setSelection(start: Int, end: Int): Boolean {
             logConn("setSelection start=$start end=$end")
+            if (
+                start != end ||
+                BaseInputConnection.getComposingSpanStart(getEditable()) != -1 ||
+                directMutationDepth > 0
+            ) {
+                imeCaretAnchor = null
+                return super.setSelection(start, end)
+            }
+
+            val anchor = imeCaretAnchor
+            imeCaretAnchor = start
+            if (anchor != null) {
+                val delta = start.toLong() - anchor.toLong()
+                val steps = kotlin.math.abs(delta)
+                if (steps <= maxImeCursorMoveSteps) {
+                    emitImeCursorMove(
+                        if (delta < 0) KeyEvent.KEYCODE_DPAD_LEFT else KeyEvent.KEYCODE_DPAD_RIGHT,
+                        steps.toInt(),
+                    )
+                }
+            }
             return super.setSelection(start, end)
+        }
+
+        private fun emitImeCursorMove(keyCode: Int, steps: Int) {
+            val mapped = KeyMapper.map(keyCode, 0, 0) ?: return
+            repeat(steps) {
+                view.onTerminalKey?.invoke(
+                    mapped.key,
+                    mapped.codepoint,
+                    mapped.mods,
+                    GhosttyKeyAction.Press,
+                    mapped.charCode,
+                )
+                view.onTerminalKey?.invoke(
+                    mapped.key,
+                    mapped.codepoint,
+                    mapped.mods,
+                    GhosttyKeyAction.Release,
+                    mapped.charCode,
+                )
+            }
         }
 
         override fun getExtractedText(request: ExtractedTextRequest?, flags: Int): ExtractedText {
@@ -418,6 +465,7 @@ class TerminalInputView(context: Context) : EditText(context) {
         }
 
         override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
+            imeCaretAnchor = null
             val before = getEditable().toString()
             val ok = super.deleteSurroundingText(beforeLength, afterLength)
             val after = getEditable().toString()
