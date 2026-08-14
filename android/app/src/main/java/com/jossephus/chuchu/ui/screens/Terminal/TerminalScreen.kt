@@ -70,6 +70,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -660,6 +661,10 @@ fun TerminalScreen(
             confirmLabel = "Accept",
             dismissLabel = "Reject",
             onConfirm = { vm.onHostKeyDecision(true) },
+            properties = DialogProperties(
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false,
+            ),
         ) {
             val previous = prompt?.previousFingerprint
             val message = buildString {
