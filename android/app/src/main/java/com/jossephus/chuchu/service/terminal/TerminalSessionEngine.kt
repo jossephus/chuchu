@@ -14,6 +14,7 @@ import com.jossephus.chuchu.service.multiplexer.MultiplexerAvailability
 import com.jossephus.chuchu.service.multiplexer.MultiplexerCommandResult
 import com.jossephus.chuchu.service.multiplexer.MultiplexerRegistry
 import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerSession
+import com.jossephus.chuchu.service.ssh.HostKeyCheck
 import com.jossephus.chuchu.service.ssh.HostKeyStore
 import com.jossephus.chuchu.service.ssh.NativeSshService
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
@@ -620,11 +621,12 @@ class TerminalSessionEngine(
         algorithm: String,
         keyBytes: ByteArray,
     ): Boolean {
-        val existing = hostKeyStore.loadKey(host, port, algorithm)
-        if (existing != null && existing.contentEquals(keyBytes)) return true
-
-        val previousFingerprint = existing?.let { hostKeyStore.fingerprintSha256(it) }
-        val fingerprint = hostKeyStore.fingerprintSha256(keyBytes)
+        val (fingerprint, previousFingerprint) =
+            when (val result = hostKeyStore.check(host, port, algorithm, keyBytes)) {
+                is HostKeyCheck.Match -> return true
+                is HostKeyCheck.Unknown -> result.fingerprint to null
+                is HostKeyCheck.Changed -> result.fingerprint to result.previousFingerprint
+            }
         val deferred =
             hostKeyDecision
                 ?: CompletableDeferred<Boolean>().also {

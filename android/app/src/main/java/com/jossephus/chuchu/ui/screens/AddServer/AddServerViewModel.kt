@@ -14,6 +14,7 @@ import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.SshKey
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.ssh.Ed25519KeyGenerator
+import com.jossephus.chuchu.service.ssh.HostKeyCheck
 import com.jossephus.chuchu.service.ssh.HostKeyPolicy
 import com.jossephus.chuchu.service.ssh.HostKeyStore
 import com.jossephus.chuchu.service.ssh.NativeSshService
@@ -49,7 +50,7 @@ class AddServerViewModel(
     private val hostKeyStore =
         HostKeyStore(
             application.applicationContext.getSharedPreferences(
-                "host_keys",
+                HostKeyStore.PREFS_NAME,
                 Application.MODE_PRIVATE,
             ),
         )
@@ -225,18 +226,15 @@ class AddServerViewModel(
                 runCatching {
                     val port = current.port.toIntOrNull() ?: 22
                     val policy = HostKeyPolicy { host, port, algorithm, keyBytes ->
-                        val existing = hostKeyStore.loadKey(host, port, algorithm)
-                        when {
-                            existing == null -> {
+                        when (val result = hostKeyStore.check(host, port, algorithm, keyBytes)) {
+                            is HostKeyCheck.Match -> true
+                            is HostKeyCheck.Unknown -> {
                                 hostKeyError = "host key not verified — connect once to verify this host"
                                 false
                             }
-                            existing.contentEquals(keyBytes) -> true
-                            else -> {
-                                val previousFingerprint = hostKeyStore.fingerprintSha256(existing)
-                                val fingerprint = hostKeyStore.fingerprintSha256(keyBytes)
+                            is HostKeyCheck.Changed -> {
                                 hostKeyError =
-                                    "host key CHANGED ($previousFingerprint → $fingerprint) — connect once to verify this host"
+                                    "host key CHANGED (${result.previousFingerprint} → ${result.fingerprint}) — connect once to verify this host"
                                 false
                             }
                         }
