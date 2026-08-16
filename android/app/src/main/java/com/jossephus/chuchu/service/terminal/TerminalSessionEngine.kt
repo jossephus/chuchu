@@ -6,6 +6,7 @@ import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.mosh.MoshBootstrapParser
+import com.jossephus.chuchu.service.mosh.MoshEndpointResolver
 import com.jossephus.chuchu.service.mosh.MoshEventType
 import com.jossephus.chuchu.service.mosh.MoshReconnectPolicy
 import com.jossephus.chuchu.service.mosh.MoshState
@@ -883,6 +884,17 @@ class TerminalSessionEngine(
             privateKeyPem = params.privateKeyPem,
             keyPassphrase = params.keyPassphrase,
         )
+        val endpointHost =
+            try {
+                withContext(Dispatchers.IO) { MoshEndpointResolver.resolve(params.host) }
+            } catch (error: IllegalStateException) {
+                nativeSsh.close()
+                throw error
+            }
+        Log.d(
+            "TerminalSession",
+            "MOSH: Resolved endpoint host=$endpointHost from profile host=${params.host}",
+        )
         // Use exec channel to bypass shell init noise and MOTD.
         // Falls back to shell if the remote server doesn't support exec.
         val moshCommand = MoshReconnectPolicy.bootstrapCommand()
@@ -909,7 +921,7 @@ class TerminalSessionEngine(
                 if (chunk != null && chunk.isNotEmpty()) {
                     val text = String(chunk, Charsets.UTF_8)
                     outputBuffer.append(text)
-                    val result = MoshBootstrapParser.parse(params.host, outputBuffer.toString())
+                    val result = MoshBootstrapParser.parse(endpointHost, outputBuffer.toString())
                     if (result is MoshBootstrapParser.ParseResult.Success) {
                         Log.d(
                             "TerminalSession",
