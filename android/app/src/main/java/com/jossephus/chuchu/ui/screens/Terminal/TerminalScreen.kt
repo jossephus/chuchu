@@ -41,6 +41,8 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -71,12 +73,15 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.model.AuthMethod
+import com.jossephus.chuchu.model.HostProfile
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.terminal.SessionStatus
 import com.jossephus.chuchu.service.terminal.TabSpec
@@ -150,6 +155,85 @@ private fun TerminalViewModel.dispatchTextWithModifierState(
             onHardwareKey(ghosttyKey, codepoint, mods, GhosttyKeyAction.Release)
         } else {
             onTextInput(modifierState.applyToText(char.toString()))
+        }
+    }
+}
+
+@Composable
+private fun NewTabHostPicker(
+    currentHostName: String,
+    otherHosts: List<HostProfile>,
+    onCurrentHost: () -> Unit,
+    onHostSelected: (Long) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+    val density = LocalDensity.current
+
+    Popup(
+        alignment = Alignment.TopEnd,
+        offset = with(density) { IntOffset(0, 36.dp.roundToPx()) },
+        onDismissRequest = onDismiss,
+        properties = PopupProperties(focusable = true),
+    ) {
+        Column(
+            modifier =
+                Modifier.width(320.dp)
+                    .background(colors.background)
+                    .border(1.dp, colors.border)
+                    .padding(4.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            ChuButton(
+                onClick = onCurrentHost,
+                modifier = Modifier.fillMaxWidth(),
+                variant = ChuButtonVariant.Ghost,
+                bracketed = true,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+            ) {
+                ChuText(
+                    "new session on $currentHostName",
+                    style = typography.label,
+                    color = colors.textPrimary,
+                )
+            }
+
+            if (otherHosts.isNotEmpty()) {
+                Box(
+                    modifier =
+                        Modifier.fillMaxWidth()
+                            .height(1.dp)
+                            .background(colors.border),
+                )
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    items(otherHosts, key = { it.id }) { host ->
+                        ChuButton(
+                            onClick = { onHostSelected(host.id) },
+                            modifier = Modifier.fillMaxWidth(),
+                            variant = ChuButtonVariant.Ghost,
+                            bracketed = true,
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                ChuText(
+                                    host.name,
+                                    style = typography.label,
+                                    color = colors.textPrimary,
+                                )
+                                ChuText(
+                                    "${host.username}@${host.host}:${host.port}",
+                                    style = typography.labelSmall,
+                                    color = colors.textMuted,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -297,6 +381,7 @@ fun TerminalScreen(
     openLocalShell: Boolean = false,
 ) {
     val sessionState by vm.sessionState.collectAsStateWithLifecycle()
+    val hosts by vm.hosts.collectAsStateWithLifecycle()
     val tabs by vm.tabs.collectAsStateWithLifecycle()
     val activeTabId by vm.activeTabId.collectAsStateWithLifecycle()
     val activeTab by vm.activeTab.collectAsStateWithLifecycle()
@@ -364,6 +449,7 @@ fun TerminalScreen(
     var passphraseFromPicker by remember { mutableStateOf(false) }
     var showTabSheet by remember { mutableStateOf(false) }
     var showGlobalTabManager by remember { mutableStateOf(false) }
+    var showNewTabPicker by remember { mutableStateOf(false) }
     var hasSeenTabsForHost by remember(hostId, openLocalShell) { mutableStateOf(false) }
     var focusedTabIndex by remember { mutableStateOf(0) }
     var localShellFilesMessage by remember { mutableStateOf<String?>(null) }
@@ -532,6 +618,36 @@ fun TerminalScreen(
 
         }
     }
+    val pickerCurrentHostId = activeTab?.spec?.hostId ?: hostId
+    val pickerCurrentHostName =
+        currentHostName ?: hosts.firstOrNull { it.id == pickerCurrentHostId }?.name ?: "current host"
+    val pickerOtherHosts =
+        remember(hosts, pickerCurrentHostId) { hosts.filter { it.id != pickerCurrentHostId } }
+    val openNewSessionForHost: (Long) -> Unit = { pickerHostId ->
+        pickerScope.launch(Dispatchers.IO) {
+            val prepared = vm.prepareTabOpenForHost(pickerHostId) ?: return@launch
+            withContext(Dispatchers.Main) {
+                openPreparedTab(prepared.spec, prepared.requiresVerification, false)
+            }
+        }
+    }
+    val newTabPicker: @Composable () -> Unit = {
+        if (showNewTabPicker) {
+            NewTabHostPicker(
+                currentHostName = pickerCurrentHostName,
+                otherHosts = pickerOtherHosts,
+                onCurrentHost = {
+                    showNewTabPicker = false
+                    openAnotherSessionForCurrentHost()
+                },
+                onHostSelected = { pickerHostId ->
+                    showNewTabPicker = false
+                    openNewSessionForHost(pickerHostId)
+                },
+                onDismiss = { showNewTabPicker = false },
+            )
+        }
+    }
 
     LaunchedEffect(hostId, openLocalShell) {
         showPassphrasePrompt = false
@@ -695,8 +811,9 @@ fun TerminalScreen(
                         tabs = tabs,
                         activeTabId = activeTabId,
                         onTabSelected = { id -> vm.selectTab(id) },
-                        onAddTab = openAnotherSessionForCurrentHost,
+                        onAddTab = { showNewTabPicker = true },
                         onOpenManager = { showGlobalTabManager = true },
+                        newTabPicker = newTabPicker,
                     )
                     Box(
                         modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -779,8 +896,9 @@ fun TerminalScreen(
                         tabs = tabs,
                         activeTabId = activeTabId,
                         onTabSelected = { id -> vm.selectTab(id) },
-                        onAddTab = openAnotherSessionForCurrentHost,
+                        onAddTab = { showNewTabPicker = true },
                         onOpenManager = { showGlobalTabManager = true },
+                        newTabPicker = newTabPicker,
                     )
                     Box(
                         modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -1096,10 +1214,11 @@ fun TerminalScreen(
                                 onTabSelected = { id ->
                                     vm.selectTab(id)
                                 },
-                                onAddTab = openAnotherSessionForCurrentHost,
+                                onAddTab = { showNewTabPicker = true },
                                 onOpenManager = {
                                     showGlobalTabManager = true
                                 },
+                                newTabPicker = newTabPicker,
                             )
                         }
 
@@ -1776,8 +1895,9 @@ fun TerminalScreen(
                             tabs = tabs,
                             activeTabId = activeTabId,
                             onTabSelected = { id -> vm.selectTab(id) },
-                            onAddTab = openAnotherSessionForCurrentHost,
+                            onAddTab = { showNewTabPicker = true },
                             onOpenManager = { showGlobalTabManager = true },
+                            newTabPicker = newTabPicker,
                         )
                         Box(
                             modifier = Modifier.weight(1f).fillMaxWidth(),
