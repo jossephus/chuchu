@@ -62,11 +62,9 @@ fun CommandPalette(
     accessoryEntries: List<ResolvedAccessoryEntry>,
     accessoryModifierState: ModifierState,
     onAccessoryAction: (AccessoryAction) -> Unit,
-    onChuchuKey: () -> Unit,
     chuchuKeyActive: Boolean,
-    onOpenFiles: () -> Unit,
-    onOpenSettings: () -> Unit,
     useSingleRowAccessoryBar: Boolean,
+    termuxStyleAccessoryBar: Boolean = false,
     onSelectTab: (String) -> Unit,
     onCloseTab: (String) -> Unit,
     onAddTab: () -> Unit,
@@ -254,11 +252,9 @@ fun CommandPalette(
           entries = accessoryEntries,
           modifierState = accessoryModifierState,
           onAction = onAccessoryAction,
-          onSettings = onOpenSettings,
-          onChuchuKey = onChuchuKey,
           chuchuKeyActive = chuchuKeyActive,
-          onOpenFiles = onOpenFiles,
           useSingleRow = useSingleRowAccessoryBar,
+          termuxStyle = termuxStyleAccessoryBar,
           modifier =
               Modifier.align(Alignment.BottomCenter)
                   .windowInsetsPadding(WindowInsets.safeDrawing)
