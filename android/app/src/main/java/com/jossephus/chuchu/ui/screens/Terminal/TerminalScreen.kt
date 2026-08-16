@@ -1305,6 +1305,13 @@ fun TerminalScreen(
                                             color = colors.error,
                                         )
                                     }
+                                    if (multiplexerState.duplicateLoading) {
+                                        ChuText(
+                                            text = "Preparing new multiplexer session...",
+                                            style = typography.labelSmall,
+                                            color = colors.textMuted,
+                                        )
+                                    }
                                     if (pwdText != null) {
                                         ChuText(
                                             text = pwdText,
