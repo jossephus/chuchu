@@ -420,15 +420,22 @@ class TerminalInputView(context: Context) : EditText(context) {
             }
 
             val anchor = imeCaretAnchor
-            imeCaretAnchor = start
-            if (anchor != null) {
+            if (anchor == null) {
+                imeCaretAnchor = start
+            } else {
                 val delta = start.toLong() - anchor.toLong()
                 val steps = kotlin.math.abs(delta)
                 if (steps <= maxImeCursorMoveSteps) {
+                    imeCaretAnchor = start
                     emitImeCursorMove(
                         if (delta < 0) KeyEvent.KEYCODE_DPAD_LEFT else KeyEvent.KEYCODE_DPAD_RIGHT,
                         steps.toInt(),
                     )
+                } else {
+                    // Past the cap the two models have diverged. Emit nothing and
+                    // drop the anchor, so the next selection re-anchors instead of
+                    // diffing against a position the terminal never reached.
+                    imeCaretAnchor = null
                 }
             }
             return super.setSelection(start, end)
