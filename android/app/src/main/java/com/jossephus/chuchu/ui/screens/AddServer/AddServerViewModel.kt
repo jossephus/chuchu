@@ -13,7 +13,6 @@ import com.jossephus.chuchu.model.HostProfile
 import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.SshKey
 import com.jossephus.chuchu.model.Transport
-import com.jossephus.chuchu.service.ssh.Ed25519KeyGenerator
 import com.jossephus.chuchu.service.ssh.HostKeyCheck
 import com.jossephus.chuchu.service.ssh.HostKeyPolicy
 import com.jossephus.chuchu.service.ssh.HostKeyStore
@@ -26,10 +25,8 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class AddServerViewModel(
-    application: Application,
-    private val hostId: Long?,
-) : AndroidViewModel(application) {
+class AddServerViewModel(application: Application, private val hostId: Long?) :
+    AndroidViewModel(application) {
     companion object {
         fun factory(application: Application, hostId: Long?): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
@@ -46,13 +43,12 @@ class AddServerViewModel(
     private val db = AppDatabase.getInstance(application)
     private val hostRepository = HostRepository(db.hostProfileDao())
     private val sshKeyRepository = SshKeyRepository(db.sshKeyDao())
-    private val keyGenerator = Ed25519KeyGenerator()
     private val hostKeyStore =
         HostKeyStore(
             application.applicationContext.getSharedPreferences(
                 HostKeyStore.PREFS_NAME,
                 Application.MODE_PRIVATE,
-            ),
+            )
         )
 
     private val _form = MutableStateFlow(AddServerForm())
@@ -65,30 +61,29 @@ class AddServerViewModel(
     val keys: StateFlow<List<SshKey>> = _allKeys.asStateFlow()
 
     init {
-        viewModelScope.launch {
-            sshKeyRepository.observeAll().collect { _allKeys.value = it }
-        }
+        viewModelScope.launch { sshKeyRepository.observeAll().collect { _allKeys.value = it } }
         if (hostId != null) {
             viewModelScope.launch {
                 val profile = hostRepository.getById(hostId) ?: return@launch
                 val key = profile.keyId?.let { sshKeyRepository.getById(it) }
-                _form.value = AddServerForm(
-                    id = profile.id,
-                    name = profile.name,
-                    host = profile.host,
-                    port = profile.port.toString(),
-                    username = profile.username,
-                    password = profile.password,
-                    keyId = profile.keyId,
-                    privateKeyPem = key?.privateKeyPem ?: "",
-                    publicKeyOpenSsh = key?.publicKeyOpenSsh ?: "",
-                    keyPassphrase = profile.keyPassphrase,
-                    transport = profile.transport,
-                    authMethod = profile.authMethod,
-                    requireAuthOnConnect = profile.requireAuthOnConnect,
-                    postConnectCommand = profile.postConnectCommand.orEmpty(),
-                    multiplexer = profile.multiplexer,
-                )
+                _form.value =
+                    AddServerForm(
+                        id = profile.id,
+                        name = profile.name,
+                        host = profile.host,
+                        port = profile.port.toString(),
+                        username = profile.username,
+                        password = profile.password,
+                        keyId = profile.keyId,
+                        privateKeyPem = key?.privateKeyPem ?: "",
+                        publicKeyOpenSsh = key?.publicKeyOpenSsh ?: "",
+                        keyPassphrase = profile.keyPassphrase,
+                        transport = profile.transport,
+                        authMethod = profile.authMethod,
+                        requireAuthOnConnect = profile.requireAuthOnConnect,
+                        postConnectCommand = profile.postConnectCommand.orEmpty(),
+                        multiplexer = profile.multiplexer,
+                    )
             }
         }
     }
@@ -119,14 +114,17 @@ class AddServerViewModel(
 
     fun selectStoredKey(keyId: Long?) {
         viewModelScope.launch {
-            val selected = keyId?.let { id ->
-                keys.value.firstOrNull { it.id == id } ?: sshKeyRepository.getById(id)
-            }
-            _form.value = _form.value.copy(
-                keyId = keyId,
-                privateKeyPem = selected?.privateKeyPem ?: "",
-                publicKeyOpenSsh = selected?.publicKeyOpenSsh ?: "",
-            )
+            val selected =
+                keyId?.let { id ->
+                    keys.value.firstOrNull { it.id == id } ?: sshKeyRepository.getById(id)
+                }
+            _form.value =
+                _form.value.copy(
+                    keyId = keyId,
+                    privateKeyPem = selected?.privateKeyPem ?: "",
+                    publicKeyOpenSsh = selected?.publicKeyOpenSsh ?: "",
+                    keyPassphrase = "",
+                )
         }
     }
 
@@ -134,66 +132,40 @@ class AddServerViewModel(
         viewModelScope.launch {
             val current = _form.value
             val baseName = if (nameHint.isNotBlank()) nameHint else current.name
-            val generatedName = baseName.trim().ifBlank { "android-ed25519" }
-            val existingNames = _allKeys.value.map { it.name }.toSet()
-            val uniqueName = if (generatedName in existingNames) {
-                var index = 2
-                var candidate = "$generatedName-$index"
-                while (candidate in existingNames) {
-                    index += 1
-                    candidate = "$generatedName-$index"
-                }
-                candidate
-            } else {
-                generatedName
-            }
-            val passphrase = current.keyPassphrase
-            val key = withContext(Dispatchers.Default) { keyGenerator.generate(uniqueName, passphrase) }
-            val id = sshKeyRepository.insert(key)
-            _form.value = _form.value.copy(
-                keyId = id,
-                privateKeyPem = key.privateKeyPem,
-                publicKeyOpenSsh = key.publicKeyOpenSsh,
-            )
-        }
-    }
-
-    fun deleteStoredKey(keyId: Long) {
-        val current = _form.value
-        if (current.keyId == keyId) {
-            _form.value = current.copy(
-                keyId = null,
-                privateKeyPem = "",
-                publicKeyOpenSsh = "",
-                keyPassphrase = "",
-            )
-        }
-        viewModelScope.launch {
-            hostRepository.clearKeyReference(keyId)
-            sshKeyRepository.deleteById(keyId)
+            val key = sshKeyRepository.generate(baseName, current.keyPassphrase)
+            _form.value =
+                _form.value.copy(
+                    keyId = key.id,
+                    privateKeyPem = key.privateKeyPem,
+                    publicKeyOpenSsh = key.publicKeyOpenSsh,
+                )
         }
     }
 
     fun updateTransport(transport: Transport) {
         val current = _form.value
-        val nextAuthMethod = when {
-            transport == Transport.SSH && current.authMethod == AuthMethod.None -> AuthMethod.Password
-            else -> current.authMethod
-        }
-        _form.value = current.copy(
-            transport = transport,
-            authMethod = nextAuthMethod,
-            multiplexer = current.multiplexer.takeIf { transport != Transport.Mosh && it?.runtimeSupported == true },
-        )
+        val nextAuthMethod =
+            when {
+                transport == Transport.SSH && current.authMethod == AuthMethod.None ->
+                    AuthMethod.Password
+                else -> current.authMethod
+            }
+        _form.value =
+            current.copy(
+                transport = transport,
+                authMethod = nextAuthMethod,
+                multiplexer =
+                    current.multiplexer.takeIf {
+                        transport != Transport.Mosh && it?.runtimeSupported == true
+                    },
+            )
     }
 
     fun updateAuthMethod(authMethod: AuthMethod) {
         val current = _form.value
         if (authMethod == AuthMethod.None) {
-            _form.value = current.copy(
-                transport = Transport.TailscaleSSH,
-                authMethod = AuthMethod.None,
-            )
+            _form.value =
+                current.copy(transport = Transport.TailscaleSSH, authMethod = AuthMethod.None)
             return
         }
         _form.value = current.copy(authMethod = authMethod)
@@ -209,9 +181,13 @@ class AddServerViewModel(
 
     fun updateMultiplexer(multiplexer: MultiplexerType?) {
         val current = _form.value
-        _form.value = current.copy(
-            multiplexer = multiplexer?.takeIf { current.transport != Transport.Mosh && it.runtimeSupported },
-        )
+        _form.value =
+            current.copy(
+                multiplexer =
+                    multiplexer?.takeIf {
+                        current.transport != Transport.Mosh && it.runtimeSupported
+                    }
+            )
     }
 
     fun testConnection() {
@@ -223,46 +199,57 @@ class AddServerViewModel(
         _testState.value = ConnectionTestState(status = ConnectionTestStatus.Running)
         viewModelScope.launch {
             var hostKeyError: String? = null
-            val result = withContext(Dispatchers.IO) {
-                runCatching {
-                    val port = current.port.toIntOrNull() ?: 22
-                    val policy = HostKeyPolicy { host, port, algorithm, keyBytes ->
-                        when (val result = hostKeyStore.check(host, port, algorithm, keyBytes)) {
-                            is HostKeyCheck.Match -> true
-                            is HostKeyCheck.Unknown -> {
-                                hostKeyError = "host key not verified — connect once to verify this host"
-                                false
-                            }
-                            is HostKeyCheck.Changed -> {
-                                hostKeyError =
-                                    "host key CHANGED (${result.previousFingerprint} → ${result.fingerprint}) — connect once to verify this host"
-                                false
+            val result =
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        val port = current.port.toIntOrNull() ?: 22
+                        val policy = HostKeyPolicy { host, port, algorithm, keyBytes ->
+                            when (
+                                val result = hostKeyStore.check(host, port, algorithm, keyBytes)
+                            ) {
+                                is HostKeyCheck.Match -> true
+                                is HostKeyCheck.Unknown -> {
+                                    hostKeyError =
+                                        "host key not verified — connect once to verify this host"
+                                    false
+                                }
+                                is HostKeyCheck.Changed -> {
+                                    hostKeyError =
+                                        "host key CHANGED (${result.previousFingerprint} → ${result.fingerprint}) — connect once to verify this host"
+                                    false
+                                }
                             }
                         }
-                    }
-                    NativeSshService(hostKeyPolicy = policy).use { nativeSsh ->
-                        check(nativeSsh.isAvailable()) { "Native SSH unavailable" }
-                        nativeSsh.connect(
-                            host = host,
-                            port = port,
-                            username = username,
-                            authMethod = current.authMethod,
-                            password = if (current.authMethod == AuthMethod.Password) current.password else "",
-                            publicKeyOpenSsh = current.publicKeyOpenSsh,
-                            privateKeyPem = current.privateKeyPem,
-                            keyPassphrase = current.keyPassphrase,
-                        )
+                        NativeSshService(hostKeyPolicy = policy).use { nativeSsh ->
+                            check(nativeSsh.isAvailable()) { "Native SSH unavailable" }
+                            nativeSsh.connect(
+                                host = host,
+                                port = port,
+                                username = username,
+                                authMethod = current.authMethod,
+                                password =
+                                    if (current.authMethod == AuthMethod.Password) current.password
+                                    else "",
+                                publicKeyOpenSsh = current.publicKeyOpenSsh,
+                                privateKeyPem = current.privateKeyPem,
+                                keyPassphrase = current.keyPassphrase,
+                            )
+                        }
                     }
                 }
-            }
-            _testState.value = if (result.isSuccess) {
-                ConnectionTestState(status = ConnectionTestStatus.Success, message = "Connected")
-            } else {
-                ConnectionTestState(
-                    status = ConnectionTestStatus.Error,
-                    message = hostKeyError ?: result.exceptionOrNull()?.message ?: "Connection failed",
-                )
-            }
+            _testState.value =
+                if (result.isSuccess) {
+                    ConnectionTestState(
+                        status = ConnectionTestStatus.Success,
+                        message = "Connected",
+                    )
+                } else {
+                    ConnectionTestState(
+                        status = ConnectionTestStatus.Error,
+                        message =
+                            hostKeyError ?: result.exceptionOrNull()?.message ?: "Connection failed",
+                    )
+                }
         }
     }
 
@@ -275,21 +262,25 @@ class AddServerViewModel(
         if (username.isBlank()) return
 
         viewModelScope.launch {
-            val profile = HostProfile(
-                id = current.id ?: 0L,
-                name = current.name.trim(),
-                host = host,
-                port = port,
-                username = username,
-                password = current.password,
-                keyId = current.keyId,
-                keyPassphrase = current.keyPassphrase,
-                transport = current.transport,
-                authMethod = current.authMethod,
-                requireAuthOnConnect = current.requireAuthOnConnect,
-                postConnectCommand = current.postConnectCommand.trim().ifBlank { null },
-                multiplexer = current.multiplexer.takeIf { current.transport != Transport.Mosh && it?.runtimeSupported == true },
-            )
+            val profile =
+                HostProfile(
+                    id = current.id ?: 0L,
+                    name = current.name.trim(),
+                    host = host,
+                    port = port,
+                    username = username,
+                    password = current.password,
+                    keyId = current.keyId,
+                    keyPassphrase = current.keyPassphrase,
+                    transport = current.transport,
+                    authMethod = current.authMethod,
+                    requireAuthOnConnect = current.requireAuthOnConnect,
+                    postConnectCommand = current.postConnectCommand.trim().ifBlank { null },
+                    multiplexer =
+                        current.multiplexer.takeIf {
+                            current.transport != Transport.Mosh && it?.runtimeSupported == true
+                        },
+                )
             hostRepository.upsert(profile)
             onComplete()
         }

@@ -5,12 +5,12 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -38,7 +38,6 @@ import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
-import com.jossephus.chuchu.ui.components.ChuDialog
 import com.jossephus.chuchu.ui.components.ChuSegmentedControl
 import com.jossephus.chuchu.ui.components.ChuSwitch
 import com.jossephus.chuchu.ui.components.ChuText
@@ -47,11 +46,7 @@ import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
 
 @Composable
-fun AddServerScreen(
-    vm: AddServerViewModel,
-    onBack: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
+fun AddServerScreen(vm: AddServerViewModel, onBack: () -> Unit, modifier: Modifier = Modifier) {
     val form by vm.form.collectAsStateWithLifecycle()
     val testState by vm.testState.collectAsStateWithLifecycle()
     val keys by vm.keys.collectAsStateWithLifecycle()
@@ -62,17 +57,21 @@ fun AddServerScreen(
     val context = LocalContext.current
     var showAdditionalSettings by remember { mutableStateOf(false) }
     Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(colors.background)
-            .windowInsetsPadding(WindowInsets.safeDrawing)
-            .verticalScroll(scrollState)
-            .padding(16.dp),
+        modifier =
+            modifier
+                .fillMaxSize()
+                .background(colors.background)
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .verticalScroll(scrollState)
+                .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             ChuText("$ ", style = typography.headline, color = colors.textMuted)
-            ChuText(if (form.id != null) "edit server" else "add server", style = typography.headline)
+            ChuText(
+                if (form.id != null) "edit server" else "add server",
+                style = typography.headline,
+            )
         }
 
         SectionHeader("CONNECTION")
@@ -91,25 +90,30 @@ fun AddServerScreen(
             label = "Host",
             placeholder = "192.168.1.10",
             singleLine = true,
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Uri,
-                capitalization = KeyboardCapitalization.None,
-                autoCorrectEnabled = false,
-            ),
+            keyboardOptions =
+                KeyboardOptions(
+                    keyboardType = KeyboardType.Uri,
+                    capitalization = KeyboardCapitalization.None,
+                    autoCorrectEnabled = false,
+                ),
             autoFocus = false,
             modifier = Modifier.fillMaxWidth(),
         )
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             ChuTextField(
                 value = form.port,
                 onValueChange = vm::updatePort,
                 label = "Port",
                 singleLine = true,
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Number,
-                    capitalization = KeyboardCapitalization.None,
-                    autoCorrectEnabled = false,
-                ),
+                keyboardOptions =
+                    KeyboardOptions(
+                        keyboardType = KeyboardType.Number,
+                        capitalization = KeyboardCapitalization.None,
+                        autoCorrectEnabled = false,
+                    ),
                 autoFocus = false,
                 modifier = Modifier.weight(0.3f),
             )
@@ -119,11 +123,12 @@ fun AddServerScreen(
                 label = "Username",
                 placeholder = "root",
                 singleLine = true,
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Ascii,
-                    capitalization = KeyboardCapitalization.None,
-                    autoCorrectEnabled = false,
-                ),
+                keyboardOptions =
+                    KeyboardOptions(
+                        keyboardType = KeyboardType.Ascii,
+                        capitalization = KeyboardCapitalization.None,
+                        autoCorrectEnabled = false,
+                    ),
                 autoFocus = false,
                 modifier = Modifier.weight(0.7f),
             )
@@ -134,11 +139,12 @@ fun AddServerScreen(
         SectionHeader("TRANSPORT")
         ChuSegmentedControl(
             options = listOf(Transport.SSH, Transport.TailscaleSSH, Transport.Mosh),
-            labels = mapOf(
-                Transport.SSH to "ssh",
-                Transport.TailscaleSSH to "tailscale",
-                Transport.Mosh to "mosh",
-            ),
+            labels =
+                mapOf(
+                    Transport.SSH to "ssh",
+                    Transport.TailscaleSSH to "tailscale",
+                    Transport.Mosh to "mosh",
+                ),
             selected = form.transport,
             onSelect = vm::updateTransport,
         )
@@ -153,23 +159,25 @@ fun AddServerScreen(
         SectionDivider()
 
         SectionHeader("AUTHENTICATION")
-        val authOptions = when (form.transport) {
-            Transport.TailscaleSSH -> listOf(AuthMethod.Password, AuthMethod.Key, AuthMethod.None)
-            else -> listOf(AuthMethod.Password, AuthMethod.Key)
-        }
-        if (form.authMethod == AuthMethod.None && form.transport != Transport.TailscaleSSH) {
-            androidx.compose.runtime.SideEffect {
-                vm.updateAuthMethod(AuthMethod.Password)
+        val authOptions =
+            when (form.transport) {
+                Transport.TailscaleSSH ->
+                    listOf(AuthMethod.Password, AuthMethod.Key, AuthMethod.None)
+                else -> listOf(AuthMethod.Password, AuthMethod.Key)
             }
+        if (form.authMethod == AuthMethod.None && form.transport != Transport.TailscaleSSH) {
+            androidx.compose.runtime.SideEffect { vm.updateAuthMethod(AuthMethod.Password) }
         }
-        val segmentSelected = if (form.authMethod == AuthMethod.KeyWithPassphrase) AuthMethod.Key else form.authMethod
+        val segmentSelected =
+            if (form.authMethod == AuthMethod.KeyWithPassphrase) AuthMethod.Key else form.authMethod
         ChuSegmentedControl(
             options = authOptions,
-            labels = mapOf(
-                AuthMethod.Password to "password",
-                AuthMethod.Key to "ssh key",
-                AuthMethod.None to "none",
-            ),
+            labels =
+                mapOf(
+                    AuthMethod.Password to "password",
+                    AuthMethod.Key to "ssh key",
+                    AuthMethod.None to "none",
+                ),
             selected = segmentSelected,
             onSelect = vm::updateAuthMethod,
         )
@@ -186,17 +194,24 @@ fun AddServerScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
-            AuthMethod.Key, AuthMethod.KeyWithPassphrase -> {
+            AuthMethod.Key,
+            AuthMethod.KeyWithPassphrase -> {
                 KeyAuthSection(
                     form = form,
                     keys = keys,
                     onGenerate = { vm.generateKey(form.name) },
+                    onSelectKey = { vm.selectStoredKey(it) },
                     onCopyPublicKey = {
                         if (form.publicKeyOpenSsh.isBlank()) {
-                            Toast.makeText(context, "No public key available", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "No public key available", Toast.LENGTH_SHORT)
+                                .show()
                         } else {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText("SSH Public Key", form.publicKeyOpenSsh))
+                            val clipboard =
+                                context.getSystemService(Context.CLIPBOARD_SERVICE)
+                                    as ClipboardManager
+                            clipboard.setPrimaryClip(
+                                ClipData.newPlainText("SSH Public Key", form.publicKeyOpenSsh)
+                            )
                             Toast.makeText(context, "Public key copied", Toast.LENGTH_SHORT).show()
                         }
                     },
@@ -242,10 +257,7 @@ fun AddServerScreen(
 
         SectionDivider()
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
-        ) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             ChuButton(
                 onClick = { showAdditionalSettings = !showAdditionalSettings },
                 variant = ChuButtonVariant.Outlined,
@@ -267,10 +279,7 @@ fun AddServerScreen(
                 )
             }
             SectionDivider()
-            MultiplexerSection(
-                selected = form.multiplexer,
-                onSelect = vm::updateMultiplexer,
-            )
+            MultiplexerSection(selected = form.multiplexer, onSelect = vm::updateMultiplexer)
             SectionDivider()
             PostConnectActionSection(
                 command = form.postConnectCommand,
@@ -287,20 +296,17 @@ fun AddServerScreen(
             bracketed = true,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            val label = when (testState.status) {
-                ConnectionTestStatus.Idle -> "test connection"
-                ConnectionTestStatus.Running -> "testing…"
-                ConnectionTestStatus.Success -> "connected"
-                ConnectionTestStatus.Error -> "test failed"
-            }
+            val label =
+                when (testState.status) {
+                    ConnectionTestStatus.Idle -> "test connection"
+                    ConnectionTestStatus.Running -> "testing…"
+                    ConnectionTestStatus.Success -> "connected"
+                    ConnectionTestStatus.Error -> "test failed"
+                }
             ChuText(label, style = typography.label)
         }
         if (testState.status == ConnectionTestStatus.Error && testState.message != null) {
-            ChuText(
-                testState.message ?: "",
-                style = typography.bodySmall,
-                color = colors.error,
-            )
+            ChuText(testState.message ?: "", style = typography.bodySmall, color = colors.error)
         }
         ChuButton(
             onClick = { vm.save(onBack) },
@@ -317,12 +323,7 @@ fun AddServerScreen(
 
 @Composable
 private fun SectionDivider() {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(1.dp)
-            .background(ChuColors.current.border),
-    )
+    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(ChuColors.current.border))
 }
 
 @Composable
@@ -333,12 +334,7 @@ private fun SectionHeader(label: String) {
         ChuText("── ", style = typography.labelSmall, color = colors.textMuted)
         ChuText(label, style = typography.labelSmall, color = colors.textMuted)
         ChuText(" ", style = typography.labelSmall, color = colors.textMuted)
-        Box(
-            modifier = Modifier
-                .height(1.dp)
-                .background(colors.textMuted)
-                .fillMaxWidth(),
-        )
+        Box(modifier = Modifier.height(1.dp).background(colors.textMuted).fillMaxWidth())
     }
 }
 
@@ -347,11 +343,13 @@ private fun KeyAuthSection(
     form: AddServerForm,
     keys: List<com.jossephus.chuchu.model.SshKey>,
     onGenerate: () -> Unit,
+    onSelectKey: (Long?) -> Unit,
     onCopyPublicKey: () -> Unit,
 ) {
     val typography = ChuTypography.current
     val colors = ChuColors.current
     val selectedKey = keys.firstOrNull { it.id == form.keyId }
+    var pickerExpanded by remember { mutableStateOf(false) }
 
     if (selectedKey != null) {
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
@@ -396,6 +394,51 @@ private fun KeyAuthSection(
             ChuText("generate key", style = typography.label)
         }
     }
+
+    if (keys.isNotEmpty()) {
+        ChuButton(
+            onClick = { pickerExpanded = !pickerExpanded },
+            variant = ChuButtonVariant.Ghost,
+            bracketed = true,
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+        ) {
+            ChuText(
+                text = if (selectedKey != null) "change key" else "use existing key",
+                style = typography.labelSmall,
+                color = colors.accent,
+            )
+        }
+        if (pickerExpanded) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                keys.forEach { key ->
+                    val isSelected = key.id == form.keyId
+                    Row(
+                        modifier =
+                            Modifier.fillMaxWidth()
+                                .clickable {
+                                    onSelectKey(key.id)
+                                    pickerExpanded = false
+                                }
+                                .padding(vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                    ) {
+                        ChuText(
+                            text = (if (isSelected) "● " else "  ") + key.name,
+                            style = typography.body,
+                            color = if (isSelected) colors.accent else colors.textPrimary,
+                        )
+                        ChuText(
+                            key.algorithm,
+                            style = typography.bodySmall,
+                            color = colors.textMuted,
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
 // The segmented control requires a non-null selection, but "no persistence" is
@@ -408,10 +451,7 @@ private enum class MultiplexerOption(val type: MultiplexerType?) {
 }
 
 @Composable
-private fun MultiplexerSection(
-    selected: MultiplexerType?,
-    onSelect: (MultiplexerType?) -> Unit,
-) {
+private fun MultiplexerSection(selected: MultiplexerType?, onSelect: (MultiplexerType?) -> Unit) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
     SectionHeader("SESSION PERSISTENCE")
@@ -419,12 +459,13 @@ private fun MultiplexerSection(
     val selectedOption = options.firstOrNull { it.type == selected } ?: MultiplexerOption.Off
     ChuSegmentedControl(
         options = options,
-        labels = mapOf(
-            MultiplexerOption.Off to "off",
-            MultiplexerOption.Tmux to "tmux",
-            MultiplexerOption.Zellij to "zellij",
-            MultiplexerOption.Zmx to "zmx",
-        ),
+        labels =
+            mapOf(
+                MultiplexerOption.Off to "off",
+                MultiplexerOption.Tmux to "tmux",
+                MultiplexerOption.Zellij to "zellij",
+                MultiplexerOption.Zmx to "zmx",
+            ),
         selected = selectedOption,
         onSelect = { onSelect(it.type) },
         disabledOptions = setOf(MultiplexerOption.Zellij),
@@ -432,10 +473,7 @@ private fun MultiplexerSection(
 }
 
 @Composable
-private fun PostConnectActionSection(
-    command: String,
-    onCommandChange: (String) -> Unit,
-) {
+private fun PostConnectActionSection(command: String, onCommandChange: (String) -> Unit) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
     ChuText("auto-run on connect", style = typography.label)
@@ -449,10 +487,7 @@ private fun PostConnectActionSection(
         autoFocus = false,
         modifier = Modifier.fillMaxWidth(),
     )
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.End,
-    ) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         ChuButton(
             onClick = { onCommandChange("") },
             enabled = command.isNotBlank(),
