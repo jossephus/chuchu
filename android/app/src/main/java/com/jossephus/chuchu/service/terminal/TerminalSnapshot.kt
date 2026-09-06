@@ -27,6 +27,7 @@ data class TerminalSnapshot(
     val cursorX: Int,
     val cursorY: Int,
     val cursorVisible: Boolean,
+    val cursorStyle: Int = CURSOR_STYLE_BLOCK,
     val defaultBgArgb: Int,
     val defaultFgArgb: Int,
     val codepoints: IntArray,
@@ -61,6 +62,7 @@ data class TerminalSnapshot(
         return cols == other.cols && rows == other.rows &&
             cursorX == other.cursorX && cursorY == other.cursorY &&
             cursorVisible == other.cursorVisible &&
+            cursorStyle == other.cursorStyle &&
             defaultBgArgb == other.defaultBgArgb &&
             defaultFgArgb == other.defaultFgArgb &&
             codepoints.contentEquals(other.codepoints) &&
@@ -79,6 +81,7 @@ data class TerminalSnapshot(
         result = 31 * result + cursorX
         result = 31 * result + cursorY
         result = 31 * result + cursorVisible.hashCode()
+        result = 31 * result + cursorStyle
         result = 31 * result + defaultBgArgb
         result = 31 * result + defaultFgArgb
         result = 31 * result + codepoints.contentHashCode()
@@ -103,7 +106,11 @@ data class TerminalSnapshot(
         const val CELL_FLAG_INVERSE: Int = 0x08
         const val CELL_FLAG_BLINK: Int = 0x10
         const val CELL_FLAG_FAINT: Int = 0x20
-        private const val HEADER_I32_COUNT = 14
+        const val CURSOR_STYLE_BLOCK: Int = 0
+        const val CURSOR_STYLE_BAR: Int = 1
+        const val CURSOR_STYLE_UNDERLINE: Int = 2
+        const val CURSOR_STYLE_BLOCK_HOLLOW: Int = 3
+        private const val HEADER_I32_COUNT = 15
         private const val CELL_SIZE_BYTES = 11
         private const val IMAGE_HEADER_BYTES = 52
 
@@ -143,6 +150,7 @@ data class TerminalSnapshot(
             val extrasOffset = wrapped.int
             val viewportScrollY = wrapped.int
             val appHandlesSelectionDrag = wrapped.int == 1
+            val cursorStyle = wrapped.int
 
             val cellCount = cols * rows
             val expectedSize = (HEADER_I32_COUNT * 4) + (cellCount * CELL_SIZE_BYTES)
@@ -221,6 +229,7 @@ data class TerminalSnapshot(
                 cursorX = cursorX,
                 cursorY = cursorY,
                 cursorVisible = cursorVisible,
+                cursorStyle = cursorStyle,
                 defaultBgArgb = packArgb(defaultBgR, defaultBgG, defaultBgB),
                 defaultFgArgb = packArgb(defaultFgR, defaultFgG, defaultFgB),
                 codepoints = codepoints,

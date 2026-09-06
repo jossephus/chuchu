@@ -33,7 +33,9 @@ const verbose_snapshot_perf_logs = false;
 //      long-press drag gestures to the app instead of starting a client-side
 //      grid selection. This is what lets tmux/zellij perform their own
 //      pane-scoped selection.)
-const SNAPSHOT_HEADER_I32_COUNT = 14;
+//  14  cursor_style (the visual shape the app requested via DECSCUSR:
+//      0 = block, 1 = bar, 2 = underline, 3 = block_hollow)
+const SNAPSHOT_HEADER_I32_COUNT = 15;
 const SNAPSHOT_CELL_SIZE_BYTES = 11;
 // Flag bit set on a cell whose codepoint has additional grapheme codepoints
 // in the extras section.
@@ -907,6 +909,13 @@ export fn chuchu_build_text_snapshot(handle: c.jlong, out_size: [*c]usize) callc
     // its own long-press selection behavior.
     const app_handles_selection_drag: i32 = if (appHandlesSelectionDrag(terminal.terminal.flags.mouse_event)) 1 else 0;
     writeIntLe(i32, buffer[0..base_total_size], 52, app_handles_selection_drag);
+    const cursor_style: i32 = switch (terminal.render_state.cursor.visual_style) {
+        .block => 0,
+        .bar => 1,
+        .underline => 2,
+        .block_hollow => 3,
+    };
+    writeIntLe(i32, buffer[0..base_total_size], 56, cursor_style);
 
     terminal.snapshot_extras_scratch.clearRetainingCapacity();
     var extras_records: usize = 0;
