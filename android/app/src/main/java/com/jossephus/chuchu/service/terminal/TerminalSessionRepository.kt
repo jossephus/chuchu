@@ -3,6 +3,7 @@ package com.jossephus.chuchu.service.terminal
 import android.app.Application
 import android.content.ClipData
 import android.content.ClipboardManager
+import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.multiplexer.MultiplexerRegistry
@@ -30,11 +31,6 @@ import kotlinx.coroutines.sync.withLock
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class TerminalSessionRepository private constructor(application: Application) {
-    private enum class Osc52ClipboardPolicy {
-        Deny,
-        AllowActiveForegroundSession,
-    }
-
     private val appContext = application.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -42,7 +38,7 @@ class TerminalSessionRepository private constructor(application: Application) {
         HostKeyStore(appContext.getSharedPreferences(HostKeyStore.PREFS_NAME, Application.MODE_PRIVATE))
     private val tailscaleStatusChecker = TailscaleStatusChecker(appContext)
     private val clipboard = appContext.getSystemService(ClipboardManager::class.java)
-    private val osc52ClipboardPolicy = Osc52ClipboardPolicy.Deny
+    private val settingsRepository = SettingsRepository.getInstance(appContext)
 
     private fun publishTerminalClipboard(tabId: String, text: String) {
         if (!canPublishTerminalClipboard(tabId)) return
@@ -50,7 +46,7 @@ class TerminalSessionRepository private constructor(application: Application) {
     }
 
     private fun canPublishTerminalClipboard(tabId: String): Boolean {
-        if (osc52ClipboardPolicy != Osc52ClipboardPolicy.AllowActiveForegroundSession) return false
+        if (!settingsRepository.remoteClipboardWriteEnabled.value) return false
         return attachedClients > 0 && _activeTabId.value == tabId
     }
 

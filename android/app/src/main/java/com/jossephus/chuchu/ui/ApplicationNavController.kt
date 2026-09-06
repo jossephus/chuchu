@@ -129,6 +129,8 @@ fun ApplicationNavController() {
             val localShellEnabled by settingsRepo.localShellEnabled.collectAsStateWithLifecycle()
             val keepScreenAwake by settingsRepo.keepScreenAwake.collectAsStateWithLifecycle()
             val hideScreenContents by settingsRepo.hideScreenContents.collectAsStateWithLifecycle()
+            val remoteClipboardWriteEnabled by
+                settingsRepo.remoteClipboardWriteEnabled.collectAsStateWithLifecycle()
             val themeMode by settingsRepo.themeMode.collectAsStateWithLifecycle()
             val terminalFontSize by settingsRepo.terminalFontSize.collectAsStateWithLifecycle()
             val lightThemeName by settingsRepo.lightThemeName.collectAsStateWithLifecycle()
@@ -140,6 +142,7 @@ fun ApplicationNavController() {
                 localShellEnabled = localShellEnabled,
                 keepScreenAwake = keepScreenAwake,
                 hideScreenContents = hideScreenContents,
+                remoteClipboardWriteEnabled = remoteClipboardWriteEnabled,
                 currentAccessoryLayoutIds = accessoryLayoutIds,
                 accessoryBarSingleRow = accessoryBarSingleRow,
                 currentTerminalCustomKeyGroups = customKeyGroups,
@@ -160,6 +163,7 @@ fun ApplicationNavController() {
                 onLocalShellEnabledChanged = settingsRepo::setLocalShellEnabled,
                 onKeepScreenAwakeChanged = settingsRepo::setKeepScreenAwake,
                 onHideScreenContentsChanged = settingsRepo::setHideScreenContents,
+                onRemoteClipboardWriteEnabledChanged = settingsRepo::setRemoteClipboardWriteEnabled,
                 onAccessoryLayoutChanged = settingsRepo::setAccessoryLayoutIds,
                 onAccessoryBarSingleRowChanged = settingsRepo::setAccessoryBarSingleRow,
                 currentTerminalFontSize = terminalFontSize,
