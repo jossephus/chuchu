@@ -64,6 +64,8 @@ fun KeysContent(vm: KeysViewModel, modifier: Modifier = Modifier) {
                 }
                 is KeysEvent.ImportFailed ->
                     Toast.makeText(context, event.message, Toast.LENGTH_SHORT).show()
+                is KeysEvent.GenerateFailed ->
+                    Toast.makeText(context, event.message, Toast.LENGTH_SHORT).show()
                 KeysEvent.Renamed -> {
                     renameTarget = null
                     Toast.makeText(context, "key renamed", Toast.LENGTH_SHORT).show()

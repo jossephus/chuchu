@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.jossephus.chuchu.data.db.AppDatabase
 import com.jossephus.chuchu.data.repository.HostRepository
+import com.jossephus.chuchu.data.repository.KeyGenerationResult
 import com.jossephus.chuchu.data.repository.SshKeyRepository
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.HostProfile
@@ -18,8 +19,11 @@ import com.jossephus.chuchu.service.ssh.HostKeyPolicy
 import com.jossephus.chuchu.service.ssh.HostKeyStore
 import com.jossephus.chuchu.service.ssh.NativeSshService
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
@@ -59,6 +63,9 @@ class AddServerViewModel(application: Application, private val hostId: Long?) :
 
     private val _allKeys = MutableStateFlow<List<SshKey>>(emptyList())
     val keys: StateFlow<List<SshKey>> = _allKeys.asStateFlow()
+
+    private val _errorMessage = MutableSharedFlow<String>(extraBufferCapacity = 8)
+    val errorMessage: SharedFlow<String> = _errorMessage.asSharedFlow()
 
     init {
         viewModelScope.launch { sshKeyRepository.observeAll().collect { _allKeys.value = it } }
@@ -132,13 +139,16 @@ class AddServerViewModel(application: Application, private val hostId: Long?) :
         viewModelScope.launch {
             val current = _form.value
             val baseName = if (nameHint.isNotBlank()) nameHint else current.name
-            val key = sshKeyRepository.generate(baseName, current.keyPassphrase)
-            _form.value =
-                _form.value.copy(
-                    keyId = key.id,
-                    privateKeyPem = key.privateKeyPem,
-                    publicKeyOpenSsh = key.publicKeyOpenSsh,
-                )
+            when (val result = sshKeyRepository.generate(baseName, current.keyPassphrase)) {
+                is KeyGenerationResult.Success ->
+                    _form.value =
+                        _form.value.copy(
+                            keyId = result.key.id,
+                            privateKeyPem = result.key.privateKeyPem,
+                            publicKeyOpenSsh = result.key.publicKeyOpenSsh,
+                        )
+                KeyGenerationResult.Failed -> _errorMessage.emit("Key generation failed")
+            }
         }
     }
 

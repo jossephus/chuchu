@@ -22,6 +22,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,6 +57,12 @@ fun AddServerScreen(vm: AddServerViewModel, onBack: () -> Unit, modifier: Modifi
     val scrollState = rememberScrollState()
     val context = LocalContext.current
     var showAdditionalSettings by remember { mutableStateOf(false) }
+
+    LaunchedEffect(vm) {
+        vm.errorMessage.collect { message ->
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        }
+    }
     Column(
         modifier =
             modifier

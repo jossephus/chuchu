@@ -5,9 +5,11 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.room.withTransaction
 import com.jossephus.chuchu.data.db.AppDatabase
 import com.jossephus.chuchu.data.repository.HostRepository
 import com.jossephus.chuchu.data.repository.ImportResult
+import com.jossephus.chuchu.data.repository.KeyGenerationResult
 import com.jossephus.chuchu.data.repository.RenameResult
 import com.jossephus.chuchu.data.repository.SshKeyRepository
 import com.jossephus.chuchu.model.SshKey
@@ -58,8 +60,12 @@ class KeysViewModel(application: Application) : AndroidViewModel(application) {
 
     fun generate(nameHint: String, passphrase: String = "") {
         viewModelScope.launch {
-            val key = sshKeyRepository.generate(nameHint, passphrase)
-            _events.emit(KeysEvent.Generated(key.name))
+            when (val result = sshKeyRepository.generate(nameHint, passphrase)) {
+                is KeyGenerationResult.Success ->
+                    _events.emit(KeysEvent.Generated(result.key.name))
+                KeyGenerationResult.Failed ->
+                    _events.emit(KeysEvent.GenerateFailed("Key generation failed"))
+            }
         }
     }
 
@@ -92,8 +98,10 @@ class KeysViewModel(application: Application) : AndroidViewModel(application) {
 
     fun delete(id: Long) {
         viewModelScope.launch {
-            hostRepository.clearKeyReference(id)
-            sshKeyRepository.deleteById(id)
+            db.withTransaction {
+                hostRepository.clearKeyReference(id)
+                sshKeyRepository.deleteById(id)
+            }
             _events.emit(KeysEvent.Deleted)
         }
     }
@@ -109,6 +117,8 @@ sealed interface KeysEvent {
     data class Imported(val name: String, val publicKeyDerived: Boolean) : KeysEvent
 
     data class ImportFailed(val message: String) : KeysEvent
+
+    data class GenerateFailed(val message: String) : KeysEvent
 
     data object Renamed : KeysEvent
 

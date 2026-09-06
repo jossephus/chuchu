@@ -24,13 +24,18 @@ class SshKeyRepository(
 
     suspend fun deleteById(id: Long) = dao.deleteById(id)
 
-    suspend fun generate(nameHint: String, passphrase: String = ""): SshKey {
+    suspend fun generate(nameHint: String, passphrase: String = ""): KeyGenerationResult {
         val base = nameHint.trim().ifBlank { "android-ed25519" }
         var name = uniquify(base, dao.getAll().mapTo(HashSet()) { it.name })
         while (true) {
-            val key = withContext(Dispatchers.Default) { keyGenerator.generate(name, passphrase) }
+            val key =
+                try {
+                    withContext(Dispatchers.Default) { keyGenerator.generate(name, passphrase) }
+                } catch (_: IllegalStateException) {
+                    return KeyGenerationResult.Failed
+                }
             try {
-                return key.copy(id = dao.insert(key))
+                return KeyGenerationResult.Success(key.copy(id = dao.insert(key)))
             } catch (_: SQLiteConstraintException) {
                 name = uniquify(base, dao.getAll().mapTo(HashSet()) { it.name })
             }
@@ -110,4 +115,10 @@ sealed interface ImportResult {
     data object Blank : ImportResult
 
     data object NotAPrivateKey : ImportResult
+}
+
+sealed interface KeyGenerationResult {
+    data class Success(val key: SshKey) : KeyGenerationResult
+
+    data object Failed : KeyGenerationResult
 }
