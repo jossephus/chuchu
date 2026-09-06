@@ -15,7 +15,7 @@ interface SshKeyDao {
 
     @Query("SELECT * FROM ssh_keys ORDER BY name") suspend fun getAll(): List<SshKey>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insert(key: SshKey): Long
+    @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insert(key: SshKey): Long
 
     @Insert suspend fun insertForImport(key: SshKey): Long
 

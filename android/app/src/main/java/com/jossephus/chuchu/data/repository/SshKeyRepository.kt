@@ -1,5 +1,6 @@
 package com.jossephus.chuchu.data.repository
 
+import android.database.sqlite.SQLiteConstraintException
 import com.jossephus.chuchu.data.db.SshKeyDao
 import com.jossephus.chuchu.model.SshKey
 import com.jossephus.chuchu.service.ssh.Ed25519KeyGenerator
@@ -25,11 +26,15 @@ class SshKeyRepository(
 
     suspend fun generate(nameHint: String, passphrase: String = ""): SshKey {
         val base = nameHint.trim().ifBlank { "android-ed25519" }
-        val existingNames = dao.getAll().mapTo(HashSet()) { it.name }
-        val uniqueName = uniquify(base, existingNames)
-        val key = withContext(Dispatchers.Default) { keyGenerator.generate(uniqueName, passphrase) }
-        val id = dao.insert(key)
-        return key.copy(id = id)
+        var name = uniquify(base, dao.getAll().mapTo(HashSet()) { it.name })
+        while (true) {
+            val key = withContext(Dispatchers.Default) { keyGenerator.generate(name, passphrase) }
+            try {
+                return key.copy(id = dao.insert(key))
+            } catch (_: SQLiteConstraintException) {
+                name = uniquify(base, dao.getAll().mapTo(HashSet()) { it.name })
+            }
+        }
     }
 
     suspend fun import(nameHint: String, privateKeyPem: String): ImportResult {
@@ -39,25 +44,37 @@ class SshKeyRepository(
 
         val derived = withContext(Dispatchers.Default) { keyImporter.derivePublicKey(pem) }
         val base = nameHint.trim().ifBlank { "imported-key" }
-        val existingNames = dao.getAll().mapTo(HashSet()) { it.name }
-        val key =
-            SshKey(
-                name = uniquify(base, existingNames),
-                algorithm = derived?.algorithm?.let(::normalizeAlgorithm) ?: "imported",
-                privateKeyPem = pem,
-                publicKeyOpenSsh = derived?.publicKeyOpenSsh ?: "",
-                createdAtEpochMs = System.currentTimeMillis(),
-            )
-        val id = dao.insert(key)
-        return ImportResult.Success(key.copy(id = id), publicKeyDerived = derived != null)
+        var name = uniquify(base, dao.getAll().mapTo(HashSet()) { it.name })
+        while (true) {
+            val key =
+                SshKey(
+                    name = name,
+                    algorithm = derived?.algorithm?.let(::normalizeAlgorithm) ?: "imported",
+                    privateKeyPem = pem,
+                    publicKeyOpenSsh = derived?.publicKeyOpenSsh ?: "",
+                    createdAtEpochMs = System.currentTimeMillis(),
+                )
+            try {
+                return ImportResult.Success(
+                    key.copy(id = dao.insert(key)),
+                    publicKeyDerived = derived != null,
+                )
+            } catch (_: SQLiteConstraintException) {
+                name = uniquify(base, dao.getAll().mapTo(HashSet()) { it.name })
+            }
+        }
     }
 
     suspend fun rename(id: Long, newName: String): RenameResult {
         val name = newName.trim()
         if (name.isBlank()) return RenameResult.Blank
         if (dao.nameExists(name, excludeId = id)) return RenameResult.NameTaken
-        dao.rename(id, name)
-        return RenameResult.Success
+        return try {
+            dao.rename(id, name)
+            RenameResult.Success
+        } catch (_: SQLiteConstraintException) {
+            RenameResult.NameTaken
+        }
     }
 
     private fun normalizeAlgorithm(keytype: String): String =
