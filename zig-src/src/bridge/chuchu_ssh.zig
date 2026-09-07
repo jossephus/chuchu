@@ -1542,6 +1542,8 @@ const bcrypt = std.crypto.pwhash.bcrypt;
 const openssh_auth_magic = "openssh-key-v1\x00";
 const openssh_kdf_rounds: u32 = 16;
 const openssh_salt_len = 16;
+const openssh_pem_begin = "-----BEGIN OPENSSH PRIVATE KEY-----";
+const openssh_pem_end = "-----END OPENSSH PRIVATE KEY-----";
 // AES-256-CTR block size
 const aes_block_len = 16;
 
@@ -1555,6 +1557,21 @@ fn sshPutU32(list: *std.ArrayListUnmanaged(u8), value: u32) !void {
 fn sshPutString(list: *std.ArrayListUnmanaged(u8), data: []const u8) !void {
     try sshPutU32(list, @intCast(data.len));
     try list.appendSlice(allocator, data);
+}
+
+fn sshGetU32(data: []const u8, pos: *usize) !u32 {
+    if (pos.* + 4 > data.len) return error.Truncated;
+    const value = std.mem.readInt(u32, data[pos.*..][0..4], .big);
+    pos.* += 4;
+    return value;
+}
+
+fn sshGetString(data: []const u8, pos: *usize) ![]const u8 {
+    const len = try sshGetU32(data, pos);
+    if (pos.* + len > data.len) return error.Truncated;
+    const s = data[pos.*..][0..len];
+    pos.* += len;
+    return s;
 }
 
 /// Build the public key blob: string "ssh-ed25519" + string <32-byte pubkey>
@@ -1646,6 +1663,49 @@ fn encodePem(
     return buf[0..pos];
 }
 
+/// Inverse of encodePem: strip the header/footer, drop whitespace, base64-decode.
+fn decodePem(pem: []const u8, begin: []const u8, end: []const u8) ![]u8 {
+    const begin_idx = std.mem.indexOf(u8, pem, begin) orelse return error.NotPem;
+    const body_start = begin_idx + begin.len;
+    const end_idx = std.mem.indexOfPos(u8, pem, body_start, end) orelse return error.NotPem;
+
+    var cleaned: std.ArrayListUnmanaged(u8) = .empty;
+    defer cleaned.deinit(allocator);
+    for (pem[body_start..end_idx]) |ch| {
+        if (!std.ascii.isWhitespace(ch)) try cleaned.append(allocator, ch);
+    }
+
+    const decoder = std.base64.standard.Decoder;
+    const decoded_len = try decoder.calcSizeForSlice(cleaned.items);
+    const out = try allocator.alloc(u8, decoded_len);
+    errdefer allocator.free(out);
+    try decoder.decode(out, cleaned.items);
+    return out;
+}
+
+fn formatPublicKeyLine(keytype: []const u8, pub_blob: []const u8, comment: []const u8) ![]u8 {
+    const b64_encoder = std.base64.standard.Encoder;
+    const b64_len = b64_encoder.calcSize(pub_blob.len);
+    const line_len = keytype.len + 1 + b64_len + 1 + comment.len + 1;
+    const line = try allocator.alloc(u8, line_len);
+    errdefer allocator.free(line);
+
+    var p: usize = 0;
+    @memcpy(line[p..][0..keytype.len], keytype);
+    p += keytype.len;
+    line[p] = ' ';
+    p += 1;
+    _ = b64_encoder.encode(line[p..][0..b64_len], pub_blob);
+    p += b64_len;
+    line[p] = ' ';
+    p += 1;
+    @memcpy(line[p..][0..comment.len], comment);
+    p += comment.len;
+    line[p] = '\n';
+
+    return line;
+}
+
 /// Generate an Ed25519 keypair and encode as OpenSSH format.
 /// If passphrase is non-empty, encrypt with bcrypt + aes256-ctr.
 /// Returns the private key PEM and public key OpenSSH string via out params.
@@ -1727,28 +1787,12 @@ fn generateEd25519Key(
         try sshPutString(&key_data, private_section); // private section
     }
 
-    // Encode as PEM
     out_private_pem.* = try encodePem(
-        "-----BEGIN OPENSSH PRIVATE KEY-----\n",
-        "-----END OPENSSH PRIVATE KEY-----\n",
+        openssh_pem_begin ++ "\n",
+        openssh_pem_end ++ "\n",
         key_data.items,
     );
-
-    // Build "ssh-ed25519 <base64> <comment>" public key line
-    const b64_encoder = std.base64.standard.Encoder;
-    const b64_len = b64_encoder.calcSize(pub_blob.len);
-    // "ssh-ed25519 " + base64 + " " + comment + "\n"
-    const pub_line_len = 12 + b64_len + 1 + comment.len + 1;
-    const pub_line = try allocator.alloc(u8, pub_line_len);
-    errdefer allocator.free(pub_line);
-
-    @memcpy(pub_line[0..12], "ssh-ed25519 ");
-    _ = b64_encoder.encode(pub_line[12..][0..b64_len], pub_blob);
-    pub_line[12 + b64_len] = ' ';
-    @memcpy(pub_line[12 + b64_len + 1 ..][0..comment.len], comment);
-    pub_line[pub_line_len - 1] = '\n';
-
-    out_public_openssh.* = pub_line;
+    out_public_openssh.* = try formatPublicKeyLine("ssh-ed25519", pub_blob, comment);
 }
 
 /// JNI entry point: generate an Ed25519 key pair in OpenSSH format.
@@ -1788,6 +1832,74 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeGenerateEd
     if (j_priv == null or j_pub == null) return null;
 
     env.*.*.SetObjectArrayElement.?(env, result, 0, j_priv);
+    env.*.*.SetObjectArrayElement.?(env, result, 1, j_pub);
+
+    return result;
+}
+
+/// Derive the OpenSSH public key line and algorithm from an OpenSSH-format
+/// private key. The public key blob is stored in cleartext in the container,
+/// so this works without the passphrase and for any key type (ed25519, rsa,
+/// ecdsa, ...). Returns via out params, both owned by the caller.
+fn derivePublicKeyOpenSsh(
+    private_pem: []const u8,
+    out_algorithm: *[]u8,
+    out_public_openssh: *[]u8,
+) !void {
+    const bin = try decodePem(private_pem, openssh_pem_begin, openssh_pem_end);
+    defer allocator.free(bin);
+
+    if (bin.len < openssh_auth_magic.len or
+        !std.mem.eql(u8, bin[0..openssh_auth_magic.len], openssh_auth_magic))
+    {
+        return error.BadMagic;
+    }
+
+    var pos: usize = openssh_auth_magic.len;
+    _ = try sshGetString(bin, &pos); // ciphername
+    _ = try sshGetString(bin, &pos); // kdfname
+    _ = try sshGetString(bin, &pos); // kdfoptions
+    const num_keys = try sshGetU32(bin, &pos);
+    if (num_keys == 0) return error.NoKeys;
+
+    const pub_blob = try sshGetString(bin, &pos);
+    var blob_pos: usize = 0;
+    const keytype = try sshGetString(pub_blob, &blob_pos);
+
+    out_algorithm.* = try allocator.dupe(u8, keytype);
+    errdefer allocator.free(out_algorithm.*);
+    out_public_openssh.* = try formatPublicKeyLine(keytype, pub_blob, "imported");
+}
+
+/// JNI entry point: derive [algorithm, publicKeyOpenSsh] from an OpenSSH-format
+/// private key PEM. Returns null if the key is not OpenSSH format or malformed.
+export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeDerivePublicKey(
+    env: *c.JNIEnv,
+    thiz: c.jobject,
+    j_private_pem: c.jstring,
+) callconv(.c) c.jobjectArray {
+    _ = thiz;
+
+    const pem_owned = jniDupString(env, j_private_pem) orelse return null;
+    defer allocator.free(pem_owned);
+
+    var algorithm: []u8 = undefined;
+    var public_openssh: []u8 = undefined;
+    derivePublicKeyOpenSsh(pem_owned, &algorithm, &public_openssh) catch |err| {
+        logError("Derive public key failed: {}", .{err});
+        return null;
+    };
+    defer allocator.free(algorithm);
+    defer allocator.free(public_openssh);
+
+    const string_class = env.*.*.FindClass.?(env, "java/lang/String") orelse return null;
+    const result = env.*.*.NewObjectArray.?(env, 2, string_class, null) orelse return null;
+
+    const j_algo = jniNewStringOrNull(env, algorithm);
+    const j_pub = jniNewStringOrNull(env, public_openssh);
+    if (j_algo == null or j_pub == null) return null;
+
+    env.*.*.SetObjectArrayElement.?(env, result, 0, j_algo);
     env.*.*.SetObjectArrayElement.?(env, result, 1, j_pub);
 
     return result;

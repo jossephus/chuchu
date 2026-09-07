@@ -28,6 +28,8 @@ import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuSwitch
 import com.jossephus.chuchu.ui.components.ChuText
+import com.jossephus.chuchu.ui.screens.Keys.KeysContent
+import com.jossephus.chuchu.ui.screens.Keys.KeysViewModel
 import com.jossephus.chuchu.ui.screens.Terminal.TerminalTabMode
 import com.jossephus.chuchu.ui.terminal.TerminalCustomKeyGroup
 import com.jossephus.chuchu.ui.theme.ChuColors
@@ -37,6 +39,7 @@ import com.jossephus.chuchu.ui.theme.ThemeMode
 enum class SettingsCategory(val label: String) {
     General("general"),
     Terminal("terminal"),
+    Keys("keys"),
 }
 
 @Composable
@@ -74,6 +77,7 @@ fun SettingsScreen(
     onTerminalFontSizeChanged: (Float) -> Unit = {},
     onTerminalCustomActionsChanged: (List<TerminalCustomKeyGroup>) -> Unit,
     backupViewModel: SettingsBackupViewModel? = null,
+    keysViewModel: KeysViewModel,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -98,17 +102,13 @@ fun SettingsScreen(
         }
     }
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(colors.background),
-    ) {
+    Box(modifier = modifier.fillMaxSize().background(colors.background)) {
         LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.safeDrawing)
-                .padding(16.dp)
-                .imePadding(),
+            modifier =
+                Modifier.fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .padding(16.dp)
+                    .imePadding(),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item {
@@ -144,7 +144,8 @@ fun SettingsScreen(
                             onClick = { selectedCategory = category },
                             variant = ChuButtonVariant.Outlined,
                             borderColor = if (isSelected) colors.accent else colors.border,
-                            backgroundColor = if (isSelected) colors.accent.copy(alpha = 0.12f) else null,
+                            backgroundColor =
+                                if (isSelected) colors.accent.copy(alpha = 0.12f) else null,
                             modifier = Modifier.weight(1f),
                         ) {
                             ChuText(
@@ -159,43 +160,46 @@ fun SettingsScreen(
 
             item {
                 when (selectedCategory) {
-                    SettingsCategory.General -> GeneralSettings(
-                        currentTheme = currentTheme,
-                        currentFont = currentFont,
-                        onThemeSelected = onThemeSelected,
-                        onThemeModeChanged = onThemeModeChanged,
-                        themeMode = themeMode,
-                        lightThemeName = lightThemeName,
-                        onLightThemeSelected = onLightThemeSelected,
-                        onFontSelected = onFontSelected,
-                        appLockEnabled = appLockEnabled,
-                        requireAuthOnConnect = requireAuthOnConnect,
-                        onAppLockEnabledChanged = onAppLockEnabledChanged,
-                        onRequireAuthOnConnectChanged = onRequireAuthOnConnectChanged,
-                        onOpenBackup = { showBackupSheet = true },
-                    )
-                    SettingsCategory.Terminal -> TerminalSettings(
-                        currentAccessoryLayoutIds = currentAccessoryLayoutIds,
-                        onEditAccessoryLayout = { showAccessoryEditor = true },
-                        accessoryBarSingleRow = accessoryBarSingleRow,
-                        onAccessoryBarSingleRowChanged = onAccessoryBarSingleRowChanged,
-                        currentTerminalFontSize = currentTerminalFontSize,
-                        onTerminalFontSizeChanged = onTerminalFontSizeChanged,
-                        currentTerminalCustomKeyGroups = currentTerminalCustomKeyGroups,
-                        onEditCustomActions = { showCustomActionEditor = true },
-                        showCustomActionsFab = showCustomActionsFab,
-                        onShowCustomActionsFabChanged = onShowCustomActionsFabChanged,
-                        builtinShortcuts = builtinShortcuts,
-                        onEditChuchuCommands = { showChuchuCommandsEditor = true },
-                        currentTabMode = currentTabMode,
-                        onTabModeChanged = onTabModeChanged,
-                        localShellEnabled = localShellEnabled,
-                        onLocalShellEnabledChanged = onLocalShellEnabledChanged,
-                        keepScreenAwake = keepScreenAwake,
-                        onKeepScreenAwakeChanged = onKeepScreenAwakeChanged,
-                        hideScreenContents = hideScreenContents,
-                        onHideScreenContentsChanged = onHideScreenContentsChanged,
-                    )
+                    SettingsCategory.General ->
+                        GeneralSettings(
+                            currentTheme = currentTheme,
+                            currentFont = currentFont,
+                            onThemeSelected = onThemeSelected,
+                            onThemeModeChanged = onThemeModeChanged,
+                            themeMode = themeMode,
+                            lightThemeName = lightThemeName,
+                            onLightThemeSelected = onLightThemeSelected,
+                            onFontSelected = onFontSelected,
+                            appLockEnabled = appLockEnabled,
+                            requireAuthOnConnect = requireAuthOnConnect,
+                            onAppLockEnabledChanged = onAppLockEnabledChanged,
+                            onRequireAuthOnConnectChanged = onRequireAuthOnConnectChanged,
+                            onOpenBackup = { showBackupSheet = true },
+                        )
+                    SettingsCategory.Terminal ->
+                        TerminalSettings(
+                            currentAccessoryLayoutIds = currentAccessoryLayoutIds,
+                            onEditAccessoryLayout = { showAccessoryEditor = true },
+                            accessoryBarSingleRow = accessoryBarSingleRow,
+                            onAccessoryBarSingleRowChanged = onAccessoryBarSingleRowChanged,
+                            currentTerminalFontSize = currentTerminalFontSize,
+                            onTerminalFontSizeChanged = onTerminalFontSizeChanged,
+                            currentTerminalCustomKeyGroups = currentTerminalCustomKeyGroups,
+                            onEditCustomActions = { showCustomActionEditor = true },
+                            showCustomActionsFab = showCustomActionsFab,
+                            onShowCustomActionsFabChanged = onShowCustomActionsFabChanged,
+                            builtinShortcuts = builtinShortcuts,
+                            onEditChuchuCommands = { showChuchuCommandsEditor = true },
+                            currentTabMode = currentTabMode,
+                            onTabModeChanged = onTabModeChanged,
+                            localShellEnabled = localShellEnabled,
+                            onLocalShellEnabledChanged = onLocalShellEnabledChanged,
+                            keepScreenAwake = keepScreenAwake,
+                            onKeepScreenAwakeChanged = onKeepScreenAwakeChanged,
+                            hideScreenContents = hideScreenContents,
+                            onHideScreenContentsChanged = onHideScreenContentsChanged,
+                        )
+                    SettingsCategory.Keys -> KeysContent(vm = keysViewModel)
                 }
             }
         }
@@ -264,10 +268,7 @@ private fun GeneralSettings(
         onThemeModeChanged = onThemeModeChanged,
     )
     Spacer(modifier = Modifier.height(16.dp))
-    FontSelectorSection(
-        currentFont = currentFont,
-        onFontSelected = onFontSelected,
-    )
+    FontSelectorSection(currentFont = currentFont, onFontSelected = onFontSelected)
     Spacer(modifier = Modifier.height(16.dp))
     Row(verticalAlignment = Alignment.CenterVertically) {
         ChuText("── ", style = typography.labelSmall, color = colors.textMuted)
@@ -294,7 +295,11 @@ private fun GeneralSettings(
         ChuSwitch(checked = requireAuthOnConnect, onCheckedChange = onRequireAuthOnConnectChanged)
     }
     Spacer(modifier = Modifier.height(4.dp))
-    ChuText("use biometrics or device PIN/pattern.", style = typography.bodySmall, color = colors.textMuted)
+    ChuText(
+        "use biometrics or device PIN/pattern.",
+        style = typography.bodySmall,
+        color = colors.textMuted,
+    )
     Spacer(modifier = Modifier.height(16.dp))
     Row(
         modifier = Modifier.fillMaxWidth(),
