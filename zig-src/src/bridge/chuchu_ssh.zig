@@ -1478,6 +1478,30 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeSftpReadFi
         setLibssh2Error(session, "SFTP read failed", @intCast(rc));
         return null;
     }
+
+    if (out.items.len == limit) {
+        var probe: [1]u8 = undefined;
+        var idle_since_ms = nowMs();
+        while (true) {
+            const rc = c.libssh2_sftp_read(file, &probe, probe.len);
+            if (rc > 0) {
+                setError(session, "SFTP read aborted: {s} is larger than the {d} byte download limit", .{ path_z, limit });
+                return null;
+            }
+            if (rc == 0) break;
+            if (rc != c.LIBSSH2_ERROR_EAGAIN) {
+                setLibssh2Error(session, "SFTP read failed", @intCast(rc));
+                return null;
+            }
+            switch (awaitSftpProgress(session, &idle_since_ms)) {
+                .retry => {},
+                .no_socket, .stalled => {
+                    setError(session, "SFTP read probe timed out for {s}", .{path_z});
+                    return null;
+                },
+            }
+        }
+    }
     return jniNewByteArrayOrNull(env, out.items);
 }
 
