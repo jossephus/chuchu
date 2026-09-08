@@ -8,6 +8,7 @@ import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.mosh.MoshBootstrapParser
 import com.jossephus.chuchu.service.mosh.MoshEventType
 import com.jossephus.chuchu.service.mosh.MoshReconnectPolicy
+import com.jossephus.chuchu.service.mosh.MoshRuntimeState
 import com.jossephus.chuchu.service.mosh.MoshState
 import com.jossephus.chuchu.service.mosh.NativeMoshService
 import com.jossephus.chuchu.service.multiplexer.MultiplexerAvailability
@@ -110,6 +111,7 @@ class TerminalSessionEngine(
     @Volatile private var disposed = false
 
     private val bridge = GhosttyBridge()
+    private val moshConnectionStaleness = MoshConnectionStalenessTracker()
     private val nativeSsh = NativeSshService(hostKeyPolicy = ::verifyHostKey)
     private val moshService = NativeMoshService()
 
@@ -795,6 +797,7 @@ class TerminalSessionEngine(
                     MoshEventType.EchoAck.code -> Unit
                     MoshEventType.StateChanged.code -> {
                         Log.d("TerminalSession", "MOSH: STATE_CHANGED: ${String(event.payload)}")
+                        moshService.pollState()?.let { updateMoshRuntimeStatus(it) }
                     }
                     MoshEventType.Diagnostic.code -> {
                         Log.d("TerminalSession", "MOSH: DIAG: ${String(event.payload)}")
@@ -813,6 +816,7 @@ class TerminalSessionEngine(
             // Check session health
             val runtime = moshService.pollState()
             if (runtime != null) {
+                updateMoshRuntimeStatus(runtime)
                 if (runtime.state == MoshState.Failed.code) {
                     failureCode = runtime.lastFailureCode
                     Log.e("TerminalSession", "MOSH: session FAILED code=$failureCode")
@@ -826,6 +830,24 @@ class TerminalSessionEngine(
         }
         Log.d("TerminalSession", "MOSH: read loop exited after $loopCount iterations")
         return failureCode
+    }
+
+    private fun updateMoshSessionStatus(moshState: Int) {
+        val status = sessionStatusForMoshState(moshState) ?: return
+        updateSessionStatus(status)
+    }
+
+    private fun updateMoshRuntimeStatus(runtime: MoshRuntimeState) {
+        updateMoshSessionStatus(runtime.state)
+        moshConnectionStaleness.observe(runtime, System.currentTimeMillis())?.let { status ->
+            updateSessionStatus(status)
+        }
+    }
+
+    private fun updateSessionStatus(status: SessionStatus) {
+        if (_state.value.status != status) {
+            _state.value = _state.value.copy(status = status)
+        }
     }
 
     private suspend fun establishConnection(params: ConnectionParams, username: String) {
@@ -872,6 +894,7 @@ class TerminalSessionEngine(
 
     private suspend fun establishMoshConnection(params: ConnectionParams, username: String) {
         Log.d("TerminalSession", "MOSH: Phase 1 — SSH bootstrap start")
+        moshConnectionStaleness.reset()
         check(nativeSsh.isAvailable()) { "Native SSH unavailable for mosh bootstrap" }
         nativeSsh.connect(
             host = params.host,
