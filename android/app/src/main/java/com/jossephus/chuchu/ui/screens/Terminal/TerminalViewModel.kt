@@ -37,6 +37,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -205,7 +206,6 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun beginMultiplexerAction(action: PendingMultiplexerAction) {
-        val actionGeneration = ++multiplexerActionGeneration
         val preparedAction = when (action) {
             is PendingMultiplexerAction.Open -> action.copy(
                 spec = action.spec.copy(multiplexer = action.spec.multiplexer ?: MultiplexerRegistry.defaultType),
@@ -214,6 +214,14 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 spec = action.spec.copy(multiplexer = action.spec.multiplexer ?: MultiplexerRegistry.defaultType),
             )
         }
+        if (
+            pendingMultiplexerAction == preparedAction &&
+                _multiplexerState.value.preflightLoading
+        ) {
+            // Keep the original generation alive while its host-key prompt is awaiting a decision.
+            return
+        }
+        val actionGeneration = ++multiplexerActionGeneration
         pendingMultiplexerAction = preparedAction
         val spec = preparedAction.spec
         val label = spec.multiplexer?.label ?: MultiplexerRegistry.defaultType.label
@@ -232,28 +240,47 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             )
             return
         }
-        _multiplexerState.value = MultiplexerUiState(reconnectRecovery = reconnectRecovery)
+        _multiplexerState.value = MultiplexerUiState(
+            preflightLoading = true,
+            preflightHostLabel = spec.tabLabel,
+            reconnectRecovery = reconnectRecovery,
+        )
         viewModelScope.launch(Dispatchers.IO) {
-            val result = runCatching {
-                sessionRepository.resolveMultiplexerSessionName(
-                    spec = spec,
-                    reuseDetachedChuchuSession =
-                        preparedAction is PendingMultiplexerAction.Open &&
-                            spec.multiplexerSessionName.isNullOrBlank(),
-                )
-            }
+            val result =
+                try {
+                    Result.success(
+                        sessionRepository.resolveMultiplexerSessionName(
+                            spec = spec,
+                            reuseDetachedChuchuSession =
+                                preparedAction is PendingMultiplexerAction.Open &&
+                                    spec.multiplexerSessionName.isNullOrBlank(),
+                        ),
+                    )
+                } catch (_: CancellationException) {
+                    withContext(NonCancellable + Dispatchers.Main) {
+                        reportMultiplexerActionStopped(actionGeneration, preparedAction)
+                    }
+                    return@launch
+                } catch (error: Exception) {
+                    Result.failure(error)
+                }
             withContext(Dispatchers.Main) {
-                if (!isCurrentMultiplexerAction(actionGeneration, preparedAction)) return@withContext
-                result.fold(
-                    onSuccess = { sessionName ->
-                        completeMultiplexerAction(actionGeneration, preparedAction, sessionName)
-                    },
-                    onFailure = { error ->
-                        _multiplexerState.value = _multiplexerState.value.copy(
-                            preflightError = error.message ?: "Could not prepare multiplexer session",
-                        )
-                    },
-                )
+                if (isCurrentMultiplexerAction(actionGeneration, preparedAction)) {
+                    result.fold(
+                        onSuccess = { sessionName ->
+                            completeMultiplexerAction(actionGeneration, preparedAction, sessionName)
+                        },
+                        onFailure = { error ->
+                            _multiplexerState.value = _multiplexerState.value.copy(
+                                preflightLoading = false,
+                                preflightHostLabel = null,
+                                preflightError = error.message ?: "Could not prepare multiplexer session",
+                            )
+                        },
+                    )
+                } else {
+                    reportMultiplexerActionStopped(actionGeneration, preparedAction)
+                }
             }
         }
     }
@@ -266,23 +293,48 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         action: PendingMultiplexerAction,
         sessionName: String,
     ) {
-        if (!isCurrentMultiplexerAction(actionGeneration, action)) return
-        val nextSpec = action.spec.copy(
-            multiplexer = action.spec.multiplexer ?: MultiplexerRegistry.defaultType,
-            multiplexerSessionName = sessionName,
-            multiplexerCreateIfMissing = action.spec.multiplexerCreateIfMissing,
-        )
-        pendingMultiplexerAction = null
-        _multiplexerState.value = MultiplexerUiState()
-        when (action) {
-            is PendingMultiplexerAction.Open -> openTab(nextSpec)
-            is PendingMultiplexerAction.Reconnect -> {
-                if (!reconnectTabWithSpec(action.tabId, nextSpec)) {
-                    _multiplexerState.value = MultiplexerUiState(
-                        preflightError = "Terminal session is no longer available",
-                        reconnectRecovery = true,
-                    )
+        if (isCurrentMultiplexerAction(actionGeneration, action)) {
+            val nextSpec = action.spec.copy(
+                multiplexer = action.spec.multiplexer ?: MultiplexerRegistry.defaultType,
+                multiplexerSessionName = sessionName,
+                multiplexerCreateIfMissing = action.spec.multiplexerCreateIfMissing,
+            )
+            pendingMultiplexerAction = null
+            _multiplexerState.value = MultiplexerUiState()
+            when (action) {
+                is PendingMultiplexerAction.Open -> openTab(nextSpec)
+                is PendingMultiplexerAction.Reconnect -> {
+                    if (!reconnectTabWithSpec(action.tabId, nextSpec)) {
+                        _multiplexerState.value = MultiplexerUiState(
+                            preflightError = "Terminal session is no longer available",
+                            reconnectRecovery = true,
+                        )
+                    }
                 }
+            }
+        } else {
+            reportMultiplexerActionStopped(actionGeneration, action)
+        }
+    }
+
+    private fun reportMultiplexerActionStopped(
+        actionGeneration: Long,
+        action: PendingMultiplexerAction,
+    ) {
+        when {
+            isCurrentMultiplexerAction(actionGeneration, action) -> {
+                _multiplexerState.value = _multiplexerState.value.copy(
+                    preflightLoading = false,
+                    preflightHostLabel = null,
+                    preflightError = "Connection preparation was cancelled",
+                )
+            }
+
+            pendingMultiplexerAction == null -> {
+                _multiplexerState.value = MultiplexerUiState(
+                    preflightError = "Connection preparation was superseded",
+                    reconnectRecovery = action is PendingMultiplexerAction.Reconnect,
+                )
             }
         }
     }
@@ -771,6 +823,8 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
 
 data class MultiplexerUiState(
     val preflightError: String? = null,
+    val preflightLoading: Boolean = false,
+    val preflightHostLabel: String? = null,
     val sessions: List<RemoteMultiplexerSession> = emptyList(),
     val sessionsLoading: Boolean = false,
     val sessionsError: String? = null,
