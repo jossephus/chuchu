@@ -51,6 +51,7 @@ fun SettingsScreen(
     localShellEnabled: Boolean,
     keepScreenAwake: Boolean,
     hideScreenContents: Boolean,
+    disableAutocorrect: Boolean,
     currentAccessoryLayoutIds: List<String>,
     accessoryBarSingleRow: Boolean,
     currentTerminalCustomKeyGroups: List<TerminalCustomKeyGroup>,
@@ -71,6 +72,7 @@ fun SettingsScreen(
     onLocalShellEnabledChanged: (Boolean) -> Unit,
     onKeepScreenAwakeChanged: (Boolean) -> Unit,
     onHideScreenContentsChanged: (Boolean) -> Unit,
+    onDisableAutocorrectChanged: (Boolean) -> Unit,
     onAccessoryLayoutChanged: (List<String>) -> Unit,
     onAccessoryBarSingleRowChanged: (Boolean) -> Unit,
     currentTerminalFontSize: Float = 14f,
@@ -198,6 +200,8 @@ fun SettingsScreen(
                             onKeepScreenAwakeChanged = onKeepScreenAwakeChanged,
                             hideScreenContents = hideScreenContents,
                             onHideScreenContentsChanged = onHideScreenContentsChanged,
+                            disableAutocorrect = disableAutocorrect,
+                            onDisableAutocorrectChanged = onDisableAutocorrectChanged,
                         )
                     SettingsCategory.Keys -> KeysContent(vm = keysViewModel)
                 }
