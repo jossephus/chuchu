@@ -338,6 +338,7 @@ fun TerminalScreen(
         settingsRepo.terminalCustomKeyGroups.collectAsStateWithLifecycle()
     val settingsFontSize by settingsRepo.terminalFontSize.collectAsStateWithLifecycle()
     val keepScreenAwake by settingsRepo.keepScreenAwake.collectAsStateWithLifecycle()
+    val disableAutocorrect by settingsRepo.disableAutocorrect.collectAsStateWithLifecycle()
     val keepAwakeView = LocalView.current
     DisposableEffect(keepScreenAwake, keepAwakeView) {
         val window = (keepAwakeView.context as? Activity)?.window
@@ -1538,6 +1539,7 @@ fun TerminalScreen(
                                         if (inputViewRef.value == null) {
                                             inputViewRef.value = view
                                         }
+                                        view.disableAutocorrect = disableAutocorrect
                                     },
                                 )
 
