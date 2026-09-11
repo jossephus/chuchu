@@ -79,21 +79,32 @@ class TmuxMultiplexerTest {
 
         assertEquals(
             "if ! command -v tmux >/dev/null 2>&1; then printf 'tmux executable not found\\n' >&2; false; " +
-                "else tmux list-sessions -F '#{session_name}\t#{session_attached}' 2>/dev/null; " +
+                "else tmux list-sessions -F '#{session_attached} #{session_name}' 2>/dev/null; " +
                 "status=\$?; if [ \"\$status\" -eq 1 ]; then true; else [ \"\$status\" -eq 0 ]; fi; fi",
             command,
         )
     }
 
     @Test
-    fun parsesSessionList() {
-        val sessions = TmuxMultiplexer.parseSessions("main\t1\nwork\t0\n")
+    fun parsesSessionListWithAttachedClientCountsAndNamesContainingSpaces() {
+        val sessions = TmuxMultiplexer.parseSessions("0 work\n1 main\n2 work space\n")
 
         assertEquals(
             listOf(
-                RemoteMultiplexerSession(name = "main", attached = true),
                 RemoteMultiplexerSession(name = "work", attached = false),
+                RemoteMultiplexerSession(name = "main", attached = true),
+                RemoteMultiplexerSession(name = "work space", attached = true),
             ),
+            sessions,
+        )
+    }
+
+    @Test
+    fun skipsMalformedSessionListLines() {
+        val sessions = TmuxMultiplexer.parseSessions("missing-separator\n1 \n")
+
+        assertEquals(
+            emptyList<RemoteMultiplexerSession>(),
             sessions,
         )
     }
