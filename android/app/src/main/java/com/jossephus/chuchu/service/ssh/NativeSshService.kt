@@ -10,6 +10,7 @@ class NativeSshService(
     private val hostKeyPolicy: HostKeyPolicy,
 ) : Closeable {
     private companion object {
+        // Absolute in-memory ceiling; callers request 16/32 MiB, so this is the effective download limit.
         private const val MAX_SFTP_READ_BYTES = 4 * 1024 * 1024
     }
 
