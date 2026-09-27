@@ -46,7 +46,7 @@ dependencies {
 // The Kotlin plugin adds kotlin-stdlib to every module; chuchu already provides it, so keep
 // it off the APK's runtime classpath (the compile classpath still has it).
 configurations.configureEach {
-    if (name.endsWith("RuntimeClasspath")) {
+    if (name == "debugRuntimeClasspath" || name == "releaseRuntimeClasspath") {
         exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
         exclude(group = "org.jetbrains", module = "annotations")
     }

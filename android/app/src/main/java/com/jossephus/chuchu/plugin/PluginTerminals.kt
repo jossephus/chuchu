@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -21,6 +22,7 @@ import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.plugin.api.PluginTerminal
 import com.jossephus.chuchu.plugin.api.PtySize
 import com.jossephus.chuchu.plugin.api.TerminalFactory
+import com.jossephus.chuchu.plugin.api.TerminalOptions
 import com.jossephus.chuchu.service.terminal.GhosttyBridge
 import com.jossephus.chuchu.service.terminal.TerminalSnapshot
 import com.jossephus.chuchu.ui.terminal.GhosttyKeyAction
@@ -46,6 +48,17 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 
 /**
+ * The plugin terminal holding the keyboard, if any. chuchu's own input (accessory bar keys,
+ * paste, custom actions) goes there instead of the tab's shell, because a plugin view that
+ * shows its own terminals (e.g. multiplexer panes) is where the user is typing.
+ */
+object PluginInputFocus {
+    @Volatile
+    var target: GhosttyPluginTerminal? = null
+        internal set
+}
+
+/**
  * [TerminalFactory] backed by Ghostty. All plugin terminals share one emulator thread: each
  * Ghostty handle must be used from a single thread, and a thread per pane would waste
  * memory when a multiplexer plugin opens many.
@@ -57,10 +70,11 @@ class GhosttyTerminalFactory : TerminalFactory {
         }.asCoroutineDispatcher()
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
 
-    override fun create(): PluginTerminal = GhosttyPluginTerminal(dispatcher, scope)
+    override fun create(options: TerminalOptions): PluginTerminal = GhosttyPluginTerminal(options, dispatcher, scope)
 }
 
-internal class GhosttyPluginTerminal(
+class GhosttyPluginTerminal internal constructor(
+    private val options: TerminalOptions,
     private val dispatcher: CoroutineDispatcher,
     private val scope: CoroutineScope,
 ) : PluginTerminal {
@@ -70,6 +84,8 @@ internal class GhosttyPluginTerminal(
     private var handle = 0L
     private var lastSnapshotAtMs = 0L
     private var snapshotScheduled = false
+    private var cellWidth = 1
+    private var cellHeight = 1
 
     @Volatile private var closed = false
 
@@ -85,7 +101,7 @@ internal class GhosttyPluginTerminal(
     init {
         scope.launch {
             if (closed || !bridge.isLoaded()) return@launch
-            handle = bridge.nativeCreate(DEFAULT_COLS, DEFAULT_ROWS, MAX_SCROLLBACK)
+            handle = bridge.nativeCreate(DEFAULT_COLS, DEFAULT_ROWS, options.scrollbackLines.coerceAtLeast(0))
             emitSnapshot()
         }
     }
@@ -102,6 +118,7 @@ internal class GhosttyPluginTerminal(
     override fun close() {
         if (closed) return
         closed = true
+        if (PluginInputFocus.target === this) PluginInputFocus.target = null
         inputChannel.close()
         scope.launch {
             if (handle != 0L) bridge.nativeDestroy(handle)
@@ -109,7 +126,7 @@ internal class GhosttyPluginTerminal(
         }
     }
 
-    private fun typeText(text: String) {
+    fun typeText(text: String) {
         if (text.isEmpty()) return
         onEmulator { bridge.nativeScrollToActive(handle) }
         inputChannel.trySend(text.toByteArray(Charsets.UTF_8))
@@ -117,7 +134,7 @@ internal class GhosttyPluginTerminal(
 
     // Mirrors TerminalViewModel.onHardwareKey so plugin terminals encode keys like the
     // main terminal (text keys carry their UTF-8 unless Ctrl/Alt/Super are held).
-    private fun typeKey(key: Int, codepoint: Int, mods: Int, action: Int, charCode: Int) {
+    fun typeKey(key: Int, codepoint: Int, mods: Int, action: Int, charCode: Int) {
         val isRelease = action == GhosttyKeyAction.Release
         val hasNonTextModifier = mods and NON_TEXT_MODIFIERS != 0
         val effectiveCodepoint = if (charCode > 0) charCode else codepoint
@@ -131,9 +148,21 @@ internal class GhosttyPluginTerminal(
         }
     }
 
+    /** Bracketed when the program enabled bracketed paste, like the stock terminal. */
+    fun paste(text: String) {
+        if (text.isEmpty()) return
+        onEmulator {
+            bridge.nativeScrollToActive(handle)
+            val encoded = bridge.nativeEncodePaste(handle, text)
+            if (encoded != null && encoded.isNotEmpty()) inputChannel.trySend(encoded)
+        }
+    }
+
     private fun resize(cols: Int, rows: Int, cellWidth: Int, cellHeight: Int, widthPx: Int, heightPx: Int) {
         if (cols <= 0 || rows <= 0 || cellWidth <= 0 || cellHeight <= 0) return
         onEmulator {
+            this.cellWidth = cellWidth
+            this.cellHeight = cellHeight
             bridge.nativeResize(handle, cols, rows, cellWidth, cellHeight)
             // The resize can queue in-band size reports (DEC 2048) for the program.
             drainPtyWrites()
@@ -142,10 +171,30 @@ internal class GhosttyPluginTerminal(
         }
     }
 
-    private fun scroll(delta: Int, x: Float, y: Float) =
+    override fun setGridSize(cols: Int, rows: Int) {
+        if (cols <= 0 || rows <= 0) return
+        onEmulator {
+            bridge.nativeResize(handle, cols, rows, cellWidth, cellHeight)
+            requestSnapshot(force = true)
+        }
+    }
+
+    private fun scroll(delta: Int, x: Float, y: Float) {
+        val remote = options.onScroll
+        if (remote != null) {
+            remote(delta)
+            return
+        }
         onEmulator {
             bridge.nativeScroll(handle, delta, x, y)
             requestSnapshot(force = true)
+        }
+    }
+
+    private fun reportFocus(focused: Boolean) =
+        onEmulator {
+            val encoded = bridge.nativeEncodeFocus(handle, focused)
+            if (encoded != null && encoded.isNotEmpty()) inputChannel.trySend(encoded)
         }
 
     private fun applyColors(isDark: Boolean, fg: IntArray?, bg: IntArray?, cursor: IntArray?, palette: ByteArray?) =
@@ -224,6 +273,20 @@ internal class GhosttyPluginTerminal(
             )
         }
 
+        DisposableEffect(focused) {
+            if (focused) PluginInputFocus.target = this@GhosttyPluginTerminal
+            onDispose {
+                if (PluginInputFocus.target === this@GhosttyPluginTerminal) PluginInputFocus.target = null
+            }
+        }
+
+        // Skip the initial composition: only real focus changes are reported.
+        val lastFocused = remember { booleanArrayOf(focused) }
+        LaunchedEffect(focused) {
+            if (lastFocused[0] != focused) reportFocus(focused)
+            lastFocused[0] = focused
+        }
+
         val current by snapshot.collectAsStateWithLifecycle()
         Box(modifier = modifier.background(background)) {
             current?.let { snap ->
@@ -267,7 +330,6 @@ internal class GhosttyPluginTerminal(
         const val TAG = "PluginTerminal"
         const val DEFAULT_COLS = 80
         const val DEFAULT_ROWS = 24
-        const val MAX_SCROLLBACK = 1000
         const val SNAPSHOT_INTERVAL_MS = 16L
         const val MAX_PTY_DRAINS = 8
 

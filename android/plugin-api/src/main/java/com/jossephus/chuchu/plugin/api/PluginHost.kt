@@ -3,6 +3,7 @@ package com.jossephus.chuchu.plugin.api
 import android.content.Context
 import kotlin.reflect.KClass
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.StateFlow
 
 /** What the host hands each plugin in [ChuchuPlugin.register]. One instance per plugin. */
 interface PluginHost {
@@ -36,11 +37,25 @@ interface PluginHost {
     /** Ghostty terminals for plugin UIs (e.g. multiplexer panes). */
     val terminals: TerminalFactory
 
+    /**
+     * Whether chuchu has a visible screen. Pause polling or streams while false to save
+     * battery, and use it to decide whether an event deserves a notification.
+     */
+    val appVisible: StateFlow<Boolean>
+
     /** Values of the schemas registered with [registerSettings] / [registerHostSettings]. */
     val settings: PluginSettings
 
     /** Private key-value storage for non-setting state. */
     val storage: PluginStorage
+
+    /**
+     * Posts or replaces a notification. Returns false when the user has notifications for
+     * chuchu turned off (or hasn't granted the permission), so the plugin can fall back.
+     */
+    fun notify(notification: PluginNotification): Boolean
+
+    fun cancelNotification(key: String)
 
     /**
      * Declares app-wide settings, shown under Settings › plugins. Call at most once;

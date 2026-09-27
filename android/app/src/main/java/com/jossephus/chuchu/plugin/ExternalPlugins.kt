@@ -138,9 +138,8 @@ class ExternalPlugins(
     private fun instantiate(pluginContext: Context, entryClass: String): ChuchuPlugin {
         val info = pluginContext.applicationInfo
         val dexPath = (listOf(info.sourceDir) + info.splitSourceDirs.orEmpty()).joinToString(File.pathSeparator)
-        // Parent is chuchu's own loader, so plugin-api, Compose, coroutines and Kotlin resolve
-        // to chuchu's copies: one Compose runtime in the process, and shared API types.
-        val loader = PathClassLoader(dexPath, info.nativeLibraryDir, ChuchuPlugin::class.java.classLoader)
+        val hostLoader = requireNotNull(ChuchuPlugin::class.java.classLoader)
+        val loader = PathClassLoader(dexPath, info.nativeLibraryDir, SharedClassLoader(hostLoader))
         return loader.loadClass(entryClass).getDeclaredConstructor().newInstance() as ChuchuPlugin
     }
 
@@ -207,11 +206,50 @@ class ExternalPlugins(
         return MessageDigest.getInstance("SHA-256").digest(cert.toByteArray()).joinToString("") { "%02x".format(it) }
     }
 
+    /**
+     * Parent of every plugin class loader. It exposes only the packages chuchu deliberately
+     * shares (and keeps intact under R8, see plugin-api/consumer-rules.pro) plus the Android
+     * framework. Anything else a plugin uses, e.g. kotlinx.serialization, resolves from the
+     * plugin's own APK even when chuchu happens to contain the same library: chuchu's copy
+     * may be renamed or stripped by R8, and a different version besides.
+     *
+     * A shared package chuchu doesn't actually contain (say, a Compose library chuchu doesn't
+     * use) falls through to the plugin's copy too.
+     */
+    private class SharedClassLoader(private val host: ClassLoader) : ClassLoader(FRAMEWORK_LOADER) {
+        override fun loadClass(name: String, resolve: Boolean): Class<*> {
+            if (SHARED_PACKAGES.any(name::startsWith)) {
+                try {
+                    return host.loadClass(name)
+                } catch (_: ClassNotFoundException) {
+                    // Not in chuchu; let the plugin's loader find its own copy.
+                }
+            }
+            return super.loadClass(name, resolve)
+        }
+    }
+
     companion object {
         const val ACTION_PLUGIN = "com.jossephus.chuchu.PLUGIN"
         const val META_ID = "chuchu.plugin.id"
         const val META_ENTRY = "chuchu.plugin.entry"
         const val META_API_VERSION = "chuchu.plugin.apiVersion"
+
+        // Must match the keep rules in plugin-api/consumer-rules.pro: sharing a package R8 may
+        // strip would hand plugins classes with missing members.
+        private val SHARED_PACKAGES =
+            listOf(
+                "com.jossephus.chuchu.plugin.api.",
+                "androidx.compose.runtime.",
+                "androidx.compose.ui.",
+                "androidx.compose.foundation.",
+                "androidx.compose.animation.",
+                "kotlin.",
+                "kotlinx.coroutines.",
+            )
+
+        // Android's boot loader: framework (android.*, java.*) classes only.
+        private val FRAMEWORK_LOADER: ClassLoader = requireNotNull(String::class.java.classLoader)
 
         // Matches the settings/prefs file naming, where ids become file names.
         private val ID_PATTERN = Regex("^[a-z0-9_]{1,64}$")

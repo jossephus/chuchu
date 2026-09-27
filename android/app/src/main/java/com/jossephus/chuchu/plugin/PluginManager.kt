@@ -10,6 +10,7 @@ import com.jossephus.chuchu.plugin.api.PluginApi
 import com.jossephus.chuchu.plugin.api.PluginCommand
 import com.jossephus.chuchu.plugin.api.PluginHost
 import com.jossephus.chuchu.plugin.api.PluginLogger
+import com.jossephus.chuchu.plugin.api.PluginNotification
 import com.jossephus.chuchu.plugin.api.PluginSession
 import com.jossephus.chuchu.plugin.api.PluginSettings
 import com.jossephus.chuchu.plugin.api.PluginStorage
@@ -97,6 +98,10 @@ class PluginManager(
     private val terminalFactory: TerminalFactory,
     /** Context handed to built-in plugins; null only in unit tests. */
     private val appContext: Context? = null,
+    /** Null in unit tests, where notify() reports failure. */
+    private val notifier: PluginNotifier? = null,
+    /** Whether any chuchu activity is started; see [ChuchuApplication]. */
+    private val appVisible: StateFlow<Boolean> = MutableStateFlow(true),
     private val logSink: PluginLogSink = androidLogSink,
 ) {
     private class LoadedPlugin(
@@ -294,10 +299,18 @@ class PluginManager(
         override val sessions: SessionRegistry = this@PluginManager.sessions
         override val settings: PluginSettings = PluginSettingValues.global(loaded.prefs)
         override val storage: PluginStorage = PluginStorageImpl(loaded.prefs)
+        override val appVisible: StateFlow<Boolean> = this@PluginManager.appVisible
+
+        override fun notify(notification: PluginNotification): Boolean =
+            notifier?.post(pluginId, loaded.descriptor.name, notification) ?: false
+
+        override fun cancelNotification(key: String) {
+            notifier?.cancel(pluginId, key)
+        }
         override val terminals: TerminalFactory =
-            TerminalFactory {
+            TerminalFactory { options ->
                 synchronized(lock) { check(active[pluginId] === loaded) { "plugin '$pluginId' is not active" } }
-                terminalFactory.create().also { terminal -> synchronized(lock) { loaded.terminals += terminal } }
+                terminalFactory.create(options).also { terminal -> synchronized(lock) { loaded.terminals += terminal } }
             }
 
         override fun registerSettings(schema: SettingsSchema) =
@@ -401,6 +414,8 @@ class PluginManager(
                 SharedPreferencesPluginPrefs.factory(application),
                 GhosttyTerminalFactory(),
                 application,
+                PluginNotifier(application),
+                AppVisibility.visible,
             )
         }
     }

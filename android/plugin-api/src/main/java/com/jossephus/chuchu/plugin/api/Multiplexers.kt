@@ -45,12 +45,28 @@ interface MultiplexerProvider {
      */
     fun launchCommand(sessionName: String, createIfMissing: Boolean, trustedRemoteName: Boolean): String
 
+    /**
+     * Like the three-argument [launchCommand], plus which host the session is for, so a
+     * provider can honour per-host settings (e.g. `settings.forHost(hostId)`). This is what
+     * chuchu calls; the default ignores the host.
+     */
+    fun launchCommand(launch: MultiplexerLaunch): String =
+        launchCommand(launch.sessionName, launch.createIfMissing, launch.trustedRemoteName)
+
     /** Name for a new session. [MultiplexerSessionNames.next] gives chuchu's convention. */
     fun defaultSessionName(
         remoteSessions: Collection<RemoteMultiplexerSession>,
         localSessionNames: Collection<String>,
     ): String
 }
+
+class MultiplexerLaunch(
+    val sessionName: String,
+    val createIfMissing: Boolean,
+    val trustedRemoteName: Boolean,
+    /** Saved host profile id, or null for ad-hoc connections. */
+    val hostId: Long?,
+)
 
 /** Chuchu's session naming convention (`chuchu-1`, `chuchu-2`, ...), shared by providers. */
 object MultiplexerSessionNames {

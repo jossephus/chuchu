@@ -214,4 +214,5 @@ internal fun TabSpec.toHostInfo(): HostInfo =
                 Transport.LocalShell -> SessionTransport.LocalShell
             },
         multiplexer = multiplexer?.id,
+        multiplexerSession = multiplexerSessionName,
     )

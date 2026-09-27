@@ -22,6 +22,7 @@ import com.jossephus.chuchu.plugin.api.PluginSession
 import com.jossephus.chuchu.plugin.api.PluginTerminal
 import com.jossephus.chuchu.plugin.api.SessionEvent
 import com.jossephus.chuchu.plugin.api.SessionViewProvider
+import com.jossephus.chuchu.plugin.api.create
 import com.jossephus.chuchu.plugin.api.PtySize
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async

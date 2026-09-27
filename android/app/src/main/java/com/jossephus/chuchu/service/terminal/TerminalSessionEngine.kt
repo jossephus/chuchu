@@ -11,6 +11,7 @@ import com.jossephus.chuchu.service.mosh.MoshReconnectPolicy
 import com.jossephus.chuchu.service.mosh.MoshState
 import com.jossephus.chuchu.service.mosh.NativeMoshService
 import com.jossephus.chuchu.plugin.api.ExecChannel
+import com.jossephus.chuchu.plugin.api.MultiplexerLaunch
 import com.jossephus.chuchu.plugin.api.PtySize
 import com.jossephus.chuchu.service.multiplexer.MultiplexerAvailability
 import com.jossephus.chuchu.service.multiplexer.MultiplexerCommandResult
@@ -95,6 +96,7 @@ class TerminalSessionEngine(
         val multiplexer: MultiplexerType? = null,
         val multiplexerSessionName: String? = null,
         val multiplexerCreateIfMissing: Boolean = true,
+        val hostId: Long? = null,
     ) {
         fun multiplexerStartupCommand(): String? {
             val type = multiplexer ?: return null
@@ -102,9 +104,12 @@ class TerminalSessionEngine(
             val sessionName = multiplexerSessionName?.takeIf { it.isNotBlank() } ?: return null
             val runtime = MultiplexerRegistry.forType(type) ?: return null
             return runtime.launchCommand(
-                sessionName = sessionName,
-                createIfMissing = multiplexerCreateIfMissing,
-                trustedRemoteName = true,
+                MultiplexerLaunch(
+                    sessionName = sessionName,
+                    createIfMissing = multiplexerCreateIfMissing,
+                    trustedRemoteName = true,
+                    hostId = hostId,
+                ),
             )
         }
     }
@@ -184,6 +189,7 @@ class TerminalSessionEngine(
         multiplexer: MultiplexerType? = null,
         multiplexerSessionName: String? = null,
         multiplexerCreateIfMissing: Boolean = true,
+        hostId: Long? = null,
     ) {
         disconnectRequested = false
         val params =
@@ -201,6 +207,7 @@ class TerminalSessionEngine(
                 multiplexer = multiplexer,
                 multiplexerSessionName = multiplexerSessionName,
                 multiplexerCreateIfMissing = multiplexerCreateIfMissing,
+                hostId = hostId,
             )
         lastConnectionParams = params
         scope.launch(dispatcher) {
@@ -1039,6 +1046,7 @@ class TerminalSessionEngine(
         multiplexer = multiplexer,
         multiplexerSessionName = multiplexerSessionName,
         multiplexerCreateIfMissing = multiplexerCreateIfMissing,
+        hostId = hostId,
     )
 
     private fun runMultiplexerCommand(

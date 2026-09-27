@@ -87,6 +87,8 @@ import com.jossephus.chuchu.model.HostProfile
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.plugin.PluginManager
 import com.jossephus.chuchu.plugin.RegisteredSessionView
+import com.jossephus.chuchu.plugin.api.LocalPluginTheme
+import com.jossephus.chuchu.plugin.rememberPluginTheme
 import com.jossephus.chuchu.service.terminal.SessionStatus
 import com.jossephus.chuchu.service.terminal.TabSpec
 import com.jossephus.chuchu.ui.components.ChuButton
@@ -509,6 +511,7 @@ fun TerminalScreen(
                 }
         }
     val pluginSessionViews by pluginManager.sessionViews.collectAsStateWithLifecycle()
+    val pluginTheme = rememberPluginTheme()
     val pluginSessions by pluginManager.sessionRegistry.sessions.collectAsStateWithLifecycle()
     val activePluginSession = pluginSessions.firstOrNull { it.id == activeTabId }
     val claimedSessionViews =
@@ -1806,7 +1809,10 @@ fun TerminalScreen(
                                         ) { view, inner ->
                                             {
                                                 // External plugins resolve their own resources.
-                                                CompositionLocalProvider(LocalContext provides (view.context ?: context)) {
+                                                CompositionLocalProvider(
+                                                    LocalContext provides (view.context ?: context),
+                                                    LocalPluginTheme provides pluginTheme,
+                                                ) {
                                                     view.provider.Content(pluginSession, Modifier.fillMaxSize(), inner)
                                                 }
                                             }

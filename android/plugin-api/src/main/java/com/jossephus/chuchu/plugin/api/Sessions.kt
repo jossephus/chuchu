@@ -31,6 +31,8 @@ data class HostInfo(
     val transport: SessionTransport,
     /** Multiplexer id (e.g. "tmux", "zmx") the session runs under, or null. */
     val multiplexer: String?,
+    /** Name of the multiplexer session this tab is attached to, when known. */
+    val multiplexerSession: String? = null,
 )
 
 /**
