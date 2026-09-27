@@ -1,4 +1,5 @@
-# JitPack builds com.github.jossephus.chuchu:plugin-api:<tag> from this repo.
+# JitPack builds the plugin API from this repo as com.github.jossephus:chuchu:<tag or commit>
+# (JitPack names a repo's only artifact after the repo).
 # The Gradle project lives in android/, and only the plugin API is published: the app
 # itself needs the Zig/NDK toolchain, which JitPack doesn't have and doesn't need here.
 jdk:

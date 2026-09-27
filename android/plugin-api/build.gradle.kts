@@ -40,7 +40,7 @@ android {
 }
 
 // Plugin authors depend on this artifact as compileOnly, published through JitPack
-// (see /jitpack.yml): `com.github.jossephus.chuchu:plugin-api:<git tag>`. JitPack sets GROUP
+// (see /jitpack.yml): `com.github.jossephus:chuchu:<git tag or commit>`. JitPack sets GROUP
 // and VERSION; the fallbacks apply to local builds. `publishReleasePublicationToBuildRepository`
 // writes to build/repo for inspection.
 publishing {

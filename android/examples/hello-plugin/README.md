@@ -1,7 +1,9 @@
 # hello-plugin: a minimal chuchu plugin
 
 A separately installed APK that chuchu loads into its own process once the user enables it
-(Settings › plugins). Copy this module to start a plugin.
+(Settings › plugins). Copy this module to start a plugin. For a full, standalone plugin repo
+(its own Gradle build, JitPack dependency, tests), see
+[jossephus/chuchu-herdr](https://github.com/jossephus/chuchu-herdr).
 
 What it shows:
 
@@ -27,7 +29,7 @@ gets the API from JitPack):
 ```kotlin
 repositories { maven("https://jitpack.io") }
 dependencies {
-    compileOnly("com.github.jossephus.chuchu:plugin-api:<chuchu release tag>")
+    compileOnly("com.github.jossephus:chuchu:<chuchu release tag or commit>")
 }
 ```
 
