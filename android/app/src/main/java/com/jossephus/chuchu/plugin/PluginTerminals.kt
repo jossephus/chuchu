@@ -11,6 +11,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
@@ -288,6 +290,14 @@ class GhosttyPluginTerminal internal constructor(
         }
 
         val current by snapshot.collectAsStateWithLifecycle()
+        // The input view stays in the tree, like the stock terminal's: Android only honours
+        // a focus request for a view that is already attached and laid out, so creating it
+        // on focus and requesting in the same pass silently fails.
+        var inputView by remember { mutableStateOf<TerminalInputView?>(null) }
+        LaunchedEffect(focused, inputView) {
+            val view = inputView ?: return@LaunchedEffect
+            if (focused) view.post { takeKeyboard(view) }
+        }
         Box(modifier = modifier.background(background)) {
             current?.let { snap ->
                 TerminalCanvas(
@@ -299,31 +309,32 @@ class GhosttyPluginTerminal internal constructor(
                     selectionBackgroundColor = theme?.selectionBackground ?: colors.accent.copy(alpha = 0.45f),
                     selectionForegroundColor = theme?.selectionForeground,
                     onResize = ::resize,
-                    onTap = onTap,
+                    onTap = {
+                        // Tapping an already focused terminal re-raises a dismissed keyboard.
+                        if (focused) inputView?.let(::takeKeyboard)
+                        onTap()
+                    },
                     onScroll = ::scroll,
                 )
             }
-            if (focused) {
-                // A 1dp input view owns the soft keyboard while this terminal is focused, the
-                // same way the main terminal receives IME input.
-                AndroidView(
-                    factory = { viewContext ->
-                        TerminalInputView(viewContext).apply {
-                            onTerminalText = ::typeText
-                            onTerminalKey = ::typeKey
-                        }
-                    },
-                    modifier = Modifier.size(1.dp),
-                    update = { view ->
-                        view.disableAutocorrect = disableAutocorrect
-                        if (!view.hasFocus()) {
-                            view.requestFocus()
-                            view.showKeyboard(view.context.getSystemService(InputMethodManager::class.java))
-                        }
-                    },
-                )
-            }
+            // A 1dp input view receives IME input for this terminal, the same way the main
+            // terminal does; it only takes focus while [focused].
+            AndroidView(
+                factory = { viewContext ->
+                    TerminalInputView(viewContext).apply {
+                        onTerminalText = ::typeText
+                        onTerminalKey = ::typeKey
+                    }.also { inputView = it }
+                },
+                modifier = Modifier.size(1.dp),
+                update = { view -> view.disableAutocorrect = disableAutocorrect },
+            )
         }
+    }
+
+    private fun takeKeyboard(view: TerminalInputView) {
+        view.requestFocus()
+        view.showKeyboard(view.context.getSystemService(InputMethodManager::class.java))
     }
 
     private companion object {
