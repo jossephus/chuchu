@@ -52,6 +52,9 @@ const NativeSshSession = struct {
     hostkey_copy: ?[]u8 = null,
     last_error: std.ArrayListUnmanaged(u8) = .empty,
     empty_reads: u32 = 0,
+    // Plugin exec channels opened alongside the shell; see "Exec channels" below.
+    exec_channels: std.ArrayList(ExecChannel) = .empty,
+    next_exec_id: u32 = 1,
 };
 
 fn sessionFromHandle(handle: c.jlong) ?*NativeSshSession {
@@ -203,6 +206,7 @@ fn destroyNativeSshSession(session: *NativeSshSession) void {
         _ = shutdownSftp(session, sftp, "destroy session");
         session.sftp = null;
     }
+    closeAllExecChannels(session);
     if (session.channel) |channel| {
         _ = c.libssh2_channel_close(channel);
         _ = c.libssh2_channel_free(channel);
@@ -438,6 +442,10 @@ fn writeChannel(session: *NativeSshSession, bytes: []const u8) c.jint {
         setError(session, "Shell not open", .{});
         return -1;
     };
+    return writeToChannel(session, channel, bytes);
+}
+
+fn writeToChannel(session: *NativeSshSession, channel: *c.LIBSSH2_CHANNEL, bytes: []const u8) c.jint {
     if (bytes.len == 0) return 0;
     var total_written: usize = 0;
     var stalled_loops: u32 = 0;
@@ -1185,6 +1193,7 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeClose(env:
         _ = shutdownSftp(session, sftp, "native close");
         session.sftp = null;
     }
+    closeAllExecChannels(session);
     if (session.channel) |channel| {
         _ = c.libssh2_channel_close(channel);
         _ = c.libssh2_channel_free(channel);
@@ -1903,4 +1912,240 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeDerivePubl
     env.*.*.SetObjectArrayElement.?(env, result, 1, j_pub);
 
     return result;
+}
+
+// Exec channels
+//
+// Extra channels on the already-authenticated session, next to the shell in
+// `session.channel`. Plugins use them to run commands and interactive PTY
+// programs (e.g. one stream per multiplexer pane) without opening another SSH
+// connection per stream. Kotlin gets small integer ids rather than pointers, so
+// a stale id after close is rejected instead of touching freed memory.
+//
+// Like the rest of this file, these must be called from the session's single
+// engine thread: libssh2 sessions are not thread-safe.
+
+const ExecChannel = struct {
+    id: u32,
+    channel: *c.LIBSSH2_CHANNEL,
+};
+
+fn freeChannel(channel: *c.LIBSSH2_CHANNEL) void {
+    _ = c.libssh2_channel_close(channel);
+    _ = c.libssh2_channel_free(channel);
+}
+
+fn closeAllExecChannels(session: *NativeSshSession) void {
+    for (session.exec_channels.items) |entry| freeChannel(entry.channel);
+    session.exec_channels.clearAndFree(allocator);
+}
+
+fn findExecIndex(session: *NativeSshSession, id: c.jint) ?usize {
+    if (id <= 0) return null;
+    const wanted: u32 = @intCast(id);
+    for (session.exec_channels.items, 0..) |entry, index| {
+        if (entry.id == wanted) return index;
+    }
+    return null;
+}
+
+fn execChannel(session: *NativeSshSession, id: c.jint) ?*c.LIBSSH2_CHANNEL {
+    const index = findExecIndex(session, id) orelse {
+        setError(session, "Unknown exec channel {}", .{id});
+        return null;
+    };
+    return session.exec_channels.items[index].channel;
+}
+
+fn openSessionChannel(session: *NativeSshSession, ssh_session: *c.LIBSSH2_SESSION) ?*c.LIBSSH2_CHANNEL {
+    while (true) {
+        if (c.libssh2_channel_open_ex(ssh_session, "session", 7, c.LIBSSH2_CHANNEL_WINDOW_DEFAULT, c.LIBSSH2_CHANNEL_PACKET_DEFAULT, null, 0)) |channel| {
+            c.libssh2_channel_set_blocking(channel, 0);
+            return channel;
+        }
+        const rc = c.libssh2_session_last_errno(ssh_session);
+        if (rc != c.LIBSSH2_ERROR_EAGAIN) {
+            setLibssh2Error(session, "Channel open failed", rc);
+            return null;
+        }
+        if (!waitSocket(session, setup_wait_timeout_ms)) {
+            setError(session, "Channel open timed out", .{});
+            return null;
+        }
+    }
+}
+
+fn requestExecPty(session: *NativeSshSession, channel: *c.LIBSSH2_CHANNEL, term: []const u8, cols: c.jint, rows: c.jint, width_px: c.jint, height_px: c.jint) bool {
+    const term_z = dupSentinel(term) orelse {
+        setError(session, "TERM alloc failed", .{});
+        return false;
+    };
+    defer allocator.free(term_z);
+    while (true) {
+        const rc = c.libssh2_channel_request_pty_ex(channel, term_z.ptr, @intCast(term.len), null, 0, cols, rows, width_px, height_px);
+        if (rc == 0) break;
+        if (rc != c.LIBSSH2_ERROR_EAGAIN) {
+            setLibssh2Error(session, "PTY request failed", rc);
+            return false;
+        }
+        if (!waitSocket(session, setup_wait_timeout_ms)) {
+            setError(session, "PTY request timed out", .{});
+            return false;
+        }
+    }
+    trySetChannelEnv(session, channel, "COLORTERM", "truecolor");
+    return true;
+}
+
+fn startExec(session: *NativeSshSession, channel: *c.LIBSSH2_CHANNEL, command: []const u8) bool {
+    while (true) {
+        const rc = c.libssh2_channel_process_startup(channel, "exec", 4, command.ptr, @intCast(command.len));
+        if (rc == 0) return true;
+        if (rc != c.LIBSSH2_ERROR_EAGAIN) {
+            setLibssh2Error(session, "Exec start failed", rc);
+            return false;
+        }
+        if (!waitSocket(session, setup_wait_timeout_ms)) {
+            setError(session, "Exec start timed out", .{});
+            return false;
+        }
+    }
+}
+
+/// Opens an exec channel running `command`, with a PTY when `with_pty` is set.
+/// Returns the channel id (> 0), or -1 with the reason in nativeGetLastError.
+export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeExecOpen(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, command: c.jstring, with_pty: c.jboolean, cols: c.jint, rows: c.jint, width_px: c.jint, height_px: c.jint, term: c.jstring) callconv(.c) c.jint {
+    _ = thiz;
+    const session = sessionFromHandle(handle) orelse return -1;
+    const ssh_session = session.session orelse {
+        setError(session, "Not connected", .{});
+        return -1;
+    };
+    const command_slice = jniDupString(env, command) orelse {
+        setError(session, "Missing exec command", .{});
+        return -1;
+    };
+    defer allocator.free(command_slice);
+    const channel = openSessionChannel(session, ssh_session) orelse return -1;
+    if (with_pty == c.JNI_TRUE) {
+        const term_slice = jniDupString(env, term) orelse allocator.dupe(u8, "xterm-ghostty") catch {
+            freeChannel(channel);
+            return -1;
+        };
+        defer allocator.free(term_slice);
+        if (!requestExecPty(session, channel, term_slice, cols, rows, width_px, height_px)) {
+            freeChannel(channel);
+            return -1;
+        }
+    }
+    if (!startExec(session, channel, command_slice)) {
+        freeChannel(channel);
+        return -1;
+    }
+    const id = session.next_exec_id;
+    session.exec_channels.append(allocator, .{ .id = id, .channel = channel }) catch {
+        setError(session, "Out of memory", .{});
+        freeChannel(channel);
+        return -1;
+    };
+    // Ids must stay positive jints; wrapping is safe because live ids are few.
+    session.next_exec_id = if (id >= std.math.maxInt(i32)) 1 else id + 1;
+    return @intCast(id);
+}
+
+/// Non-blocking read of up to `max_bytes` from stdout (`stream` 0) or stderr (1).
+/// Returns an empty array when nothing is buffered, null on error or unknown id.
+export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeExecRead(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, id: c.jint, stream: c.jint, max_bytes: c.jint) callconv(.c) c.jbyteArray {
+    _ = thiz;
+    const session = sessionFromHandle(handle) orelse return null;
+    const channel = execChannel(session, id) orelse return null;
+    const cap: usize = @intCast(@max(max_bytes, 1));
+    const buf = allocator.alloc(u8, cap) catch return null;
+    defer allocator.free(buf);
+    const stream_id: c_int = if (stream == 1) 1 else 0;
+    var total: usize = 0;
+    while (total < buf.len) {
+        const rc = c.libssh2_channel_read_ex(channel, stream_id, @ptrCast(buf.ptr + total), buf.len - total);
+        if (rc == c.LIBSSH2_ERROR_EAGAIN or rc == 0) break;
+        if (rc < 0) {
+            setLibssh2Error(session, "Exec read failed", @intCast(rc));
+            return null;
+        }
+        total += @intCast(rc);
+    }
+    return jniNewByteArrayOrNull(env, buf[0..total]);
+}
+
+/// Returns bytes written (possibly fewer than given when the window is full), or -1.
+export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeExecWrite(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, id: c.jint, data: c.jbyteArray) callconv(.c) c.jint {
+    _ = thiz;
+    const session = sessionFromHandle(handle) orelse return -1;
+    const channel = execChannel(session, id) orelse return -1;
+    const bytes = readJByteArray(env, data) orelse return -1;
+    defer if (bytes.len > 0) allocator.free(bytes);
+    return writeToChannel(session, channel, bytes);
+}
+
+/// True once the remote closed its side (the command finished or closed stdout).
+export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeExecEof(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, id: c.jint) callconv(.c) c.jboolean {
+    _ = env;
+    _ = thiz;
+    const session = sessionFromHandle(handle) orelse return c.JNI_TRUE;
+    const channel = execChannel(session, id) orelse return c.JNI_TRUE;
+    return if (c.libssh2_channel_eof(channel) == 1) c.JNI_TRUE else c.JNI_FALSE;
+}
+
+/// Exit status reported by the remote; only meaningful after EOF (0 before that).
+export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeExecExitStatus(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, id: c.jint) callconv(.c) c.jint {
+    _ = env;
+    _ = thiz;
+    const session = sessionFromHandle(handle) orelse return -1;
+    const channel = execChannel(session, id) orelse return -1;
+    return c.libssh2_channel_get_exit_status(channel);
+}
+
+/// Closes the command's stdin, for programs that read until EOF.
+export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeExecSendEof(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, id: c.jint) callconv(.c) c.jboolean {
+    _ = env;
+    _ = thiz;
+    const session = sessionFromHandle(handle) orelse return c.JNI_FALSE;
+    const channel = execChannel(session, id) orelse return c.JNI_FALSE;
+    while (true) {
+        const rc = c.libssh2_channel_send_eof(channel);
+        if (rc == 0) return c.JNI_TRUE;
+        if (rc != c.LIBSSH2_ERROR_EAGAIN) {
+            setLibssh2Error(session, "Exec send EOF failed", rc);
+            return c.JNI_FALSE;
+        }
+        if (!waitSocket(session, io_wait_timeout_ms)) return c.JNI_FALSE;
+    }
+}
+
+export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeExecResize(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, id: c.jint, cols: c.jint, rows: c.jint, width_px: c.jint, height_px: c.jint) callconv(.c) c.jboolean {
+    _ = env;
+    _ = thiz;
+    const session = sessionFromHandle(handle) orelse return c.JNI_FALSE;
+    const channel = execChannel(session, id) orelse return c.JNI_FALSE;
+    while (true) {
+        const rc = c.libssh2_channel_request_pty_size_ex(channel, cols, rows, width_px, height_px);
+        if (rc == 0) return c.JNI_TRUE;
+        if (rc != c.LIBSSH2_ERROR_EAGAIN) {
+            setLibssh2Error(session, "Exec PTY resize failed", rc);
+            return c.JNI_FALSE;
+        }
+        if (!waitSocket(session, setup_wait_timeout_ms)) {
+            setError(session, "Exec PTY resize timed out", .{});
+            return c.JNI_FALSE;
+        }
+    }
+}
+
+/// Closes and forgets the channel; unknown ids are ignored so double-close is safe.
+export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeExecClose(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, id: c.jint) callconv(.c) void {
+    _ = env;
+    _ = thiz;
+    const session = sessionFromHandle(handle) orelse return;
+    const index = findExecIndex(session, id) orelse return;
+    const entry = session.exec_channels.orderedRemove(index);
+    freeChannel(entry.channel);
 }

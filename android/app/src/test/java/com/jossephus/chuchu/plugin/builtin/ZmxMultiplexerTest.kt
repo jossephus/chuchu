@@ -1,5 +1,6 @@
-package com.jossephus.chuchu.service.multiplexer
+package com.jossephus.chuchu.plugin.builtin
 
+import com.jossephus.chuchu.plugin.api.RemoteMultiplexerSession
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

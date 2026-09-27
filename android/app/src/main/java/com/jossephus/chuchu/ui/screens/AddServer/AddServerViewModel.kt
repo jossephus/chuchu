@@ -14,6 +14,12 @@ import com.jossephus.chuchu.model.HostProfile
 import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.SshKey
 import com.jossephus.chuchu.model.Transport
+import com.jossephus.chuchu.plugin.PluginManager
+import com.jossephus.chuchu.plugin.PluginSettingsEntry
+import com.jossephus.chuchu.plugin.api.ChoiceField
+import com.jossephus.chuchu.plugin.api.SettingField
+import com.jossephus.chuchu.plugin.api.TextField
+import com.jossephus.chuchu.plugin.api.ToggleField
 import com.jossephus.chuchu.service.ssh.HostKeyCheck
 import com.jossephus.chuchu.service.ssh.HostKeyPolicy
 import com.jossephus.chuchu.service.ssh.HostKeyStore
@@ -24,7 +30,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -164,10 +173,9 @@ class AddServerViewModel(application: Application, private val hostId: Long?) :
             current.copy(
                 transport = transport,
                 authMethod = nextAuthMethod,
-                multiplexer =
-                    current.multiplexer.takeIf {
-                        transport != Transport.Mosh && it?.runtimeSupported == true
-                    },
+                // Keep an id whose plugin isn't loaded: reinstalling the plugin restores it,
+                // and TabSpec ignores unsupported multiplexers at connect time.
+                multiplexer = current.multiplexer.takeIf { transport != Transport.Mosh },
             )
     }
 
@@ -263,6 +271,38 @@ class AddServerViewModel(application: Application, private val hostId: Long?) :
         }
     }
 
+    private val pluginManager = PluginManager.getInstance(application)
+
+    /** Plugins that declared per-host settings. */
+    val pluginHostSettings: StateFlow<List<PluginSettingsEntry>> =
+        pluginManager.settings
+            .map { entries -> entries.filter { it.host != null } }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    // Unsaved plugin host-setting edits, keyed by plugin id then field. Held here rather than
+    // written straight away so "cancel" discards them like the rest of the form, and so a
+    // new host (no id yet) can be configured before its first save.
+    private val _pluginHostEdits = MutableStateFlow<Map<String, Map<SettingField, String>>>(emptyMap())
+    val pluginHostEdits: StateFlow<Map<String, Map<SettingField, String>>> = _pluginHostEdits.asStateFlow()
+
+    fun pluginHostValue(pluginId: String, field: SettingField): String {
+        _pluginHostEdits.value[pluginId]?.get(field)?.let { return it }
+        val id = hostId ?: return defaultRaw(field)
+        return pluginManager.hostSettingValues(pluginId, id).raw(field)
+    }
+
+    fun updatePluginHostValue(pluginId: String, field: SettingField, raw: String) {
+        val edits = _pluginHostEdits.value
+        _pluginHostEdits.value = edits + (pluginId to (edits[pluginId].orEmpty() + (field to raw)))
+    }
+
+    private fun defaultRaw(field: SettingField): String =
+        when (field) {
+            is ToggleField -> field.default.toString()
+            is TextField -> field.default
+            is ChoiceField -> field.default
+        }
+
     fun save(onComplete: () -> Unit) {
         val current = _form.value
         val host = current.host.filterNot { it.isWhitespace() }
@@ -286,12 +326,13 @@ class AddServerViewModel(application: Application, private val hostId: Long?) :
                     authMethod = current.authMethod,
                     requireAuthOnConnect = current.requireAuthOnConnect,
                     postConnectCommand = current.postConnectCommand.trim().ifBlank { null },
-                    multiplexer =
-                        current.multiplexer.takeIf {
-                            current.transport != Transport.Mosh && it?.runtimeSupported == true
-                        },
+                    multiplexer = current.multiplexer.takeIf { current.transport != Transport.Mosh },
                 )
-            hostRepository.upsert(profile)
+            val savedId = hostRepository.upsert(profile)
+            _pluginHostEdits.value.forEach { (pluginId, edits) ->
+                val values = pluginManager.hostSettingValues(pluginId, savedId)
+                edits.forEach { (field, raw) -> values.set(field, raw) }
+            }
             onComplete()
         }
     }

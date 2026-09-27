@@ -1,5 +1,7 @@
 package com.jossephus.chuchu.ui.screens.Settings
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -40,6 +42,7 @@ enum class SettingsCategory(val label: String) {
     General("general"),
     Terminal("terminal"),
     Keys("keys"),
+    Plugins("plugins"),
 }
 
 @Composable
@@ -136,8 +139,10 @@ fun SettingsScreen(
             }
 
             item {
+                // Natural-width tabs: equal weights squeezed "terminal" onto two lines
+                // once a fourth category existed. Scrolls on screens too narrow for all.
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     SettingsCategory.entries.forEach { category ->
@@ -148,12 +153,12 @@ fun SettingsScreen(
                             borderColor = if (isSelected) colors.accent else colors.border,
                             backgroundColor =
                                 if (isSelected) colors.accent.copy(alpha = 0.12f) else null,
-                            modifier = Modifier.weight(1f),
                         ) {
                             ChuText(
                                 category.label,
                                 style = typography.label,
                                 color = if (isSelected) colors.accent else colors.textSecondary,
+                                maxLines = 1,
                             )
                         }
                     }
@@ -204,6 +209,7 @@ fun SettingsScreen(
                             onDisableAutocorrectChanged = onDisableAutocorrectChanged,
                         )
                     SettingsCategory.Keys -> KeysContent(vm = keysViewModel)
+                    SettingsCategory.Plugins -> PluginsSettings()
                 }
             }
         }

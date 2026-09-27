@@ -1,5 +1,6 @@
 package com.jossephus.chuchu
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.SystemBarStyle
@@ -16,6 +17,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
 import com.jossephus.chuchu.data.repository.SettingsRepository
+import com.jossephus.chuchu.plugin.PluginNotifier
+import com.jossephus.chuchu.service.terminal.TerminalSessionRepository
 import com.jossephus.chuchu.ui.ApplicationNavController
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTheme
@@ -43,6 +46,18 @@ class MainActivity : FragmentActivity() {
         setContent {
             AppRoot()
         }
+        focusPluginSession(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        focusPluginSession(intent)
+    }
+
+    // A plugin notification names the session it is about; bring that tab to the front.
+    private fun focusPluginSession(intent: Intent?) {
+        val sessionId = intent?.getStringExtra(PluginNotifier.EXTRA_SESSION_ID) ?: return
+        TerminalSessionRepository.getInstance(application).selectTab(sessionId)
     }
 }
 
