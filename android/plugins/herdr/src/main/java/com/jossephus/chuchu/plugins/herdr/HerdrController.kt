@@ -74,6 +74,10 @@ class HerdrController(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val herdrSession = session.host.multiplexerSession
+
+    /** Chuchu's name for the host, shown in the switcher home header. */
+    val hostName: String
+        get() = session.host.name
     private val poke = Channel<Unit>(Channel.CONFLATED)
     private val recentTabIds = ArrayDeque<String>()
 
@@ -122,6 +126,27 @@ class HerdrController(
 
     fun focusWorkspace(workspaceId: String) {
         scope.launch { run(HerdrMultiplexer.focusWorkspaceCommand(workspaceId, herdrSession)) }
+    }
+
+    /** Jump straight to an agent's pane: its tab first, then the pane within it. */
+    fun focusAgent(paneId: String, tabId: String) {
+        _state.update { it.copy(optimisticTabId = tabId, focusedPaneId = paneId) }
+        rememberRecent(tabId)
+        scope.launch {
+            if (run(HerdrMultiplexer.focusTabCommand(tabId, herdrSession))) {
+                run(HerdrMultiplexer.focusPaneCommand(paneId, herdrSession))
+            }
+            _state.update { if (it.optimisticTabId == tabId) it.copy(optimisticTabId = null) else it }
+        }
+    }
+
+    fun createWorkspace() {
+        scope.launch { run(HerdrMultiplexer.createWorkspaceCommand(label = null, session = herdrSession)) }
+    }
+
+    /** Closes a workspace and every agent running in it; callers confirm first. */
+    fun closeWorkspace(workspaceId: String) {
+        scope.launch { run(HerdrMultiplexer.closeWorkspaceCommand(workspaceId, herdrSession)) }
     }
 
     fun splitFocused(direction: HerdrSplitDirection) {

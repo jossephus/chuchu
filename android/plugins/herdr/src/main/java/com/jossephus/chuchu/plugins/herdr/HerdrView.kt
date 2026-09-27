@@ -44,9 +44,18 @@ internal fun HerdrSessionView(controller: HerdrController, modifier: Modifier) {
     // The keyboard follows an explicit tap on the focused pane, like the stock terminal,
     // instead of popping up whenever herdr moves focus.
     var keyboardPaneId by remember { mutableStateOf<String?>(null) }
+    // Like PR #69, a herdr tab opens on the switcher home; picking a workspace, tab or agent
+    // drops into its panes.
+    var homeVisible by remember { mutableStateOf(true) }
 
     Column(modifier.background(theme.background)) {
-        HerdrTopBar(controller, state, panes)
+        HerdrTopBar(
+            controller = controller,
+            state = state,
+            panes = panes,
+            homeVisible = homeVisible,
+            onHomeVisibleChange = { homeVisible = it },
+        )
         state.actionError?.let { message ->
             Banner(message, theme.error, onClick = controller::dismissActionError)
         }
@@ -54,6 +63,25 @@ internal fun HerdrSessionView(controller: HerdrController, modifier: Modifier) {
         val layout = snapshot?.layouts?.firstOrNull { it.tabId == state.focusedTabId }
         Box(Modifier.fillMaxWidth().weight(1f)) {
             when {
+                homeVisible && snapshot != null ->
+                    HerdrHome(
+                        snapshot = snapshot,
+                        sessionName = controller.hostName,
+                        onEnterWorkspace = { workspaceId ->
+                            homeVisible = false
+                            controller.focusWorkspace(workspaceId)
+                        },
+                        onEnterTab = { tabId ->
+                            homeVisible = false
+                            controller.focusTab(tabId)
+                        },
+                        onEnterAgent = { paneId, tabId ->
+                            homeVisible = false
+                            controller.focusAgent(paneId, tabId)
+                        },
+                        onCreateWorkspace = controller::createWorkspace,
+                        onCloseWorkspace = controller::closeWorkspace,
+                    )
                 layout != null -> {
                     val focusedPaneId = state.focusedPaneId ?: layout.focusedPaneId
                     HerdrSplitLayout(
@@ -83,7 +111,13 @@ internal fun HerdrSessionView(controller: HerdrController, modifier: Modifier) {
 }
 
 @Composable
-private fun HerdrTopBar(controller: HerdrController, state: HerdrUiState, panes: Map<String, HerdrPane>) {
+private fun HerdrTopBar(
+    controller: HerdrController,
+    state: HerdrUiState,
+    panes: Map<String, HerdrPane>,
+    homeVisible: Boolean,
+    onHomeVisibleChange: (Boolean) -> Unit,
+) {
     val theme = LocalPluginTheme.current
     val snapshot = state.snapshot ?: return
     var menu by remember { mutableStateOf<TopBarMenu?>(null) }
@@ -98,6 +132,7 @@ private fun HerdrTopBar(controller: HerdrController, state: HerdrUiState, panes:
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            Chip(text = "⌂ herdr", selected = homeVisible, onClick = { onHomeVisibleChange(!homeVisible) })
             Chip(
                 text = workspace?.label?.takeIf { it.isNotBlank() } ?: "workspace ${workspace?.number ?: "?"}",
                 selected = menu == TopBarMenu.Workspaces,
@@ -106,9 +141,12 @@ private fun HerdrTopBar(controller: HerdrController, state: HerdrUiState, panes:
             tabs.forEach { tab ->
                 Chip(
                     text = tab.label?.takeIf { it.isNotBlank() } ?: "${tab.number}",
-                    selected = tab.tabId == state.focusedTabId,
+                    selected = !homeVisible && tab.tabId == state.focusedTabId,
                     dot = statusColor(tab.agentStatus, theme),
-                    onClick = { controller.focusTab(tab.tabId) },
+                    onClick = {
+                        onHomeVisibleChange(false)
+                        controller.focusTab(tab.tabId)
+                    },
                 )
             }
             Chip(text = "+", selected = menu == TopBarMenu.Actions, onClick = {
@@ -123,6 +161,7 @@ private fun HerdrTopBar(controller: HerdrController, state: HerdrUiState, panes:
                 MenuRow(
                     snapshot.workspaces.sortedBy { it.number }.map { ws ->
                         (ws.label?.takeIf { it.isNotBlank() } ?: "workspace ${ws.number}") to {
+                            onHomeVisibleChange(false)
                             controller.focusWorkspace(ws.workspaceId)
                             menu = null
                         }
@@ -266,7 +305,7 @@ private fun CenteredText(text: String, color: Color) {
 }
 
 // herdr's attention model: blocked needs you now, done finished unseen, working is busy.
-private fun statusColor(status: HerdrAgentStatus, theme: PluginTheme): Color? =
+internal fun statusColor(status: HerdrAgentStatus, theme: PluginTheme): Color? =
     when (status) {
         HerdrAgentStatus.Blocked -> theme.error
         HerdrAgentStatus.Done -> theme.success
