@@ -3,10 +3,8 @@ package com.jossephus.chuchu.service.multiplexer
 import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.Transport
 
-data class RemoteMultiplexerSession(
-    val name: String,
-    val attached: Boolean,
-)
+// Shared with plugins, which parse sessions into this type.
+typealias RemoteMultiplexerSession = com.jossephus.chuchu.plugin.api.RemoteMultiplexerSession
 
 sealed interface MultiplexerAvailability {
     data object Available : MultiplexerAvailability

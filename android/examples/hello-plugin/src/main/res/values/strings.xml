@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="plugin_name">Hello (chuchu plugin)</string>
+    <string name="about">This is a chuchu plugin. Enable it in chuchu › settings › plugins.</string>
+    <!-- Read from the banner composable to show plugin resources resolve inside chuchu. -->
+    <string name="banner">hello plugin · banner from the plugin\'s own resources</string>
+</resources>

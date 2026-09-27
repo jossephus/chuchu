@@ -1,24 +1,6 @@
 package com.jossephus.chuchu.service.multiplexer
 
-import com.jossephus.chuchu.model.MultiplexerType
+import com.jossephus.chuchu.plugin.api.MultiplexerProvider
 
-interface Multiplexer {
-    val type: MultiplexerType
-
-    fun availabilityCommand(): String
-
-    fun listSessionsCommand(): String
-
-    fun parseSessions(output: String): List<RemoteMultiplexerSession>
-
-    fun launchCommand(
-        sessionName: String,
-        createIfMissing: Boolean,
-        trustedRemoteName: Boolean = false,
-    ): String
-
-    fun defaultSessionName(
-        remoteSessions: Collection<RemoteMultiplexerSession>,
-        localSessionNames: Collection<String>,
-    ): String
-}
+// Multiplexers are plugin contributions now; the host-side name is kept for existing callers.
+typealias Multiplexer = MultiplexerProvider

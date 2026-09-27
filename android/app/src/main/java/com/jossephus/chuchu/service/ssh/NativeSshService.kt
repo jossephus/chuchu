@@ -284,6 +284,46 @@ class NativeSshService(
         }
     }
 
+    /** Opens an exec channel on this connection; returns its id. Throws on failure. */
+    fun execOpen(command: String, pty: Boolean, cols: Int, rows: Int, widthPx: Int, heightPx: Int): Int {
+        check(handle != 0L) { "Not connected" }
+        val id = bridge.nativeExecOpen(handle, command, pty, cols, rows, widthPx, heightPx, "xterm-ghostty")
+        if (id <= 0) {
+            throw IllegalStateException(bridge.nativeGetLastError(handle) ?: "Native SSH exec open failed")
+        }
+        return id
+    }
+
+    /** Buffered bytes from stdout (0) or stderr (1); empty when none. Throws on failure. */
+    fun execRead(id: Int, stream: Int, maxBytes: Int): ByteArray {
+        check(handle != 0L) { "Not connected" }
+        return bridge.nativeExecRead(handle, id, stream, maxBytes)
+            ?: throw IllegalStateException(bridge.nativeGetLastError(handle) ?: "Native SSH exec read failed")
+    }
+
+    /** Bytes accepted, which may be fewer than [data] when the channel window is full. */
+    fun execWrite(id: Int, data: ByteArray): Int {
+        check(handle != 0L) { "Not connected" }
+        val written = bridge.nativeExecWrite(handle, id, data)
+        if (written < 0) {
+            throw IllegalStateException(bridge.nativeGetLastError(handle) ?: "Native SSH exec write failed")
+        }
+        return written
+    }
+
+    fun execEof(id: Int): Boolean = handle == 0L || bridge.nativeExecEof(handle, id)
+
+    fun execExitStatus(id: Int): Int = if (handle == 0L) -1 else bridge.nativeExecExitStatus(handle, id)
+
+    fun execSendEof(id: Int): Boolean = handle != 0L && bridge.nativeExecSendEof(handle, id)
+
+    fun execResize(id: Int, cols: Int, rows: Int, widthPx: Int, heightPx: Int): Boolean =
+        handle != 0L && bridge.nativeExecResize(handle, id, cols, rows, widthPx, heightPx)
+
+    fun execClose(id: Int) {
+        if (handle != 0L) bridge.nativeExecClose(handle, id)
+    }
+
     fun sftpListDirectory(path: String): List<String> {
         check(handle != 0L) { "Not connected" }
         if (!bridge.nativeSftpInit(handle)) {
