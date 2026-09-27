@@ -141,6 +141,11 @@ sealed interface SessionEvent {
 
     data class Opened(override val session: PluginSession) : SessionEvent
 
+    /**
+     * The tab was closed. It is not necessarily preceded by [StatusChanged] to
+     * [SessionStatus.Disconnected]: closing removes the tab before its connection winds
+     * down, so treat this as the end of the session.
+     */
     data class Closed(override val session: PluginSession) : SessionEvent
 
     data class StatusChanged(

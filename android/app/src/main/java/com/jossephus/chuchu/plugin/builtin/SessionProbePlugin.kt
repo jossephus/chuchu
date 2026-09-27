@@ -70,7 +70,7 @@ class SessionProbePlugin : ChuchuPlugin {
         )
         host.registerSessionView(MirrorView())
         host.registerCommand(
-            PluginCommand(id = "exec", title = "exec", key = 'x') { context ->
+            PluginCommand(id = "exec", title = "exec", key = 'x', accessoryLabel = "exec") { context ->
                 val session = context.session ?: return@PluginCommand
                 host.scope.launch { runExecChecks(session) }
             },
