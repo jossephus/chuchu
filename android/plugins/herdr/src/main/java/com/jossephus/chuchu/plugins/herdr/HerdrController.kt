@@ -45,6 +45,22 @@ data class HerdrUiState(
 }
 
 /**
+ * Applies a fresh snapshot. The local pane focus only bridges the gap until herdr agrees:
+ * once herdr reports that pane focused, or the pane is gone (closed, or another client moved
+ * things), herdr's own focus is authoritative again.
+ */
+internal fun HerdrUiState.withSnapshot(snapshot: HerdrSnapshot): HerdrUiState {
+    val local = focusedPaneId
+    val stillExists = local != null && snapshot.panes.any { it.paneId == local }
+    val confirmed = local != null && snapshot.layouts.any { it.focusedPaneId == local }
+    return copy(
+        snapshot = snapshot,
+        error = null,
+        focusedPaneId = local.takeIf { stillExists && !confirmed },
+    )
+}
+
+/**
  * herdr native mode for one chuchu tab: polls `herdr api snapshot`, keeps a [HerdrPane]
  * stream open for each visible (and recently visible) pane, and runs herdr commands. Every
  * channel runs on the tab's own SSH connection.
@@ -247,7 +263,7 @@ class HerdrController(
                         ?: throw IllegalStateException("herdr didn't answer; is it running on this host?")
                 idleStretch = if (snapshot == previous) idleStretch + 1 else 0
                 previous = snapshot
-                _state.update { it.copy(snapshot = snapshot, error = null) }
+                _state.update { it.withSnapshot(snapshot) }
                 retryDelayMs = INITIAL_RETRY_MS
                 // Back off while nothing changes; any command or user action pokes a refresh.
                 val wait = if (idleStretch >= IDLE_POLLS_BEFORE_BACKOFF) IDLE_CADENCE_MS else CADENCE_MS
