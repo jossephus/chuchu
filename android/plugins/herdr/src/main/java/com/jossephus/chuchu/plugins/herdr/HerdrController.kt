@@ -27,6 +27,9 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 /** What the herdr view renders for one chuchu tab. */
 data class HerdrUiState(
@@ -119,9 +122,16 @@ class HerdrController(
         }
     }
 
+    /**
+     * Focuses a pane in chuchu. herdr's CLI can only focus panes that run an agent
+     * (`agent focus`; `pane focus` is directional only), and chuchu doesn't need herdr's
+     * focus to route input since every pane has its own stream. So plain panes stay a local
+     * focus, and agent panes are also focused in herdr, which marks a "done" agent as seen.
+     */
     fun focusPane(paneId: String) {
         _state.update { it.copy(focusedPaneId = paneId) }
-        scope.launch { run(HerdrMultiplexer.focusPaneCommand(paneId, herdrSession)) }
+        val isAgent = _state.value.snapshot?.agents?.any { it.paneId == paneId } == true
+        if (isAgent) scope.launch { run(HerdrMultiplexer.focusPaneCommand(paneId, herdrSession)) }
     }
 
     fun focusWorkspace(workspaceId: String) {
@@ -133,6 +143,7 @@ class HerdrController(
         _state.update { it.copy(optimisticTabId = tabId, focusedPaneId = paneId) }
         rememberRecent(tabId)
         scope.launch {
+            // Agent rows only list agent panes, so `agent focus` applies (see focusPane).
             if (run(HerdrMultiplexer.focusTabCommand(tabId, herdrSession))) {
                 run(HerdrMultiplexer.focusPaneCommand(paneId, herdrSession))
             }
@@ -191,9 +202,9 @@ class HerdrController(
                 val out = scope.async { channel.stdout.toList() }
                 val err = scope.async { channel.stderr.toList() }
                 val exit = channel.exitCode.await()
-                out.await()
-                val stderr = err.await().joinToString("") { String(it) }.trim()
-                if (exit == 0) null else stderr.ifBlank { "herdr exited with ${exit ?: "no status"}" }
+                val stdout = out.await().joinToString("") { String(it) }
+                val stderr = err.await().joinToString("") { String(it) }
+                if (exit == 0) null else herdrErrorMessage(stdout, stderr, exit)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -308,4 +319,28 @@ class HerdrController(
         const val INITIAL_RETRY_MS = 2_000L
         const val MAX_RETRY_MS = 60_000L
     }
+}
+
+private val errorJson = Json { ignoreUnknownKeys = true }
+
+/**
+ * A readable message for a failed herdr command. herdr reports errors as
+ * `{"error":{"code":…,"message":…},"id":…}`; show the message, not the raw JSON.
+ */
+internal fun herdrErrorMessage(stdout: String, stderr: String, exit: Int?): String {
+    for (output in listOf(stdout, stderr)) {
+        val start = output.indexOf('{')
+        if (start < 0) continue
+        val message =
+            runCatching {
+                errorJson.parseToJsonElement(output.substring(start))
+                    .let { it as? JsonObject }
+                    ?.get("error")
+                    ?.let { it as? JsonObject }
+                    ?.get("message")
+                    ?.let { (it as? JsonPrimitive)?.content }
+            }.getOrNull()
+        if (!message.isNullOrBlank()) return "herdr: $message"
+    }
+    return stderr.trim().ifBlank { stdout.trim() }.ifBlank { "herdr exited with ${exit ?: "no status"}" }
 }
