@@ -21,7 +21,16 @@ What it shows:
 - An exported activity with the `com.jossephus.chuchu.PLUGIN` action and **no LAUNCHER
   category**. That's how chuchu finds the plugin, and it keeps it out of the app drawer.
 
-`build.gradle.kts`:
+`build.gradle.kts` (this in-repo example uses `project(":plugin-api")`; a standalone plugin
+gets the API from JitPack):
+
+```kotlin
+repositories { maven("https://jitpack.io") }
+dependencies {
+    compileOnly("com.github.jossephus.chuchu:plugin-api:<chuchu release tag>")
+}
+```
+
 
 - `plugin-api` and Compose (runtime/ui/foundation) are `compileOnly`: chuchu provides them.
 - kotlin-stdlib is excluded from the runtime classpath for the same reason.

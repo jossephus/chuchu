@@ -39,16 +39,16 @@ android {
     }
 }
 
-// Plugin authors depend on this artifact as compileOnly. The version tracks
-// PluginApi.VERSION (major) so the dependency line says which contract a plugin targets.
-// `publishReleasePublicationToBuildRepository` writes to build/repo for inspection; a real
-// release adds a remote repository (e.g. GitHub Packages) here.
+// Plugin authors depend on this artifact as compileOnly, published through JitPack
+// (see /jitpack.yml): `com.github.jossephus.chuchu:plugin-api:<git tag>`. JitPack sets GROUP
+// and VERSION; the fallbacks apply to local builds. `publishReleasePublicationToBuildRepository`
+// writes to build/repo for inspection.
 publishing {
     publications {
         register<MavenPublication>("release") {
-            groupId = "com.jossephus.chuchu"
+            groupId = System.getenv("GROUP") ?: "com.jossephus.chuchu"
             artifactId = "plugin-api"
-            version = "1.0.0"
+            version = System.getenv("VERSION") ?: "1.0.0"
             afterEvaluate { from(components["release"]) }
         }
     }

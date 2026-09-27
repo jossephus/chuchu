@@ -22,7 +22,11 @@ import com.jossephus.chuchu.plugin.api.PluginSession
 import com.jossephus.chuchu.plugin.api.PluginTerminal
 import com.jossephus.chuchu.plugin.api.SessionEvent
 import com.jossephus.chuchu.plugin.api.SessionViewProvider
+import com.jossephus.chuchu.plugin.api.PtySize
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -34,6 +38,8 @@ import kotlinx.coroutines.launch
  * - "mirror" (chuchu key + `m`, or the accessory button) splits the active tab: chuchu's
  *   own terminal on top, a plugin-owned [PluginTerminal] below fed from the tab's output
  *   stream. Typing into the mirror writes to the session.
+ * - "exec" (chuchu key + `x`) runs exec-channel checks on the active SSH tab and logs them:
+ *   separate stdout/stderr + exit code, a PTY channel, and a 5 MB stream, concurrently.
  *
  * It doubles as a compact example of commands, session views and plugin terminals.
  */
@@ -63,6 +69,39 @@ class SessionProbePlugin : ChuchuPlugin {
             },
         )
         host.registerSessionView(MirrorView())
+        host.registerCommand(
+            PluginCommand(id = "exec", title = "exec", key = 'x') { context ->
+                val session = context.session ?: return@PluginCommand
+                host.scope.launch { runExecChecks(session) }
+            },
+        )
+    }
+
+    private suspend fun runExecChecks(session: PluginSession) = coroutineScope {
+        val log = { message: String -> host.log.debug("${session.id}: exec $message") }
+        val plain = session.exec("echo out-line; echo err-line >&2; exit 3")
+        if (plain == null) {
+            log("unavailable (not a connected SSH session)")
+            return@coroutineScope
+        }
+        val pty = session.exec("tty; stty size", PtySize(cols = 100, rows = 30))!!
+        val bulk = session.exec("head -c 5000000 /dev/zero")!!
+        launch {
+            val out = async { plain.stdout.toList().joinToString("") { String(it) } }
+            val err = async { plain.stderr.toList().joinToString("") { String(it) } }
+            log("plain stdout=${out.await().trim()} stderr=${err.await().trim()} exit=${plain.exitCode.await()}")
+        }
+        launch {
+            val text = pty.stdout.toList().joinToString("") { String(it) }
+            log("pty output=${text.trim().replace("\r\n", " | ")} exit=${pty.exitCode.await()}")
+        }
+        launch(Dispatchers.Default) {
+            val started = System.nanoTime()
+            var bytes = 0L
+            bulk.stdout.collect { bytes += it.size }
+            val seconds = (System.nanoTime() - started) / 1e9
+            log("bulk $bytes bytes in ${"%.2f".format(seconds)} s exit=${bulk.exitCode.await()}")
+        }
     }
 
     override fun onUnload() {

@@ -1,0 +1,7 @@
+# JitPack builds com.github.jossephus.chuchu:plugin-api:<tag> from this repo.
+# The Gradle project lives in android/, and only the plugin API is published: the app
+# itself needs the Zig/NDK toolchain, which JitPack doesn't have and doesn't need here.
+jdk:
+  - openjdk17
+install:
+  - cd android && ./gradlew :plugin-api:publishReleasePublicationToMavenLocal --no-daemon
