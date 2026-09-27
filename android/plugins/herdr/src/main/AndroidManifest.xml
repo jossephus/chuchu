@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:allowBackup="false"
+        android:label="@string/plugin_name">
+
+        <meta-data android:name="chuchu.plugin.id" android:value="herdr" />
+        <meta-data
+            android:name="chuchu.plugin.entry"
+            android:value="com.jossephus.chuchu.plugins.herdr.HerdrPlugin" />
+        <meta-data android:name="chuchu.plugin.apiVersion" android:value="1" />
+
+        <!-- Discovery marker for chuchu; no LAUNCHER category, so no app-drawer icon. -->
+        <activity
+            android:name=".AboutActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.DeviceDefault.Dialog">
+            <intent-filter>
+                <action android:name="com.jossephus.chuchu.PLUGIN" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>
