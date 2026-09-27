@@ -23,5 +23,4 @@ rootProject.name = "chuchu"
 include(":app")
 include(":plugin-api")
 include(":examples:hello-plugin")
-include(":plugins:herdr")
  
