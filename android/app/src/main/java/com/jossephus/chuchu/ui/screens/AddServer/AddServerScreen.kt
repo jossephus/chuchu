@@ -36,6 +36,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.MultiplexerType
+import com.jossephus.chuchu.service.multiplexer.MultiplexerRegistry
+import com.jossephus.chuchu.ui.screens.Settings.PluginHostSettings
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
@@ -51,6 +53,8 @@ fun AddServerScreen(vm: AddServerViewModel, onBack: () -> Unit, modifier: Modifi
     val form by vm.form.collectAsStateWithLifecycle()
     val testState by vm.testState.collectAsStateWithLifecycle()
     val keys by vm.keys.collectAsStateWithLifecycle()
+    val pluginHostSettings by vm.pluginHostSettings.collectAsStateWithLifecycle()
+    val pluginHostEdits by vm.pluginHostEdits.collectAsStateWithLifecycle()
     val colors = ChuColors.current
     val typography = ChuTypography.current
 
@@ -288,6 +292,17 @@ fun AddServerScreen(vm: AddServerViewModel, onBack: () -> Unit, modifier: Modifi
             SectionDivider()
             MultiplexerSection(selected = form.multiplexer, onSelect = vm::updateMultiplexer)
             SectionDivider()
+            if (pluginHostSettings.isNotEmpty()) {
+                SectionHeader("PLUGINS")
+                PluginHostSettings(
+                    entries = pluginHostSettings,
+                    valueOf = { pluginId, field ->
+                        pluginHostEdits[pluginId]?.get(field) ?: vm.pluginHostValue(pluginId, field)
+                    },
+                    onChange = vm::updatePluginHostValue,
+                )
+                SectionDivider()
+            }
             PostConnectActionSection(
                 command = form.postConnectCommand,
                 onCommandChange = vm::updatePostConnectCommand,
@@ -448,34 +463,28 @@ private fun KeyAuthSection(
     }
 }
 
-// The segmented control requires a non-null selection, but "no persistence" is
-// modeled as a null MultiplexerType, so wrap the choices in a UI-only enum.
-private enum class MultiplexerOption(val type: MultiplexerType?) {
-    Off(null),
-    Tmux(MultiplexerType.Tmux),
-    Zellij(MultiplexerType.Zellij),
-    Zmx(MultiplexerType.Zmx),
-}
+// The segmented control needs a non-null option for "no persistence" (a null
+// MultiplexerType), so options are provider ids with "" standing in for off.
+private const val MULTIPLEXER_OFF = ""
 
 @Composable
 private fun MultiplexerSection(selected: MultiplexerType?, onSelect: (MultiplexerType?) -> Unit) {
-    val colors = ChuColors.current
-    val typography = ChuTypography.current
     SectionHeader("SESSION PERSISTENCE")
-    val options = MultiplexerOption.entries.toList()
-    val selectedOption = options.firstOrNull { it.type == selected } ?: MultiplexerOption.Off
+    val providers by MultiplexerRegistry.providers.collectAsStateWithLifecycle()
+    // A saved id whose plugin isn't loaded stays visible, disabled, so the user sees why
+    // it isn't active instead of it silently reading as "off".
+    val missing = selected?.id?.takeIf { id -> providers.none { it.id == id } }
+    val options = listOf(MULTIPLEXER_OFF) + providers.map { it.id } + listOfNotNull(missing)
+    val labels =
+        mapOf(MULTIPLEXER_OFF to "off") +
+            providers.associate { it.id to it.displayName } +
+            listOfNotNull(missing).associateWith { "$it (missing)" }
     ChuSegmentedControl(
         options = options,
-        labels =
-            mapOf(
-                MultiplexerOption.Off to "off",
-                MultiplexerOption.Tmux to "tmux",
-                MultiplexerOption.Zellij to "zellij",
-                MultiplexerOption.Zmx to "zmx",
-            ),
-        selected = selectedOption,
-        onSelect = { onSelect(it.type) },
-        disabledOptions = setOf(MultiplexerOption.Zellij),
+        labels = labels,
+        selected = selected?.id ?: MULTIPLEXER_OFF,
+        onSelect = { id -> onSelect(id.takeIf { it != MULTIPLEXER_OFF }?.let(::MultiplexerType)) },
+        disabledOptions = setOfNotNull(missing),
     )
 }
 

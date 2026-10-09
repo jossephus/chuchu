@@ -9,6 +9,13 @@ data class ChuchuHint(
     val description: String,
 )
 
+/** A chuchu-key binding contributed from outside settings (e.g. a plugin command). */
+class ExtraChuchuBinding(
+    val key: Char,
+    val label: String,
+    val handler: () -> Unit,
+)
+
 class ChuchuKeyBindings(
     private val hints: List<ChuchuHint>,
     private val handlers: Map<Char, () -> Unit>,
@@ -46,6 +53,10 @@ class ChuchuKeyBindings(
          * dropped. When several custom actions share one key, the handler defers to
          * [onSelectAmongActions] instead of dispatching directly.
          *
+         * [extraBindings] (plugin commands) come last: the user configured builtins and
+         * custom actions deliberately, so a plugin never takes their keys. Among extras the
+         * first binding for a key wins.
+         *
          * The actual side effects live in the caller-supplied lambdas
          * ([builtinCommandHandlers], [onDispatchAction], [onSelectAmongActions]) so this
          * factory stays free of terminal/view-model state.
@@ -56,6 +67,7 @@ class ChuchuKeyBindings(
             customGroups: List<TerminalCustomKeyGroup>,
             onDispatchAction: (TerminalCustomAction) -> Unit,
             onSelectAmongActions: (List<TerminalCustomAction>) -> Unit,
+            extraBindings: List<ExtraChuchuBinding> = emptyList(),
         ): ChuchuKeyBindings {
             val builtinHints = mutableListOf<ChuchuHint>()
             val builtinHandlers = mutableMapOf<Char, () -> Unit>()
@@ -97,9 +109,18 @@ class ChuchuKeyBindings(
                 }
             }
 
+            val extraHints = mutableListOf<ChuchuHint>()
+            val extraHandlers = mutableMapOf<Char, () -> Unit>()
+            extraBindings.forEach { binding ->
+                val keyChar = binding.key.lowercaseChar()
+                if (!seenShortcuts.add(keyChar)) return@forEach
+                extraHints += ChuchuHint(key = keyChar.toString(), description = binding.label)
+                extraHandlers[keyChar] = binding.handler
+            }
+
             return ChuchuKeyBindings(
-                hints = builtinHints + customHints,
-                handlers = builtinHandlers + customHandlers,
+                hints = builtinHints + customHints + extraHints,
+                handlers = builtinHandlers + customHandlers + extraHandlers,
             )
         }
     }

@@ -1,5 +1,6 @@
 package com.jossephus.chuchu.ui.screens.Terminal
 
+import com.jossephus.chuchu.plugin.PluginInputFocus
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
@@ -700,6 +701,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun onHardwareKey(key: Int, codepoint: Int, mods: Int, action: Int, charCode: Int = 0) {
+        PluginInputFocus.target?.let { return it.typeKey(key, codepoint, mods, action, charCode) }
         val hasNonTextModifier = mods and ((1 shl 1) or (1 shl 2) or (1 shl 3)) != 0
         val isRelease = action == GhosttyKeyAction.Release
         if (!isRelease) {
@@ -714,11 +716,17 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun onTextInput(text: String) {
+        PluginInputFocus.target?.let { return it.typeText(text) }
         sessionRepository.scrollToActive()
         sessionRepository.writeText(text)
     }
 
     fun onSpecialKeyInput(key: TerminalSpecialKey, mods: Int) {
+        PluginInputFocus.target?.let { target ->
+            target.typeKey(key.engineKey, 0, mods, GhosttyKeyAction.Press, 0)
+            target.typeKey(key.engineKey, 0, mods, GhosttyKeyAction.Release, 0)
+            return
+        }
         sessionRepository.scrollToActive()
         sessionRepository.writeKey(key.engineKey, 0, mods, GhosttyKeyAction.Press)
         sessionRepository.writeKey(key.engineKey, 0, mods, GhosttyKeyAction.Release)
@@ -726,6 +734,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
 
     fun onPasteText(text: String) {
         if (text.isEmpty()) return
+        PluginInputFocus.target?.let { return it.paste(text) }
         sessionRepository.scrollToActive()
         sessionRepository.writePaste(text)
     }

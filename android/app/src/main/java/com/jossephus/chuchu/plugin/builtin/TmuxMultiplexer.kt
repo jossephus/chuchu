@@ -1,11 +1,22 @@
-package com.jossephus.chuchu.service.multiplexer
+package com.jossephus.chuchu.plugin.builtin
 
-import com.jossephus.chuchu.model.MultiplexerType
+import com.jossephus.chuchu.plugin.api.ChuchuPlugin
+import com.jossephus.chuchu.plugin.api.MultiplexerProvider
+import com.jossephus.chuchu.plugin.api.MultiplexerSessionNames
+import com.jossephus.chuchu.plugin.api.PluginHost
+import com.jossephus.chuchu.plugin.api.RemoteMultiplexerSession
+import com.jossephus.chuchu.plugin.api.Shell
 
-object TmuxMultiplexer : Multiplexer {
+/** Built-in plugin contributing tmux session persistence. */
+class TmuxPlugin : ChuchuPlugin {
+    override fun register(host: PluginHost) = host.registerMultiplexer(TmuxMultiplexer)
+}
+
+object TmuxMultiplexer : MultiplexerProvider {
     private val chuchuSessionRegex = Regex("^chuchu-[1-9][0-9]*$")
 
-    override val type: MultiplexerType = MultiplexerType.Tmux
+    override val id: String = "tmux"
+    override val displayName: String = "tmux"
 
     override fun availabilityCommand(): String = "command -v tmux >/dev/null 2>&1"
 
@@ -42,10 +53,7 @@ object TmuxMultiplexer : Multiplexer {
     override fun defaultSessionName(
         remoteSessions: Collection<RemoteMultiplexerSession>,
         localSessionNames: Collection<String>,
-    ): String = MultiplexerSessionAllocator.nextChuchuSessionName(
-        remoteSessions = remoteSessions,
-        localSessionNames = localSessionNames,
-    )
+    ): String = MultiplexerSessionNames.next(remoteSessions, localSessionNames)
 
     fun isGeneratedSessionName(name: String): Boolean = chuchuSessionRegex.matches(name)
 
@@ -59,8 +67,8 @@ object TmuxMultiplexer : Multiplexer {
         trustedRemoteName: Boolean = false,
     ): String {
         if (!trustedRemoteName) requireGeneratedSessionName(sessionName)
-        val target = shellQuote(sessionName)
-        val exactTarget = shellQuote("=$sessionName")
+        val target = Shell.quote(sessionName)
+        val exactTarget = Shell.quote("=$sessionName")
         return "if [ -n \"\$TMUX\" ]; then tmux switch-client -t $exactTarget; else exec tmux new-session -A -s $target; fi"
     }
 
@@ -69,13 +77,10 @@ object TmuxMultiplexer : Multiplexer {
         trustedRemoteName: Boolean = false,
     ): String {
         if (!trustedRemoteName) requireGeneratedSessionName(sessionName)
-        val target = shellQuote(sessionName)
-        val exactTarget = shellQuote("=$sessionName")
+        val target = Shell.quote(sessionName)
+        val exactTarget = Shell.quote("=$sessionName")
         return "if [ -n \"\$TMUX\" ]; then tmux switch-client -t $exactTarget; " +
             "elif tmux has-session -t $exactTarget 2>/dev/null; then exec tmux attach-session -t $exactTarget; " +
             "else printf 'tmux session %s is no longer available\\n' $target; exec \"\${SHELL:-/bin/sh}\" -l; fi"
     }
-
-    private fun shellQuote(value: String): String =
-        "'" + value.replace("'", "'\\''") + "'"
 }

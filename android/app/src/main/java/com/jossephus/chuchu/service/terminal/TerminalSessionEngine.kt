@@ -10,6 +10,9 @@ import com.jossephus.chuchu.service.mosh.MoshEventType
 import com.jossephus.chuchu.service.mosh.MoshReconnectPolicy
 import com.jossephus.chuchu.service.mosh.MoshState
 import com.jossephus.chuchu.service.mosh.NativeMoshService
+import com.jossephus.chuchu.plugin.api.ExecChannel
+import com.jossephus.chuchu.plugin.api.MultiplexerLaunch
+import com.jossephus.chuchu.plugin.api.PtySize
 import com.jossephus.chuchu.service.multiplexer.MultiplexerAvailability
 import com.jossephus.chuchu.service.multiplexer.MultiplexerCommandResult
 import com.jossephus.chuchu.service.multiplexer.MultiplexerRegistry
@@ -36,6 +39,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.yield
 import org.json.JSONObject
 
 enum class SessionStatus {
@@ -53,6 +57,10 @@ data class SessionState(
     val title: String? = null,
     val pwd: String? = null,
     val bellCount: Int = 0,
+    // Running total of bells since the session started. Unlike [bellCount], which is the
+    // per-snapshot drain and is copied forward by unrelated state updates, this only grows,
+    // so observers can diff it without double-counting.
+    val bellTotal: Long = 0,
     val nativeVersion: String? = null,
     val reconnectAttempt: Int = 0,
     val error: String? = null,
@@ -88,6 +96,7 @@ class TerminalSessionEngine(
         val multiplexer: MultiplexerType? = null,
         val multiplexerSessionName: String? = null,
         val multiplexerCreateIfMissing: Boolean = true,
+        val hostId: Long? = null,
     ) {
         fun multiplexerStartupCommand(): String? {
             val type = multiplexer ?: return null
@@ -95,9 +104,12 @@ class TerminalSessionEngine(
             val sessionName = multiplexerSessionName?.takeIf { it.isNotBlank() } ?: return null
             val runtime = MultiplexerRegistry.forType(type) ?: return null
             return runtime.launchCommand(
-                sessionName = sessionName,
-                createIfMissing = multiplexerCreateIfMissing,
-                trustedRemoteName = true,
+                MultiplexerLaunch(
+                    sessionName = sessionName,
+                    createIfMissing = multiplexerCreateIfMissing,
+                    trustedRemoteName = true,
+                    hostId = hostId,
+                ),
             )
         }
     }
@@ -111,6 +123,7 @@ class TerminalSessionEngine(
 
     private val bridge = GhosttyBridge()
     private val nativeSsh = NativeSshService(hostKeyPolicy = ::verifyHostKey)
+    private val execChannels = ExecChannels(NativeExecTransport(nativeSsh), dispatcher, scope)
     private val moshService = NativeMoshService()
 
     private var handle: Long = 0L
@@ -144,6 +157,12 @@ class TerminalSessionEngine(
     private val _state = MutableStateFlow(SessionState(nativeVersion = nativeVersion))
     val state: StateFlow<SessionState> = _state.asStateFlow()
 
+    /** Bytes as fed into Ghostty, for plugins. See [ByteTap]. */
+    val outputTap = ByteTap()
+
+    /** User-originated bytes (keys, text, paste) after encoding, for plugins. */
+    val inputTap = ByteTap()
+
     data class DefaultColors(
         val fg: IntArray?,
         val bg: IntArray?,
@@ -170,6 +189,7 @@ class TerminalSessionEngine(
         multiplexer: MultiplexerType? = null,
         multiplexerSessionName: String? = null,
         multiplexerCreateIfMissing: Boolean = true,
+        hostId: Long? = null,
     ) {
         disconnectRequested = false
         val params =
@@ -187,6 +207,7 @@ class TerminalSessionEngine(
                 multiplexer = multiplexer,
                 multiplexerSessionName = multiplexerSessionName,
                 multiplexerCreateIfMissing = multiplexerCreateIfMissing,
+                hostId = hostId,
             )
         lastConnectionParams = params
         scope.launch(dispatcher) {
@@ -294,6 +315,7 @@ class TerminalSessionEngine(
             if (encoded.isEmpty()) return@launch
             try {
                 writeRemote(encoded)
+                inputTap.emit(encoded)
             } catch (_: Exception) {}
         }
     }
@@ -303,7 +325,35 @@ class TerminalSessionEngine(
             if (handle == 0L) return@launch
             if (text.isEmpty()) return@launch
             try {
-                writeRemote(text.toByteArray(Charsets.UTF_8))
+                val bytes = text.toByteArray(Charsets.UTF_8)
+                writeRemote(bytes)
+                inputTap.emit(bytes)
+            } catch (_: Exception) {}
+        }
+    }
+
+    /**
+     * Opens a plugin exec channel on this session's SSH connection, or returns null when
+     * the session isn't a connected SSH session.
+     */
+    suspend fun openExec(command: String, pty: PtySize?): ExecChannel? {
+        val usable =
+            withContext(dispatcher) {
+                val transport = lastConnectionParams?.transport
+                handle != 0L &&
+                    _state.value.status == SessionStatus.Connected &&
+                    (transport == Transport.SSH || transport == Transport.TailscaleSSH)
+            }
+        return if (usable) execChannels.open(command, pty) else null
+    }
+
+    /** Writes raw bytes on behalf of a plugin; deliberately not reported on [inputTap]. */
+    fun writeBytes(data: ByteArray) {
+        scope.launch(dispatcher) {
+            if (handle == 0L) return@launch
+            if (data.isEmpty()) return@launch
+            try {
+                writeRemote(data)
             } catch (_: Exception) {}
         }
     }
@@ -316,6 +366,7 @@ class TerminalSessionEngine(
             if (encoded.isEmpty()) return@launch
             try {
                 writeRemote(encoded)
+                inputTap.emit(encoded)
             } catch (_: Exception) {}
         }
     }
@@ -584,6 +635,7 @@ class TerminalSessionEngine(
         scope.launch(dispatcher) {
             readJob?.cancel()
             readJob = null
+            execChannels.invalidateAll()
             nativeSsh.close()
             moshService.close()
             localShellService.close()
@@ -719,6 +771,9 @@ class TerminalSessionEngine(
             }
             lastActivityMs = System.currentTimeMillis()
             feedRemoteChunk(chunk)
+            // The loop otherwise never suspends while output streams, which would starve
+            // plugin exec channels sharing this single session thread.
+            yield()
         }
     }
 
@@ -741,6 +796,7 @@ class TerminalSessionEngine(
 
     private fun feedRemoteChunk(chunk: ByteArray) {
         if (handle == 0L) return
+        outputTap.emit(chunk)
         val wasImageLoading = bridge.nativeIsImageLoading(handle)
         flushPtyWrites()
         bridge.nativeWriteRemote(handle, chunk)
@@ -829,6 +885,8 @@ class TerminalSessionEngine(
     }
 
     private suspend fun establishConnection(params: ConnectionParams, username: String) {
+        // The native session is about to be replaced; its exec channels die with it.
+        execChannels.invalidateAll()
         if (handle != 0L) {
             bridge.nativeDestroy(handle)
             handle = 0L
@@ -988,6 +1046,7 @@ class TerminalSessionEngine(
         multiplexer = multiplexer,
         multiplexerSessionName = multiplexerSessionName,
         multiplexerCreateIfMissing = multiplexerCreateIfMissing,
+        hostId = hostId,
     )
 
     private fun runMultiplexerCommand(
@@ -1286,6 +1345,7 @@ class TerminalSessionEngine(
                     title = title,
                     pwd = pwd,
                     bellCount = bellCount,
+                    bellTotal = _state.value.bellTotal + bellCount,
                     nativeVersion = nativeVersion,
                     handle = handle,
                 )

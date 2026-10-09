@@ -311,4 +311,18 @@ class AccessoryLogicTest {
         val item = TerminalAccessoryLayoutStore.catalog().first { it.id == "paste" }
         assertTrue(item.action is AccessoryAction.Paste)
     }
+
+    @Test
+    fun runCommandIsANoOpForTheDispatcher() {
+        val state = ModifierState().toggle(TerminalModifier.Ctrl)
+
+        val result = TerminalAccessoryDispatcher.dispatch(AccessoryAction.RunCommand("herdr.panes"), state)
+
+        // The screen runs the command itself; the dispatcher must not send input or
+        // consume the user's armed modifiers.
+        assertEquals(state, result.modifierState)
+        assertNull(result.text)
+        assertNull(result.specialKey)
+        assertFalse(result.shouldPaste)
+    }
 }
