@@ -3,6 +3,7 @@ package com.jossephus.chuchu.ui.terminal
 import android.content.Context
 import android.os.SystemClock
 import android.text.Editable
+import android.text.InputType
 import android.text.Selection
 import android.util.Log
 import android.view.KeyEvent
@@ -13,6 +14,15 @@ import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
+
+fun terminalImeInputType(disableAutocorrect: Boolean): Int {
+    // TYPE_NULL matches Termux's default and prevents keyboards from treating terminal input as prose.
+    if (disableAutocorrect) return InputType.TYPE_NULL
+
+    return InputType.TYPE_CLASS_TEXT or
+        InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+        InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+}
 
 class TerminalInputView(context: Context) : EditText(context) {
 
@@ -48,6 +58,14 @@ class TerminalInputView(context: Context) : EditText(context) {
 
     /** Cached InputMethodManager for IME restarts. */
     private var inputMethodManager: InputMethodManager? = null
+
+    var disableAutocorrect = false
+        set(value) {
+            if (field == value) return
+            field = value
+            inputType = terminalImeInputType(value)
+            inputMethodManager?.restartInput(this)
+        }
 
     private fun logInput(message: String) {
         if (!DEBUG_INPUT_LOGS) return
@@ -145,9 +163,7 @@ class TerminalInputView(context: Context) : EditText(context) {
         imeOptions =
             EditorInfo.IME_FLAG_NO_EXTRACT_UI or
                 EditorInfo.IME_ACTION_NONE
-        inputType = android.text.InputType.TYPE_CLASS_TEXT or
-            android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or
-            android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        inputType = terminalImeInputType(disableAutocorrect)
     }
 
     override fun onCheckIsTextEditor(): Boolean = true
@@ -207,9 +223,7 @@ class TerminalInputView(context: Context) : EditText(context) {
         outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI or
             EditorInfo.IME_FLAG_NO_FULLSCREEN or
             EditorInfo.IME_ACTION_NONE
-        outAttrs.inputType = android.text.InputType.TYPE_CLASS_TEXT or
-            android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or
-            android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        outAttrs.inputType = terminalImeInputType(disableAutocorrect)
         outAttrs.initialSelStart = selectionStart
         outAttrs.initialSelEnd = selectionEnd
 
