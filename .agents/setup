@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+# Chuchu orb setup: installs Nix (single source of truth for the toolchain, per
+# flake.nix) and warms the caches the three build paths need:
+#   - nix print-dev-env: Android SDK/NDK, JDK, Zig 0.15.2, Gradle, ktfmt/ktlint,
+#     node/pnpm from the repository flake
+#   - zig build jni: native libchuchu_jni.so for arm64 (ReleaseSmall, like CI)
+#   - gradle: wrapper distribution and dependency/plugin downloads
+#   - pnpm: docs/ node_modules
+# Idempotent: a warm snapshot skips every download and only re-verifies.
+set -euo pipefail
+
+export DEBIAN_FRONTEND=noninteractive
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+NIX_PROFILE_SH="/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh"
+NIX_CONF="/etc/nix/nix.conf"
+NIX_MARKER="# chuchu-orb-setup"
+NIX_BIN="/nix/var/nix/profiles/default/bin"
+step() { printf '\n=== %s ===\n' "$*"; }
+t0=0
+timeit() {
+  local label="$1"; shift
+  local start=$SECONDS
+  "$@"
+  printf '[%s] %ss\n' "$label" "$((SECONDS - start))"
+}
+
+nix_installed() { [[ -x "$NIX_BIN/nix" ]]; }
+# The installer cannot update this running script's environment.
+source_nix() {
+  # shellcheck disable=SC1091
+  source "$NIX_PROFILE_SH"
+}
+
+# 1. Minimal apt prerequisites (usually already present in the base image) ---
+step "apt prerequisites"
+if ! command -v curl >/dev/null || ! command -v xz >/dev/null || ! command -v git >/dev/null; then
+  sudo apt-get update -qq
+  sudo apt-get install -y -qq curl ca-certificates xz-utils git
+else
+  echo "already present"
+fi
+
+# 2. Nix ---------------------------------------------------------------------
+step "Nix"
+if nix_installed; then
+  echo "already installed: $("$NIX_BIN/nix" --version)"
+else
+  timeit "nix-install" sudo sh -c "$(curl -fsSL https://install.determinate.systems/nix)" -- \
+    install linux --init none --no-confirm --no-modify-profile
+fi
+nix_installed || { echo "Nix install failed" >&2; exit 1; }
+
+if [[ -f /etc/profile.d/nix.sh && ! -f "$NIX_PROFILE_SH" ]]; then
+  NIX_PROFILE_SH="/etc/profile.d/nix.sh"
+fi
+source_nix
+
+# Orbs are ephemeral; keep the store from GC-ing away snapshot content, and
+# disable build sandboxing (E2B sandboxes lack reliable user namespaces).
+if ! sudo grep -Fq "$NIX_MARKER" "$NIX_CONF" 2>/dev/null; then
+  step "nix.conf tuning"
+  printf '%s\n' \
+    "$NIX_MARKER" \
+    "extra-experimental-features = nix-command flakes" \
+    "sandbox = false" \
+    "min-free = 1073741824" \
+    "max-free = 3221225472" \
+    | sudo tee -a "$NIX_CONF" >/dev/null
+fi
+
+# The installer with --init none leaves the daemon unconfigured; wire the unit
+# files from the profile into systemd so the store is usable by non-root.
+step "nix daemon"
+unit_dir="/nix/var/nix/profiles/default/lib/systemd/system"
+if sudo test ! -f /etc/systemd/system/nix-daemon.socket; then
+  sudo mkdir -p /etc/systemd/system/sockets.target.wants
+  sudo cp "$unit_dir/nix-daemon.service" "$unit_dir/nix-daemon.socket" /etc/systemd/system/
+  # Point the service at the profile symlink so it survives Nix profile updates.
+  sudo sed -i "s#^ExecStart=@[^ ]*nix-daemon#ExecStart=@$NIX_BIN/nix-daemon#" /etc/systemd/system/nix-daemon.service
+  sudo systemctl daemon-reload
+fi
+if ! systemctl is-active --quiet nix-daemon.socket 2>/dev/null; then
+  sudo systemctl enable --now nix-daemon.socket
+  sleep 2
+fi
+systemctl is-active --quiet nix-daemon.socket || { echo "nix daemon did not start" >&2; exit 1; }
+echo "nix daemon active"
+
+# 3. Persist the dev environment for login shells started in the repository ---
+step "bash profile hook"
+bashrc_marker="# chuchu nix profile"
+if ! grep -Fq "$bashrc_marker" "$HOME/.bashrc" 2>/dev/null; then
+  cat >> "$HOME/.bashrc" <<EOF
+
+$bashrc_marker
+# shellcheck disable=SC1091
+[[ -f "$NIX_PROFILE_SH" ]] && source "$NIX_PROFILE_SH"
+EOF
+fi
+
+profile_marker="# chuchu Nix development shell"
+hook_call='# chuchu nix hook v2'
+# Regenerate the hook when missing or stale (older runs could write an empty eval).
+if ! grep -Fq "$hook_call" "$HOME/.bash_profile" 2>/dev/null; then
+  sed -i '/^# chuchu Nix development shell$/,/^fi$/d' "$HOME/.bash_profile" 2>/dev/null || true
+  cat >> "$HOME/.bash_profile" <<EOF
+
+$profile_marker
+$hook_call
+if [[ -z "\${CHUCHU_NIX_ENV:-}" && "\${PWD}" == "$REPO_ROOT" ]]; then
+  export CHUCHU_NIX_ENV=1
+  # shellcheck disable=SC1091
+  [[ -f "$NIX_PROFILE_SH" ]] && source "$NIX_PROFILE_SH"
+  eval "\$("$NIX_BIN/nix" print-dev-env "$REPO_ROOT")"
+  # print-dev-env's devshell PATH lacks the nix CLI itself; keep it available.
+  export PATH="$NIX_BIN:\$PATH"
+fi
+EOF
+fi
+
+# 4. Realize the flake dev environment (downloads on a cold orb, no-op warm) --
+step "flake dev environment"
+export CHUCHU_NIX_ENV=1
+timeit "nix-env" bash -c 'eval "$(nix print-dev-env /home/user/workspace/repo)"'
+# Bring the toolchain into this script's environment for the warm-up builds.
+eval "$("$NIX_BIN/nix" print-dev-env "$REPO_ROOT")"
+
+# 5. Warm caches -------------------------------------------------------------
+step "docs: pnpm install"
+timeit "pnpm" env CI=true pnpm install --frozen-lockfile --dir docs
+
+step "android: gradle wrapper + dependencies"
+timeit "gradle" bash -c 'cd android && ./gradlew --no-daemon help'
+
+step "zig: native jni build (aarch64, ReleaseSmall)"
+timeit "zig" bash -c 'cd zig-src && zig build -Doptimize=ReleaseSmall -Dtarget=aarch64-linux-android.24 jni'
+
+# 6. Agent guidance for this orb ---------------------------------------------
+step "orb AGENTS.md note"
+amp_agents="$HOME/.config/amp/AGENTS.md"
+agents_marker="<!-- chuchu orb setup note -->"
+if ! grep -Fq "$agents_marker" "$amp_agents" 2>/dev/null; then
+  cat >> "$amp_agents" <<EOF
+
+$agents_marker
+This orb's toolchain comes from the repository Nix flake. Login shells started
+inside $REPO_ROOT get the full environment automatically (zig, gradle, java,
+adb, pnpm, ktfmt, ANDROID_NDK_HOME). From other directories use:
+bash -lc 'make build' etc.
+EOF
+fi
+
+printf '\n=== setup done ===\n'

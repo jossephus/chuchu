@@ -4,7 +4,9 @@
 .externalNativeBuild
 .cxx
 local.properties
-.agents/
+.agents/*
+!.agents/setup
+!.agents/resume
 .idea/
 .kotlin/
 .npm/
@@ -12,6 +14,9 @@ local.properties
 .zig-cache/
 references/
 scripts/
+
+# Amp orbs
+.amp/portals/
 
 # Android
 android/app/src/main/jniLibs/
