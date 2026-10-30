@@ -63,9 +63,9 @@ const ImageFreeMode = enum(c_int) {
 
 const PlacementInfo = struct {
     // Cell-grid position; Kotlin derives the pixel origin as cell*cellSize +
-    // cell_*_offset. dest_w/dest_h are libghostty's final drawn size, which
-    // cell_*_offset is measured against — use them straight; recomputing
-    // them from the grid shifts virtual placements by ~1px.
+    // cell_*_offset. dest_w/dest_h are libghostty's *scaled* image size that
+    // cell_*_offset centers — use them straight (rendered.dest_width for virtual,
+    // grid*cell for direct); recomputing as grid_cols*cell shifts it ~1px.
     cell_col: i32,
     cell_row: i32,
     cell_x_offset: u32,
@@ -468,9 +468,6 @@ export fn update_render_state(terminal: ?*ChuchuTerminal) callconv(.c) void {
     updateMetadata(terminal.?);
 }
 
-/// Ghostty 1.4 needs the temp directory spelled out; this keeps its earlier
-/// default of the process $TMPDIR, falling back to /tmp. getenv's storage
-/// outlives the terminal because the app process never modifies TMPDIR.
 fn kittyTempDir() []const u8 {
     const tmpdir = c.getenv("TMPDIR");
     if (tmpdir != null) return std.mem.span(tmpdir);
@@ -509,8 +506,6 @@ export fn chuchu_create_terminal(cols: c.jint, rows: c.jint, max_scrollback: c.j
     };
 
     var handler = terminal.terminal.vtHandler();
-    // Start from readonly so effects ghostty adds later stay off until the
-    // bridge implements them, then enable the ones we handle.
     handler.effects = .readonly;
     handler.effects.write_pty = chuchuWritePty;
     handler.effects.bell = chuchuBell;
@@ -1064,7 +1059,6 @@ fn allocRgba(pixel_count: usize) ?[]u8 {
 }
 
 fn prepareImageData(image_id: u32, image: ghostty.kitty.graphics.Image) ?PreparedImageData {
-    // Pending images have no decoded bytes yet; treat them as empty.
     const bytes = image.data.bytes() orelse &.{};
     var data_ptr: [*c]const u8 = if (bytes.len == 0) null else bytes.ptr;
     var data_len: usize = bytes.len;
@@ -1190,9 +1184,6 @@ export fn chuchu_build_image_snapshot(handle: c.jlong, out_size: [*c]usize) call
     if (out_size == null) return null;
     logKittyState("image_snapshot_begin", terminal);
 
-    // Ghostty resolves fixed, relative (P=/Q=) and unicode placeholder
-    // placements into final viewport rectangles during the render state
-    // update, so refresh it before reading the list.
     update_render_state(terminal);
 
     var found: [MAX_KITTY_IMAGES]ghostty.RenderState.ImagePlacement = undefined;
@@ -1202,7 +1193,6 @@ export fn chuchu_build_image_snapshot(handle: c.jlong, out_size: [*c]usize) call
         found[found_count] = it.next() orelse break;
         found_count += 1;
     }
-    // The iterator order is not draw order; the canvas draws in list order.
     std.sort.insertion(ghostty.RenderState.ImagePlacement, found[0..found_count], {}, drawsBefore);
 
     const storage = &terminal.terminal.screens.active.kitty_images;
@@ -1342,8 +1332,6 @@ export fn chuchu_apply_default_colors(handle: c.jlong, has_fg: bool, fg: [*c]con
             const off = i * 3;
             colors[i] = .{ .r = palette[off], .g = palette[off + 1], .b = palette[off + 2] };
         }
-        // Replace the palette outright, dropping OSC 4 overrides, so a theme
-        // change looks the same as before ghostty's palette became owned.
         const next = ghostty.color.DynamicPalette.init(allocator, colors) catch return;
         terminal.terminal.colors.palette.deinit(allocator);
         terminal.terminal.colors.palette = next;
@@ -1390,8 +1378,6 @@ export fn chuchu_resize(handle: c.jlong, cols: c.jint, rows: c.jint, cell_width:
     const new_rows: u16 = @intCast(clampI32(rows, 1, terminal.rows));
     const new_cell_width: u32 = @intCast(clampI32(cell_width, 1, 1));
     const new_cell_height: u32 = @intCast(clampI32(cell_height, 1, 1));
-    // Ghostty derives width_px/height_px from the cell size and clears
-    // synchronized output itself; kitty image geometry depends on both.
     terminal.terminal.resize(allocator, .{
         .cols = new_cols,
         .rows = new_rows,

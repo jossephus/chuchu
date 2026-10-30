@@ -1,6 +1,3 @@
-/* Every C header the JNI bridge uses, translated once by build.zig into the
- * `c` module. Zig 0.17 removed @cImport; a single shared translation also
- * keeps JNI and libssh2 types identical across bridge files. */
 #ifndef CHUCHU_C_H
 #define CHUCHU_C_H
 

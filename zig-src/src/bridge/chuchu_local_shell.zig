@@ -239,7 +239,6 @@ fn childExec(
     _ = c.setenv("PATH", "/system/bin:/system/xbin:/vendor/bin:/product/bin:/apex/com.android.runtime/bin", 1);
 
     const argv = [_:null][*c]const u8{command};
-    // execv takes char *const argv[] but never writes through it.
     _ = c.execv(command, @ptrCast(@constCast(&argv)));
     c._exit(127);
 }
