@@ -8,7 +8,8 @@
             .hash = "N-V-__8AAATRLQBu_rNy4X2UK6RtcdYK_yAzkV6OcCqgo5aK",
         },
         .openssl = .{
-            .path = "../../../../references/openssl-zig",
+            .url = "git+https://github.com/jossephus/openssl-zig#3241cbd45421508e72134d5f1539c394e194c455",
+            .hash = "openssl-3.6.0-wZcA7wsp8gEMhIjm_UBxlutB7bPLmq-fP234vBobSwho",
         },
     },
     .paths = .{
