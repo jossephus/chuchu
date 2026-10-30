@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const ndk = @import("src/ndk.zig");
+const Translator = @import("translate_c").Translator;
 
 const default_build_targets: []const std.Target.Query = &.{
     .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .android, .android_api_level = 24 },
@@ -67,32 +68,23 @@ fn resolveNdkHome(b: *std.Build, ndk_root: []const u8) []const u8 {
     return ndk_root;
 }
 
-const BridgeIncludes = struct {
-    bridge: std.Build.LazyPath,
-    libssh2: std.Build.LazyPath,
-    ndk_include: []const u8,
-    ndk_target_include: []const u8,
-};
-
 fn translateBridgeHeaders(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
-    includes: BridgeIncludes,
+    libc_file: std.Build.LazyPath,
+    libssh2_include: std.Build.LazyPath,
 ) *std.Build.Module {
-    const translate_c = b.addTranslateC(.{
-        .root_source_file = b.path("src/bridge/c.h"),
+    const translator: Translator = .init(b.dependency("translate_c", .{}), .{
+        .c_source_file = b.path("src/bridge/c.h"),
         .target = target,
         .optimize = optimize,
-        .link_libc = false,
+        .libc_file = libc_file,
     });
-    translate_c.addIncludePath(includes.bridge);
-    translate_c.addIncludePath(includes.libssh2);
-    translate_c.addSystemIncludePath(.{ .cwd_relative = includes.ndk_include });
-    translate_c.addSystemIncludePath(.{ .cwd_relative = includes.ndk_target_include });
-    translate_c.addSystemIncludePath(b.path("src/bridge/translate_c_stubs"));
-    translate_c.defineCMacro("BIONIC_IOCTL_NO_SIGNEDNESS_OVERLOAD", null);
-    return translate_c.createModule();
+    translator.addIncludePath(b.path("src/bridge"));
+    translator.addIncludePath(libssh2_include);
+    translator.defineCMacro("BIONIC_IOCTL_NO_SIGNEDNESS_OVERLOAD", null);
+    return translator.mod;
 }
 
 fn buildNativeLibrary(
@@ -168,12 +160,7 @@ fn buildNativeLibrary(
     });
     root_module.addIncludePath(b.path("src/bridge"));
     root_module.addIncludePath(libssh2_upstream.path("include"));
-    root_module.addImport("c", translateBridgeHeaders(b, target, optimize, .{
-        .bridge = b.path("src/bridge"),
-        .libssh2 = libssh2_upstream.path("include"),
-        .ndk_include = include_dir,
-        .ndk_target_include = target_include_dir,
-    }));
+    root_module.addImport("c", translateBridgeHeaders(b, target, optimize, libc_config, libssh2_upstream.path("include")));
     root_module.addImport("ghostty-vt", ghostty_dep.module("ghostty-vt"));
     root_module.addImport("zigimg", zigimg_dep.module("zigimg"));
 

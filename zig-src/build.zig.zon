@@ -22,6 +22,10 @@
             .url = "git+https://github.com/jossephus/openssl-zig#3241cbd45421508e72134d5f1539c394e194c455",
             .hash = "openssl-3.6.0-wZcA7wsp8gEMhIjm_UBxlutB7bPLmq-fP234vBobSwho",
         },
+        .translate_c = .{
+            .url = "git+https://codeberg.org/ziglang/translate-c?ref=zig-0.17.x#cfac21f3199b2b02ce3fd7db652aa456421fe4ab",
+            .hash = "translate_c-2.0.2-Q_BUWvBNBwDnyehSiuAJmdFcMYHYGA-Jc3KiYdrV2Dqx",
+        },
     },
     .fingerprint = 0xddba11030bd5a50,
     .paths = .{
