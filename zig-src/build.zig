@@ -47,13 +47,19 @@ fn ndkPrebuiltTag() []const u8 {
 fn resolveNdkHome(b: *std.Build, ndk_root: []const u8) []const u8 {
     if (ndk_root.len == 0) return ndk_root;
 
+    // Probing the NDK layout is a configure-time filesystem read the build
+    // cache cannot track, so force reconfiguration on every invocation.
+    b.graph.poisonCache();
+    const io = b.graph.io;
+    const cwd = std.Io.Dir.cwd();
+
     const toolchains_path = b.pathJoin(&.{ ndk_root, "toolchains", "llvm" });
-    std.fs.cwd().access(toolchains_path, .{}) catch {
-        var dir = std.fs.cwd().openDir(ndk_root, .{ .iterate = true }) catch return ndk_root;
-        defer dir.close();
+    cwd.access(io, toolchains_path, .{}) catch {
+        var dir = cwd.openDir(io, ndk_root, .{ .iterate = true }) catch return ndk_root;
+        defer dir.close(io);
 
         var iter = dir.iterate();
-        while (iter.next() catch null) |entry| {
+        while (iter.next(io) catch null) |entry| {
             if (entry.kind != .directory) continue;
             return b.pathJoin(&.{ ndk_root, entry.name });
         }
@@ -61,6 +67,42 @@ fn resolveNdkHome(b: *std.Build, ndk_root: []const u8) []const u8 {
     };
 
     return ndk_root;
+}
+
+const BridgeIncludes = struct {
+    bridge: std.Build.LazyPath,
+    libssh2: std.Build.LazyPath,
+    ndk_include: []const u8,
+    ndk_target_include: []const u8,
+};
+
+/// Zig 0.17 removed @cImport, so the bridge's C headers are translated once
+/// here. The NDK sysroot must be passed explicitly because translate-c does
+/// not read the compile step's libc file.
+fn translateBridgeHeaders(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    includes: BridgeIncludes,
+) *std.Build.Module {
+    const translate_c = b.addTranslateC(.{
+        .root_source_file = b.path("src/bridge/c.h"),
+        .target = target,
+        .optimize = optimize,
+        // Auto-detected libc would be the host SDK; the NDK sysroot below
+        // is the only libc these headers may see.
+        .link_libc = false,
+    });
+    translate_c.addIncludePath(includes.bridge);
+    translate_c.addIncludePath(includes.libssh2);
+    translate_c.addSystemIncludePath(.{ .cwd_relative = includes.ndk_include });
+    translate_c.addSystemIncludePath(.{ .cwd_relative = includes.ndk_target_include });
+    // Must follow the NDK dirs; see the header comment in this directory.
+    translate_c.addSystemIncludePath(b.path("src/bridge/translate_c_stubs"));
+    // Aro does not support bionic's __overloadable ioctl; this NDK-provided
+    // switch keeps only the plain C declaration.
+    translate_c.defineCMacro("BIONIC_IOCTL_NO_SIGNEDNESS_OVERLOAD", null);
+    return translate_c.createModule();
 }
 
 fn buildNativeLibrary(
@@ -82,7 +124,7 @@ fn buildNativeLibrary(
         .optimize = optimize,
     });
 
-    const ndk_root = b.graph.env_map.get("ANDROID_NDK_HOME") orelse b.graph.env_map.get("ANDROID_NDK_ROOT").?;
+    const ndk_root = b.graph.environ_map.get("ANDROID_NDK_HOME") orelse b.graph.environ_map.get("ANDROID_NDK_ROOT").?;
     const ndk_home = resolveNdkHome(b, ndk_root);
 
     const android_target = ndk.getAndroidTriple(target.result) catch {
@@ -136,6 +178,12 @@ fn buildNativeLibrary(
     });
     root_module.addIncludePath(b.path("src/bridge"));
     root_module.addIncludePath(libssh2_upstream.path("include"));
+    root_module.addImport("c", translateBridgeHeaders(b, target, optimize, .{
+        .bridge = b.path("src/bridge"),
+        .libssh2 = libssh2_upstream.path("include"),
+        .ndk_include = include_dir,
+        .ndk_target_include = target_include_dir,
+    }));
     root_module.addImport("ghostty-vt", ghostty_dep.module("ghostty-vt"));
     root_module.addImport("zigimg", zigimg_dep.module("zigimg"));
 
@@ -151,22 +199,24 @@ fn buildNativeLibrary(
     lib.link_gc_sections = true;
     lib.link_eh_frame_hdr = false;
     lib.lto = .thin;
+    // LTO needs LLVM, and Zig 0.17's self-hosted x86_64 backend (the Debug
+    // default) segfaults compiling this library.
+    lib.use_llvm = true;
     root_module.strip = true;
     root_module.unwind_tables = .none;
     root_module.omit_frame_pointer = true;
 
-    lib.addIncludePath(.{ .cwd_relative = include_dir });
-    lib.addIncludePath(.{ .cwd_relative = target_include_dir });
+    root_module.addIncludePath(.{ .cwd_relative = include_dir });
+    root_module.addIncludePath(.{ .cwd_relative = target_include_dir });
 
     const api_dir = b.fmt("{d}", .{android_api_version});
     const lib_dir = b.pathJoin(&.{ ndk_sysroot, "usr", "lib", android_target, api_dir });
-    lib.addLibraryPath(.{ .cwd_relative = lib_dir });
+    root_module.addLibraryPath(.{ .cwd_relative = lib_dir });
 
     lib.setLibCFile(libc_config);
-    lib.linkLibrary(libssh2);
-    lib.linkSystemLibrary("log");
-    lib.linkSystemLibrary("z");
-    lib.linkLibC();
+    root_module.linkLibrary(libssh2);
+    root_module.linkSystemLibrary("log", .{});
+    root_module.linkSystemLibrary("z", .{});
     lib.version_script = b.path("src/bridge/version-script.map");
 
     b.installArtifact(lib);
@@ -176,7 +226,7 @@ fn buildNativeLibrary(
 pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const build_targets = resolveBuildTargets(b);
-    const has_android_ndk = b.graph.env_map.get("ANDROID_NDK_HOME") != null or b.graph.env_map.get("ANDROID_NDK_ROOT") != null;
+    const has_android_ndk = b.graph.environ_map.get("ANDROID_NDK_HOME") != null or b.graph.environ_map.get("ANDROID_NDK_ROOT") != null;
 
     const native_step = b.step("native", "Build native JNI library");
     const jni_step = b.step("jni", "Build native library and copy to jniLibs");
@@ -221,7 +271,7 @@ pub fn build(b: *std.Build) void {
         openssl_test_step.dependOn(&ssl.step);
     }
 
-    const fmt_check = b.addFmt(.{ .paths = &.{ "src", "build.zig", "build.zig.zon" } });
+    const fmt_check = b.addFmt(.{ .paths = &.{ b.path("src"), b.path("build.zig"), b.path("build.zig.zon") } });
     const fmt_step = b.step("fmt", "Format Zig files");
     fmt_step.dependOn(&fmt_check.step);
 }

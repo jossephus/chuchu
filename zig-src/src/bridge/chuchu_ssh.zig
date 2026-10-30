@@ -1,18 +1,7 @@
 const std = @import("std");
 
-const c = @cImport({
-    @cInclude("android/log.h");
-    @cInclude("jni.h");
-    @cInclude("libssh2.h");
-    @cInclude("libssh2_sftp.h");
-    @cInclude("sys/socket.h");
-    @cInclude("netdb.h");
-    @cInclude("arpa/inet.h");
-    @cInclude("unistd.h");
-    @cInclude("fcntl.h");
-    @cInclude("errno.h");
-    @cInclude("poll.h");
-});
+const c = @import("c");
+const io = @import("io.zig");
 const ipc = @import("ipc.zig");
 
 const allocator = std.heap.c_allocator;
@@ -67,7 +56,7 @@ fn handleFromSession(session: *NativeSshSession) c.jlong {
 
 fn setError(session: *NativeSshSession, comptime fmt: []const u8, args: anytype) void {
     session.last_error.clearRetainingCapacity();
-    std.fmt.format(session.last_error.writer(allocator), fmt, args) catch return;
+    session.last_error.print(allocator, fmt, args) catch return;
 }
 
 fn setLibssh2Error(session: *NativeSshSession, prefix: []const u8, rc: c_int) void {
@@ -191,7 +180,7 @@ fn trySetChannelEnv(session: *NativeSshSession, channel: *c.LIBSSH2_CHANNEL, nam
 }
 
 fn nowMs() i64 {
-    return std.time.milliTimestamp();
+    return io.nowMs();
 }
 
 fn destroyNativeSshSession(session: *NativeSshSession) void {
@@ -368,7 +357,7 @@ fn connectSocket(host: [:0]const u8, port: u16) !c_int {
     hints.ai_socktype = c.SOCK_STREAM;
 
     var service_buf: [16]u8 = undefined;
-    const service = try std.fmt.bufPrintZ(&service_buf, "{}", .{port});
+    const service = try std.fmt.bufPrintSentinel(&service_buf, "{}", .{port}, 0);
 
     var addr_list: ?*c.struct_addrinfo = null;
     const rc = c.getaddrinfo(host.ptr, service.ptr, &hints, &addr_list);
@@ -1162,7 +1151,7 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeIpcExchang
             ipc.appendMessage(allocator, &response, .Data, bytes) catch {};
         },
         else => {
-            setError(session, "Unsupported IPC tag {}", .{@intFromEnum(frame.header.tag)});
+            setError(session, "Unsupported IPC tag {}", .{@backingInt(frame.header.tag)});
             appendErrorFrame(&response, session, "Unsupported IPC tag");
         },
     }
@@ -1391,15 +1380,15 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeSftpWriteC
     const ptr: [*]const u8 = @ptrCast(data_ptr);
     const sftp_write_idle_limit_ms: i64 = 30_000;
     var written: usize = 0;
-    var idle_since_ms: i64 = std.time.milliTimestamp();
+    var idle_since_ms: i64 = nowMs();
     while (written < @as(usize, @intCast(data_len))) {
         const remaining: usize = @as(usize, @intCast(data_len)) - written;
         const chunk_size: usize = @min(remaining, 32768);
         const rc = c.libssh2_sftp_write(sftp_handle, ptr + written, chunk_size);
         if (rc == c.LIBSSH2_ERROR_EAGAIN or rc == 0) {
             if (waitSocket(session, io_wait_timeout_ms)) {
-                idle_since_ms = std.time.milliTimestamp();
-            } else if (std.time.milliTimestamp() - idle_since_ms > sftp_write_idle_limit_ms) {
+                idle_since_ms = nowMs();
+            } else if (nowMs() - idle_since_ms > sftp_write_idle_limit_ms) {
                 setError(session, "SFTP write stalled (no socket activity for {d}ms)", .{sftp_write_idle_limit_ms});
                 return -1;
             }
@@ -1410,7 +1399,7 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeSftpWriteC
             return -1;
         }
         written += @intCast(rc);
-        idle_since_ms = std.time.milliTimestamp();
+        idle_since_ms = nowMs();
     }
 
     return @intCast(written);
@@ -1423,16 +1412,16 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeSftpCloseW
     const sftp_handle = session.upload_handle orelse return c.JNI_FALSE;
     session.upload_handle = null;
     const close_idle_limit_ms: i64 = 10_000;
-    var idle_since_ms: i64 = std.time.milliTimestamp();
+    var idle_since_ms: i64 = nowMs();
     while (true) {
         const rc = c.libssh2_sftp_close_handle(sftp_handle);
         if (rc == 0) return c.JNI_TRUE;
         if (rc == c.LIBSSH2_ERROR_EAGAIN) {
             if (waitSocket(session, io_wait_timeout_ms)) {
-                idle_since_ms = std.time.milliTimestamp();
+                idle_since_ms = nowMs();
                 continue;
             }
-            if (std.time.milliTimestamp() - idle_since_ms < close_idle_limit_ms) continue;
+            if (nowMs() - idle_since_ms < close_idle_limit_ms) continue;
             setError(session, "SFTP close stalled (no socket activity for {d}ms)", .{close_idle_limit_ms});
             return c.JNI_FALSE;
         }
@@ -1715,11 +1704,11 @@ fn generateEd25519Key(
     out_private_pem: *[]u8,
     out_public_openssh: *[]u8,
 ) !void {
-    const key_pair = Ed25519.KeyPair.generate();
+    const key_pair = Ed25519.KeyPair.generate(io.get());
     const pub_key: [32]u8 = key_pair.public_key.bytes;
     const seed: [32]u8 = key_pair.secret_key.seed();
 
-    const check = std.crypto.random.int(u32);
+    const check = io.randomInt(u32);
 
     // Build private section (plaintext)
     const private_section = try buildPrivateSection(seed, pub_key, comment, check);
@@ -1747,7 +1736,7 @@ fn generateEd25519Key(
         var kdf_opts: std.ArrayListUnmanaged(u8) = .empty;
         defer kdf_opts.deinit(allocator);
         var salt: [openssh_salt_len]u8 = undefined;
-        std.crypto.random.bytes(&salt);
+        io.randomBytes(&salt);
         try sshPutString(&kdf_opts, &salt);
         try sshPutU32(&kdf_opts, openssh_kdf_rounds);
         try sshPutString(&key_data, kdf_opts.items);

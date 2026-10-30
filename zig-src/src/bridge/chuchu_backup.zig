@@ -2,9 +2,8 @@
 
 const std = @import("std");
 
-const c = @cImport({
-    @cInclude("jni.h");
-});
+const c = @import("c");
+const io = @import("io.zig");
 
 const allocator = std.heap.c_allocator;
 
@@ -111,8 +110,8 @@ fn encryptPayload(plaintext: []const u8, passphrase: []const u8) NativeError![]u
 
     var salt: [SALT_SIZE_BYTES]u8 = undefined;
     var iv: [IV_SIZE_BYTES]u8 = undefined;
-    std.crypto.random.bytes(&salt);
-    std.crypto.random.bytes(&iv);
+    io.randomBytes(&salt);
+    io.randomBytes(&iv);
 
     const metadata = buildMetadata(salt, iv);
     var key: [32]u8 = undefined;
