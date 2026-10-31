@@ -43,7 +43,9 @@ pub fn createLibC(
         \\
         \\kernel32_lib_dir=
         \\
-        \\gcc_dir=
+        \\cc_dir={[crt_dir]s}
+        \\
+        \\darwin_sdk_dir=
     ;
 
     const include_dir = b.fmt("{s}/usr/include", .{ndk_sysroot_path});

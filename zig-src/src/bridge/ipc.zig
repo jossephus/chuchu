@@ -25,7 +25,7 @@ fn decodeHeader(data: []const u8) ?Header {
     const len = std.mem.readInt(u32, data[2..6], .little);
     return .{
         .version = data[0],
-        .tag = @enumFromInt(data[1]),
+        .tag = @fromBackingInt(@intCast(data[1])),
         .len = len,
     };
 }
@@ -33,7 +33,7 @@ fn decodeHeader(data: []const u8) ?Header {
 fn encodeHeader(header: Header) [HeaderSize]u8 {
     var out: [HeaderSize]u8 = undefined;
     out[0] = header.version;
-    out[1] = @intFromEnum(header.tag);
+    out[1] = @backingInt(header.tag);
     std.mem.writeInt(u32, out[2..6], header.len, .little);
     return out;
 }

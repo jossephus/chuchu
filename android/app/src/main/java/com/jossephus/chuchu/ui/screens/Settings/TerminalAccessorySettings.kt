@@ -95,6 +95,10 @@ internal fun TerminalSettings(
     onLocalShellEnabledChanged: (Boolean) -> Unit = {},
     keepScreenAwake: Boolean = false,
     onKeepScreenAwakeChanged: (Boolean) -> Unit = {},
+    hideScreenContents: Boolean = false,
+    onHideScreenContentsChanged: (Boolean) -> Unit = {},
+    disableAutocorrect: Boolean = false,
+    onDisableAutocorrectChanged: (Boolean) -> Unit = {},
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
@@ -514,6 +518,75 @@ internal fun TerminalSettings(
                     onCheckedChange = onKeepScreenAwakeChanged,
                 )
             }
+        }
+
+        ChuCard(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .defaultMinSize(minHeight = 48.dp)
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    ChuText("hide screen contents", style = typography.label)
+                    ChuText(
+                        "blocks screenshots and hides the terminal in the app switcher",
+                        style = typography.bodySmall,
+                        color = colors.textMuted,
+                    )
+                }
+                ChuSwitch(
+                    checked = hideScreenContents,
+                    onCheckedChange = onHideScreenContentsChanged,
+                )
+            }
+        }
+
+        DisableAutocorrectSetting(
+            checked = disableAutocorrect,
+            onCheckedChange = onDisableAutocorrectChanged,
+        )
+    }
+}
+
+@Composable
+private fun DisableAutocorrectSetting(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+
+    ChuCard(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .defaultMinSize(minHeight = 48.dp)
+                    .padding(12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                ChuText("disable autocorrect", style = typography.label)
+                ChuText(
+                    "for keyboards that ignore the standard hint; may disable glide typing",
+                    style = typography.bodySmall,
+                    color = colors.textMuted,
+                )
+            }
+            ChuSwitch(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+            )
         }
     }
 }
