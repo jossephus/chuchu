@@ -825,6 +825,7 @@ data class MultiplexerUiState(
     val preflightError: String? = null,
     val preflightLoading: Boolean = false,
     val preflightHostLabel: String? = null,
+    val duplicateLoading: Boolean = false,
     val sessions: List<RemoteMultiplexerSession> = emptyList(),
     val sessionsLoading: Boolean = false,
     val sessionsError: String? = null,

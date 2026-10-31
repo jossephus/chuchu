@@ -2,11 +2,8 @@ const std = @import("std");
 const ghostty = @import("ghostty-vt");
 const zignal_png = @import("zignal_png.zig");
 
-const c = @cImport({
-    @cInclude("jni.h");
-    @cInclude("android/log.h");
-    @cInclude("chuchu_jni_internal.h");
-});
+const c = @import("c");
+const jni_io = @import("io.zig");
 
 const allocator = std.heap.c_allocator;
 const LOG_TAG = "ChuKittyNative";
@@ -33,7 +30,9 @@ const verbose_snapshot_perf_logs = false;
 //      long-press drag gestures to the app instead of starting a client-side
 //      grid selection. This is what lets tmux/zellij perform their own
 //      pane-scoped selection.)
-const SNAPSHOT_HEADER_I32_COUNT = 14;
+//  14  cursor_style (the visual shape the app requested via DECSCUSR:
+//      0 = block, 1 = bar, 2 = underline, 3 = block_hollow)
+const SNAPSHOT_HEADER_I32_COUNT = 15;
 const SNAPSHOT_CELL_SIZE_BYTES = 11;
 // Flag bit set on a cell whose codepoint has additional grapheme codepoints
 // in the extras section.
@@ -111,6 +110,7 @@ fn appHandlesSelectionDrag(event: anytype) bool {
 }
 
 const ChuchuTerminal = struct {
+    io: std.Io,
     terminal: ghostty.Terminal,
     render_state: ghostty.RenderState = .empty,
     stream_handler: ChuchuStreamHandler = undefined,
@@ -134,10 +134,10 @@ const ChuchuTerminal = struct {
     clipboard_len: usize = 0,
     clipboard_dirty: bool = false,
     bell_count: u32 = 0,
-    snapshot_buffer: std.ArrayListUnmanaged(u8) = .empty,
-    snapshot_extras_scratch: std.ArrayListUnmanaged(u32) = .empty,
-    image_snapshot_buffer: std.ArrayListUnmanaged(u8) = .empty,
-    pty_write_buffer: std.ArrayListUnmanaged(u8) = .empty,
+    snapshot_buffer: std.ArrayList(u8) = .empty,
+    snapshot_extras_scratch: std.ArrayList(u32) = .empty,
+    image_snapshot_buffer: std.ArrayList(u8) = .empty,
+    pty_write_buffer: std.ArrayList(u8) = .empty,
     pty_write_len: usize = 0,
     snapshot_perf_calls: u64 = 0,
     snapshot_perf_total_ns: u64 = 0,
@@ -282,7 +282,7 @@ fn maybeLogSnapshotPerf(
     terminal.snapshot_perf_calls += 1;
     terminal.snapshot_perf_total_ns +%= total_u64;
 
-    const now: i64 = @intCast(std.time.nanoTimestamp());
+    const now: i64 = @intCast(jni_io.nowNs(terminal.io));
     const slow = total_ns >= 8 * std.time.ns_per_ms or update_ns >= 4 * std.time.ns_per_ms or build_ns >= 6 * std.time.ns_per_ms;
     const interval_elapsed = now - terminal.snapshot_perf_last_log_ns >= std.time.ns_per_s;
     if (!slow and !interval_elapsed) return;
@@ -325,7 +325,7 @@ fn logKittyState(stage: []const u8, terminal: *ChuchuTerminal) void {
     );
 }
 
-fn ensureListSize(list: *std.ArrayListUnmanaged(u8), size_needed: usize) ?[*]u8 {
+fn ensureListSize(list: *std.ArrayList(u8), size_needed: usize) ?[*]u8 {
     list.ensureTotalCapacityPrecise(allocator, size_needed) catch return null;
     list.items.len = size_needed;
     return list.items.ptr;
@@ -394,7 +394,7 @@ fn updateMetadata(terminal: *ChuchuTerminal) void {
     _ = updateString(&terminal.pwd, &terminal.pwd_len, &terminal.pwd_dirty, terminal.terminal.getPwd());
 }
 
-fn chuchuWritePty(handler: *ghostty.TerminalStream.Handler, data: [:0]const u8) void {
+fn chuchuWritePty(handler: *ghostty.TerminalStream.Handler, data: []const u8) void {
     const terminal = terminalFromHandler(handler);
     appendPtyWrite(terminal, data);
 }
@@ -469,28 +469,36 @@ export fn update_render_state(terminal: ?*ChuchuTerminal) callconv(.c) void {
     updateMetadata(terminal.?);
 }
 
+fn kittyTempDir() []const u8 {
+    const tmpdir = c.getenv("TMPDIR");
+    if (tmpdir != null) return std.mem.span(tmpdir);
+    return "/tmp";
+}
+
 export fn chuchu_create_terminal(cols: c.jint, rows: c.jint, max_scrollback: c.jint) callconv(.c) c.jlong {
     ghostty.sys.decode_png = chuchuDecodePng;
 
+    const io = jni_io.get();
     const terminal = allocator.create(ChuchuTerminal) catch return 0;
     errdefer allocator.destroy(terminal);
 
     const init_cols: u16 = @intCast(clampI32(cols, 1, 80));
     const init_rows: u16 = @intCast(clampI32(rows, 1, 24));
-    var inner = ghostty.Terminal.init(allocator, .{
+    var inner = ghostty.Terminal.init(io, allocator, .{
         .cols = init_cols,
         .rows = init_rows,
-        .max_scrollback = @intCast(clampI32(max_scrollback, 0, 10000)),
+        .max_scrollback_bytes = @intCast(clampI32(max_scrollback, 0, 10000)),
         .kitty_image_storage_limit = 64 * 1024 * 1024,
         .kitty_image_loading_limits = .{
             .file = false,
-            .temporary_file = true,
+            .temporary_file = .{ .enabled = .{ .directory = kittyTempDir() } },
             .shared_memory = true,
         },
     }) catch return 0;
     errdefer inner.deinit(allocator);
 
     terminal.* = .{
+        .io = io,
         .terminal = inner,
         .stream_handler = undefined,
         .stream = undefined,
@@ -501,21 +509,19 @@ export fn chuchu_create_terminal(cols: c.jint, rows: c.jint, max_scrollback: c.j
     };
 
     var handler = terminal.terminal.vtHandler();
-    handler.effects = .{
-        .write_pty = chuchuWritePty,
-        .bell = chuchuBell,
-        .color_scheme = chuchuColorScheme,
-        .device_attributes = chuchuDeviceAttributes,
-        .enquiry = null,
-        .size = chuchuSize,
-        .title_changed = chuchuTitleChanged,
-        .xtversion = chuchuXtversion,
-    };
+    handler.effects = .readonly;
+    handler.effects.write_pty = chuchuWritePty;
+    handler.effects.bell = chuchuBell;
+    handler.effects.color_scheme = chuchuColorScheme;
+    handler.effects.device_attributes = chuchuDeviceAttributes;
+    handler.effects.size = chuchuSize;
+    handler.effects.title_changed = chuchuTitleChanged;
+    handler.effects.xtversion = chuchuXtversion;
     terminal.stream_handler = .{
         .owner = terminal,
         .inner = handler,
     };
-    terminal.stream = ChuchuTerminalStream.initAlloc(allocator, &terminal.stream_handler);
+    terminal.stream = .init(.{ .handler = &terminal.stream_handler, .allocator = allocator });
     enableGraphemeClusterMode(terminal);
 
     update_render_state(terminal);
@@ -662,8 +668,8 @@ export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeSetMous
 export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeEncodeKey(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, key: c.jint, codepoint: c.jint, mods: c.jint, action: c.jint, utf8_jstring: c.jstring) callconv(.c) c.jbyteArray {
     _ = thiz;
     const terminal = chuchuFromHandle(handle) orelse return jniEmptyByteArray(env);
-    const action_value: ghostty.input.KeyAction = std.meta.intToEnum(ghostty.input.KeyAction, action) catch return jniEmptyByteArray(env);
-    const key_value: ghostty.input.Key = std.meta.intToEnum(ghostty.input.Key, key) catch return jniEmptyByteArray(env);
+    const action_value: ghostty.input.KeyAction = std.enums.fromInt(ghostty.input.KeyAction, action) orelse return jniEmptyByteArray(env);
+    const key_value: ghostty.input.Key = std.enums.fromInt(ghostty.input.Key, key) orelse return jniEmptyByteArray(env);
 
     // Convert Java string to Zig slice for Ghostty's utf8 field.
     // For printable characters this allows the legacy encoding path to emit
@@ -733,8 +739,8 @@ export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeEncodeM
     var writer: std.Io.Writer = .fixed(&buf);
     var last_cell = terminal.last_mouse_cell;
     const event: ghostty.input.MouseEncodeEvent = .{
-        .action = @enumFromInt(action),
-        .button = if (button <= 0) null else @enumFromInt(button),
+        .action = @fromBackingInt(@intCast(action)),
+        .button = if (button <= 0) null else @fromBackingInt(@intCast(button)),
         .mods = @bitCast(@as(ghostty.input.KeyMods.Backing, @intCast(mods))),
         .pos = .{ .x = x, .y = y },
     };
@@ -768,7 +774,7 @@ export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeSetDefa
     var fg_vals: [3]u8 = .{ 0, 0, 0 };
     var bg_vals: [3]u8 = .{ 0, 0, 0 };
     var cursor_vals: [3]u8 = .{ 0, 0, 0 };
-    var palette_vals: [256 * 3]u8 = [_]u8{0} ** (256 * 3);
+    var palette_vals: [256 * 3]u8 = @splat(0);
     var has_fg = false;
     var has_bg = false;
     var has_cursor = false;
@@ -868,9 +874,9 @@ export fn chuchu_build_text_snapshot(handle: c.jlong, out_size: [*c]usize) callc
     const terminal = chuchuFromHandle(handle) orelse return null;
     if (out_size == null) return null;
 
-    const t_start = std.time.nanoTimestamp();
+    const t_start = jni_io.nowNs(terminal.io);
     update_render_state(terminal);
-    const t_after_update = std.time.nanoTimestamp();
+    const t_after_update = jni_io.nowNs(terminal.io);
 
     const cols: usize = terminal.render_state.cols;
     const rows: usize = terminal.render_state.rows;
@@ -907,6 +913,13 @@ export fn chuchu_build_text_snapshot(handle: c.jlong, out_size: [*c]usize) callc
     // its own long-press selection behavior.
     const app_handles_selection_drag: i32 = if (appHandlesSelectionDrag(terminal.terminal.flags.mouse_event)) 1 else 0;
     writeIntLe(i32, buffer[0..base_total_size], 52, app_handles_selection_drag);
+    const cursor_style: i32 = switch (terminal.render_state.cursor.visual_style) {
+        .block => 0,
+        .bar => 1,
+        .underline => 2,
+        .block_hollow => 3,
+    };
+    writeIntLe(i32, buffer[0..base_total_size], 56, cursor_style);
 
     terminal.snapshot_extras_scratch.clearRetainingCapacity();
     var extras_records: usize = 0;
@@ -977,7 +990,7 @@ export fn chuchu_build_text_snapshot(handle: c.jlong, out_size: [*c]usize) callc
     if (extras_records == 0) {
         out_size.* = base_total_size;
 
-        const t_end = std.time.nanoTimestamp();
+        const t_end = jni_io.nowNs(terminal.io);
         maybeLogSnapshotPerf(
             terminal,
             cols,
@@ -1018,7 +1031,7 @@ export fn chuchu_build_text_snapshot(handle: c.jlong, out_size: [*c]usize) callc
 
     out_size.* = total_size;
 
-    const t_end = std.time.nanoTimestamp();
+    const t_end = jni_io.nowNs(terminal.io);
     maybeLogSnapshotPerf(
         terminal,
         cols,
@@ -1033,38 +1046,15 @@ export fn chuchu_build_text_snapshot(handle: c.jlong, out_size: [*c]usize) callc
     return buffer;
 }
 
-fn placementViewportPos(
-    terminal: *ChuchuTerminal,
-    placement: ghostty.kitty.graphics.ImageStorage.Placement,
-    image: ghostty.kitty.graphics.Image,
-) ?struct { col: i32, row: i32 } {
-    const pin = switch (placement.location) {
-        .pin => |p| p,
-        .virtual => return null,
-    };
-
-    const pages = &terminal.terminal.screens.active.pages;
-    const pin_screen = pages.pointFromPin(.screen, pin.*) orelse return null;
-    const viewport_top = pages.pointFromPin(.screen, pages.getTopLeft(.viewport)) orelse return null;
-    const vp_row: i32 = @as(i32, @intCast(pin_screen.screen.y)) - @as(i32, @intCast(viewport_top.screen.y));
-    const vp_col: i32 = @as(i32, @intCast(pin_screen.screen.x)) - @as(i32, @intCast(viewport_top.screen.x));
-    const grid_size = placement.gridSize(image, &terminal.terminal);
-    if (vp_row + @as(i32, @intCast(grid_size.rows)) <= 0 or vp_row >= @as(i32, @intCast(terminal.terminal.rows))) {
-        return null;
-    }
-    return .{ .col = vp_col, .row = vp_row };
-}
-
-fn placementSourceRect(
-    placement: ghostty.kitty.graphics.ImageStorage.Placement,
-    image_w: u32,
-    image_h: u32,
-) struct { x: u32, y: u32, width: u32, height: u32 } {
-    const x = @min(placement.source_x, image_w);
-    const y = @min(placement.source_y, image_h);
-    const w = @min(if (placement.source_width > 0) placement.source_width else image_w, image_w - x);
-    const h = @min(if (placement.source_height > 0) placement.source_height else image_h, image_h - y);
-    return .{ .x = x, .y = y, .width = w, .height = h };
+fn drawsBefore(
+    _: void,
+    a: ghostty.RenderState.ImagePlacement,
+    b: ghostty.RenderState.ImagePlacement,
+) bool {
+    const a_layer = @backingInt(a.layer);
+    const b_layer = @backingInt(b.layer);
+    if (a_layer != b_layer) return a_layer < b_layer;
+    return a.z < b.z;
 }
 
 fn allocRgba(pixel_count: usize) ?[]u8 {
@@ -1072,8 +1062,9 @@ fn allocRgba(pixel_count: usize) ?[]u8 {
 }
 
 fn prepareImageData(image_id: u32, image: ghostty.kitty.graphics.Image) ?PreparedImageData {
-    var data_ptr: [*c]const u8 = if (image.data.len == 0) null else image.data.ptr;
-    var data_len: usize = image.data.len;
+    const bytes = image.renderData().bytes() orelse return null;
+    var data_ptr: [*c]const u8 = if (bytes.len == 0) null else bytes.ptr;
+    var data_len: usize = bytes.len;
     var img_w = image.width;
     var img_h = image.height;
     var free_mode: ImageFreeMode = .none;
@@ -1196,53 +1187,34 @@ export fn chuchu_build_image_snapshot(handle: c.jlong, out_size: [*c]usize) call
     if (out_size == null) return null;
     logKittyState("image_snapshot_begin", terminal);
 
+    update_render_state(terminal);
+
+    var found: [MAX_KITTY_IMAGES]ghostty.RenderState.ImagePlacement = undefined;
+    var found_count: usize = 0;
+    var it = terminal.render_state.imagePlacementIterator();
+    while (found_count < MAX_KITTY_IMAGES) {
+        found[found_count] = it.next() orelse break;
+        found_count += 1;
+    }
+    std.sort.insertion(ghostty.RenderState.ImagePlacement, found[0..found_count], {}, drawsBefore);
+
+    const storage = &terminal.terminal.screens.active.kitty_images;
     var placements: [MAX_KITTY_IMAGES]PlacementInfo = undefined;
     var count: usize = 0;
-    var has_virtual = false;
-    var it = terminal.terminal.screens.active.kitty_images.placements.iterator();
-    while (it.next()) |entry| {
-        if (count >= MAX_KITTY_IMAGES) break;
-
-        const placement = entry.value_ptr.*;
-        if (placement.location == .virtual) {
-            has_virtual = true;
-            continue;
-        }
-
-        const image = terminal.terminal.screens.active.kitty_images.imageById(entry.key_ptr.image_id) orelse continue;
-        const viewport = placementViewportPos(terminal, placement, image) orelse {
-            logWarn(
-                "kitty placement skipped image_id={} reason=no_viewport location_virtual={}",
-                .{ entry.key_ptr.image_id, placement.location == .virtual },
-            );
-            continue;
-        };
-        const prepared = prepareImageData(entry.key_ptr.image_id, image) orelse continue;
-        const rect = placementSourceRect(placement, prepared.img_w, prepared.img_h);
-        const orig_grid_size = placement.gridSize(image, &terminal.terminal);
-        var grid_size = orig_grid_size;
-        if (orig_grid_size.cols == 0 or orig_grid_size.rows == 0) {
-            const cell_w: u32 = @max(terminal.cell_width, 1);
-            const cell_h: u32 = @max(terminal.cell_height, 1);
-            const width_with_offset: u32 = rect.width + placement.x_offset;
-            const height_with_offset: u32 = rect.height + placement.y_offset;
-            grid_size = .{
-                .cols = @max(@as(u32, 1), (width_with_offset + cell_w - 1) / cell_w),
-                .rows = @max(@as(u32, 1), (height_with_offset + cell_h - 1) / cell_h),
-            };
-        }
+    for (found[0..found_count]) |p| {
+        const image = storage.imageById(p.image_id) orelse continue;
+        const prepared = prepareImageData(p.image_id, image) orelse continue;
         placements[count] = .{
-            .cell_col = viewport.col,
-            .cell_row = viewport.row,
-            .cell_x_offset = placement.x_offset,
-            .cell_y_offset = placement.y_offset,
-            // Direct placement: image fills its whole cell grid (no aspect-fit).
-            .dest_w = grid_size.cols * terminal.cell_width,
-            .dest_h = grid_size.rows * terminal.cell_height,
-            .src_x = rect.x,
-            .src_y = rect.y,
-            .src_w = rect.width,
-            .src_h = rect.height,
+            .cell_col = p.x,
+            .cell_row = p.y,
+            .cell_x_offset = p.offset_x,
+            .cell_y_offset = p.offset_y,
+            .dest_w = p.width,
+            .dest_h = p.height,
+            .src_x = p.source_x,
+            .src_y = p.source_y,
+            .src_w = p.source_width,
+            .src_h = p.source_height,
             .img_w = prepared.img_w,
             .img_h = prepared.img_h,
             .data_ptr = prepared.data_ptr,
@@ -1250,55 +1222,6 @@ export fn chuchu_build_image_snapshot(handle: c.jlong, out_size: [*c]usize) call
             .free_mode = prepared.free_mode,
         };
         count += 1;
-    }
-
-    if (has_virtual and count < MAX_KITTY_IMAGES) {
-        const pages = &terminal.terminal.screens.active.pages;
-        const top = pages.getTopLeft(.viewport);
-        const bot = pages.getBottomRight(.viewport) orelse top;
-        var virtual_it = ghostty.kitty.graphics.unicode.placementIterator(top, bot);
-        while (count < MAX_KITTY_IMAGES) {
-            const virtual_placement = virtual_it.next() orelse break;
-            const image = terminal.terminal.screens.active.kitty_images.imageById(virtual_placement.image_id) orelse continue;
-            const rendered = virtual_placement.renderPlacement(
-                &terminal.terminal.screens.active.kitty_images,
-                &image,
-                terminal.cell_width,
-                terminal.cell_height,
-            ) catch |err| {
-                logWarn("kitty virtual placement skipped image_id={} reason=render_failed err={}", .{ virtual_placement.image_id, err });
-                continue;
-            };
-            if (rendered.dest_width == 0 or rendered.dest_height == 0) continue;
-
-            const viewport = pages.pointFromPin(.viewport, rendered.top_left) orelse {
-                logWarn("kitty virtual placement skipped image_id={} reason=no_viewport", .{virtual_placement.image_id});
-                continue;
-            };
-
-            const prepared = prepareImageData(virtual_placement.image_id, image) orelse continue;
-            placements[count] = .{
-                .cell_col = @intCast(viewport.viewport.x),
-                .cell_row = @intCast(viewport.viewport.y),
-                // Virtual placement: libghostty aspect-fits the image into the
-                // grid and centers it via offset_x/offset_y; dest_width/height is
-                // the resulting scaled size the offsets are measured against.
-                .cell_x_offset = rendered.offset_x,
-                .cell_y_offset = rendered.offset_y,
-                .dest_w = rendered.dest_width,
-                .dest_h = rendered.dest_height,
-                .src_x = rendered.source_x,
-                .src_y = rendered.source_y,
-                .src_w = rendered.source_width,
-                .src_h = rendered.source_height,
-                .img_w = prepared.img_w,
-                .img_h = prepared.img_h,
-                .data_ptr = prepared.data_ptr,
-                .data_len = prepared.data_len,
-                .free_mode = prepared.free_mode,
-            };
-            count += 1;
-        }
     }
 
     if (count == 0) {
@@ -1412,8 +1335,11 @@ export fn chuchu_apply_default_colors(handle: c.jlong, has_fg: bool, fg: [*c]con
             const off = i * 3;
             colors[i] = .{ .r = palette[off], .g = palette[off + 1], .b = palette[off + 2] };
         }
-        terminal.terminal.colors.palette = .init(colors);
+        const next = ghostty.color.DynamicPalette.init(allocator, colors) catch return;
+        terminal.terminal.colors.palette.deinit(allocator);
+        terminal.terminal.colors.palette = next;
     } else {
+        terminal.terminal.colors.palette.deinit(allocator);
         terminal.terminal.colors.palette = .default;
     }
 
@@ -1453,15 +1379,17 @@ export fn chuchu_resize(handle: c.jlong, cols: c.jint, rows: c.jint, cell_width:
     const terminal = chuchuFromHandle(handle) orelse return;
     const new_cols: u16 = @intCast(clampI32(cols, 1, terminal.cols));
     const new_rows: u16 = @intCast(clampI32(rows, 1, terminal.rows));
-    terminal.terminal.resize(allocator, new_cols, new_rows) catch return;
+    const new_cell_width: u32 = @intCast(clampI32(cell_width, 1, 1));
+    const new_cell_height: u32 = @intCast(clampI32(cell_height, 1, 1));
+    terminal.terminal.resize(allocator, .{
+        .cols = new_cols,
+        .rows = new_rows,
+        .cell_size_px = .{ .width = new_cell_width, .height = new_cell_height },
+    }) catch return;
     terminal.cols = new_cols;
     terminal.rows = new_rows;
-    terminal.cell_width = @intCast(clampI32(cell_width, 1, 1));
-    terminal.cell_height = @intCast(clampI32(cell_height, 1, 1));
-    terminal.terminal.width_px = @as(u32, new_cols) * terminal.cell_width;
-    terminal.terminal.height_px = @as(u32, new_rows) * terminal.cell_height;
-
-    terminal.terminal.modes.set(.synchronized_output, false);
+    terminal.cell_width = new_cell_width;
+    terminal.cell_height = new_cell_height;
 
     // Emit a DEC 2048 in-band size report on resize. TUIs like Textual disable
     // their SIGWINCH fallback once mode 2048 is on and rely on this report.
@@ -1517,7 +1445,7 @@ export fn chuchu_scroll(handle: c.jlong, delta: c.jint, x: c.jfloat, y: c.jfloat
         while (i < scroll_count) : (i += 1) {
             const press_event: ghostty.input.MouseEncodeEvent = .{
                 .action = .press,
-                .button = @enumFromInt(button),
+                .button = @fromBackingInt(@intCast(button)),
                 .mods = .{},
                 .pos = .{ .x = scroll_x, .y = scroll_y },
             };
@@ -1525,7 +1453,7 @@ export fn chuchu_scroll(handle: c.jlong, delta: c.jint, x: c.jfloat, y: c.jfloat
 
             const release_event: ghostty.input.MouseEncodeEvent = .{
                 .action = .release,
-                .button = @enumFromInt(button),
+                .button = @fromBackingInt(@intCast(button)),
                 .mods = .{},
                 .pos = .{ .x = scroll_x, .y = scroll_y },
             };
@@ -1552,8 +1480,11 @@ export fn chuchu_scroll_to_active(handle: c.jlong) callconv(.c) void {
 }
 
 const default_word_boundaries: [20]u21 = .{
-    0,   ' ', '\t', '\'', '"', '│', '`', '|', ':', ';', ',',
-    '(', ')', '[',  ']',  '{', '}',   '<', '>', '$',
+    0,   ' ', '\t', '\'', '"',
+    '│',
+    '`', '|', ':',  ';',  ',',
+    '(', ')', '[',  ']',  '{',
+    '}', '<', '>',  '$',
 };
 
 fn viewportCellToPin(terminal: *ChuchuTerminal, vp_x: u32, vp_y: u32) ?ghostty.Pin {

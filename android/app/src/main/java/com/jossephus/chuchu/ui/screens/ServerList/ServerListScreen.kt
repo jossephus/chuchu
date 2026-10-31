@@ -54,7 +54,9 @@ import com.jossephus.chuchu.service.terminal.TerminalSessionRepository
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuCard
+import com.jossephus.chuchu.ui.components.ChuDialog
 import com.jossephus.chuchu.ui.components.ChuText
+import com.jossephus.chuchu.ui.components.ChuTextField
 import com.jossephus.chuchu.ui.components.TuiBadge
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
@@ -81,8 +83,10 @@ fun ServerListScreen(
     val hasOpenLocalShell = openTabs.any { it.spec.transport == Transport.LocalShell }
 
     var selectedHostId by remember { mutableStateOf<Long?>(null) }
+    var pendingDisconnectHostId by remember { mutableStateOf<Long?>(null) }
     var pendingConnectHostId by remember { mutableStateOf<Long?>(null) }
     var pendingLocalShell by remember { mutableStateOf(false) }
+    var isSearchVisible by remember { mutableStateOf(false) }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) {
@@ -142,13 +146,40 @@ fun ServerListScreen(
                     ChuText("chuchu", style = typography.headline)
                 }
 
-                ChuButton(
-                    onClick = onOpenSettings,
-                    variant = ChuButtonVariant.Outlined,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                ) {
-                    ChuText("settings", style = typography.label, color = colors.textSecondary)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (!isSearchVisible && hosts.isNotEmpty()) {
+                        ChuButton(
+                            onClick = { isSearchVisible = true },
+                            variant = ChuButtonVariant.Outlined,
+                            bracketed = true,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                        ) {
+                            ChuText("filter", style = typography.label, color = colors.textSecondary)
+                        }
+                    }
+                    ChuButton(
+                        onClick = onOpenSettings,
+                        variant = ChuButtonVariant.Outlined,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    ) {
+                        ChuText("settings", style = typography.label, color = colors.textSecondary)
+                    }
                 }
+            }
+
+            if (isSearchVisible) {
+                ChuTextField(
+                    value = searchQuery,
+                    onValueChange = { value ->
+                        onSearchChange(value)
+                        if (value.isBlank()) isSearchVisible = false
+                    },
+                    label = "",
+                    placeholder = "filter hosts",
+                    singleLine = true,
+                    showLabel = false,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
 
             SectionHeader("HOSTS")
@@ -163,7 +194,17 @@ fun ServerListScreen(
                     }
                 }
                 if (hosts.isEmpty()) {
-                    item(key = "empty") { EmptyState() }
+                    item(key = "empty") {
+                        if (searchQuery.isBlank()) {
+                            EmptyState()
+                        } else {
+                            ChuText(
+                                "no hosts match",
+                                style = typography.body,
+                                color = colors.textMuted,
+                            )
+                        }
+                    }
                 } else {
                     items(hosts, key = { it.id }) { host ->
                         val isConnected = host.id in connectedHostIds
@@ -200,13 +241,7 @@ fun ServerListScreen(
                                 }
                             },
                             onDisconnect = {
-                                selectedHostId = null
-                                openTabs
-                                    .asSequence()
-                                    .filter { it.spec.hostId == host.id }
-                                    .map { it.id }
-                                    .toList()
-                                    .forEach(sessionRepo::closeTab)
+                                pendingDisconnectHostId = host.id
                             },
                         )
                     }
@@ -227,6 +262,33 @@ fun ServerListScreen(
             ChuText("+ add server", style = typography.label, color = colors.onAccent)
         }
 
+        val pendingDisconnectHost = hosts.firstOrNull { it.id == pendingDisconnectHostId }
+        if (pendingDisconnectHost != null) {
+            val sessionCount = openTabs.count { it.spec.hostId == pendingDisconnectHost.id }
+            ChuDialog(
+                title = "Disconnect ${pendingDisconnectHost.name}?",
+                confirmLabel = "Disconnect",
+                dismissLabel = "Cancel",
+                onConfirm = {
+                    selectedHostId = null
+                    openTabs
+                        .asSequence()
+                        .filter { it.spec.hostId == pendingDisconnectHost.id }
+                        .map { it.id }
+                        .toList()
+                        .forEach(sessionRepo::closeTab)
+                    pendingDisconnectHostId = null
+                },
+                onDismiss = { pendingDisconnectHostId = null },
+            ) {
+                val sessionLabel = if (sessionCount == 1) "session" else "sessions"
+                ChuText(
+                    "This closes $sessionCount $sessionLabel on this host.",
+                    style = typography.body,
+                    color = colors.warning,
+                )
+            }
+        }
     }
 }
 
@@ -425,7 +487,9 @@ private fun HostCard(
                             onDragEnd = {
                                 if (swipeOffsetX.value <= -disconnectThresholdPx) {
                                     onDisconnect()
-                                    scope.launch { swipeOffsetX.snapTo(0f) }
+                                    scope.launch {
+                                        swipeOffsetX.animateTo(0f, animationSpec = tween(140))
+                                    }
                                 } else {
                                     scope.launch {
                                         swipeOffsetX.animateTo(0f, animationSpec = tween(140))
