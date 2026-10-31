@@ -166,18 +166,6 @@ fun AddServerScreen(vm: AddServerViewModel, onBack: () -> Unit, modifier: Modifi
             )
         }
 
-        if (form.transport != Transport.Mosh) {
-            SectionDivider()
-            JumpHostSection(
-                selectedId = form.jumpHostId,
-                candidates =
-                    jumpHostCandidates.filter {
-                        it.canServeAsJumpHostFor(form.id) || it.id == form.jumpHostId
-                    },
-                onSelect = vm::updateJumpHost,
-            )
-        }
-
         SectionDivider()
 
         SectionHeader("AUTHENTICATION")
@@ -302,6 +290,17 @@ fun AddServerScreen(vm: AddServerViewModel, onBack: () -> Unit, modifier: Modifi
             }
             SectionDivider()
             MultiplexerSection(selected = form.multiplexer, onSelect = vm::updateMultiplexer)
+            if (form.transport != Transport.Mosh) {
+                SectionDivider()
+                JumpHostSection(
+                    selectedId = form.jumpHostId,
+                    candidates =
+                        jumpHostCandidates.filter {
+                            it.canServeAsJumpHostFor(form.id) || it.id == form.jumpHostId
+                        },
+                    onSelect = vm::updateJumpHost,
+                )
+            }
             SectionDivider()
             PostConnectActionSection(
                 command = form.postConnectCommand,
