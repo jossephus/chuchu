@@ -4,6 +4,7 @@ import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.HostProfile
 import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.Transport
+import com.jossephus.chuchu.service.ssh.SshJumpHost
 
 data class TabSpec(
     val hostId: Long? = null,
@@ -21,6 +22,7 @@ data class TabSpec(
     val multiplexer: MultiplexerType? = null,
     val multiplexerSessionName: String? = null,
     val multiplexerCreateIfMissing: Boolean = true,
+    val jumpHost: SshJumpHost? = null,
 ) {
     val sessionKey: String
         get() =
@@ -57,6 +59,7 @@ data class TabSpec(
             publicKeyOpenSsh: String = "",
             privateKeyPem: String = "",
             keyPassphrase: String = "",
+            jumpHost: SshJumpHost? = null,
         ): TabSpec = TabSpec(
             hostId = host.id,
             displayName = host.name,
@@ -75,6 +78,7 @@ data class TabSpec(
                     host.transport != Transport.Mosh &&
                     host.transport != Transport.LocalShell
             },
+            jumpHost = jumpHost,
         )
     }
 }

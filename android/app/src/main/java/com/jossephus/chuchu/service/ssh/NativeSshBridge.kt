@@ -29,6 +29,14 @@ class NativeSshBridge {
         ipv4Only: Boolean,
     ): Boolean
 
+    external fun nativeConnectViaJump(
+        handle: Long,
+        jumpHandle: Long,
+        host: String,
+        port: Int,
+        username: String,
+    ): Boolean
+
     external fun nativeGetLastError(handle: Long): String?
 
     external fun nativeGetPeerAddress(handle: Long): String?
