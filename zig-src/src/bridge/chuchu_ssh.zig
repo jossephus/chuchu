@@ -39,7 +39,7 @@ const NativeSshSession = struct {
     hostkey_len: usize = 0,
     hostkey_type: c_int = 0,
     hostkey_copy: ?[]u8 = null,
-    last_error: std.ArrayListUnmanaged(u8) = .empty,
+    last_error: std.ArrayList(u8) = .empty,
     empty_reads: u32 = 0,
 };
 
@@ -804,7 +804,7 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeAuthentica
         var it = std.mem.tokenizeAny(u8, trimmed_public, " \t\r\n");
         const t0 = it.next() orelse break :blk null;
         const t1 = it.next() orelse break :blk null;
-        break :blk std.fmt.allocPrint(allocator, "{s} {s}", .{ t0, t1 }) catch null;
+        break :blk allocator.print("{s} {s}", .{ t0, t1 }) catch null;
     };
     defer if (compact_public) |pk| allocator.free(pk);
 
@@ -1239,7 +1239,7 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeSftpListDi
             const size: u64 = if ((attrs.flags & c.LIBSSH2_SFTP_ATTR_SIZE) != 0) @intCast(attrs.filesize) else 0;
             const mtime: u64 = if ((attrs.flags & c.LIBSSH2_SFTP_ATTR_ACMODTIME) != 0) @intCast(attrs.mtime) else 0;
             const perms: u64 = if ((attrs.flags & c.LIBSSH2_SFTP_ATTR_PERMISSIONS) != 0) @intCast(attrs.permissions) else 0;
-            const line = std.fmt.allocPrint(allocator, "{s}\t{s}\t{}\t{}\t{}", .{ name, kind, size, mtime, perms }) catch {
+            const line = allocator.print("{s}\t{s}\t{}\t{}\t{}", .{ name, kind, size, mtime, perms }) catch {
                 setError(session, "SFTP list allocation failed after {} entries", .{names.items.len});
                 read_failed = true;
                 break;
@@ -1537,13 +1537,13 @@ const openssh_pem_end = "-----END OPENSSH PRIVATE KEY-----";
 const aes_block_len = 16;
 
 /// Append a uint32 big-endian to an ArrayList.
-fn sshPutU32(list: *std.ArrayListUnmanaged(u8), value: u32) !void {
+fn sshPutU32(list: *std.ArrayList(u8), value: u32) !void {
     const bytes: [4]u8 = @bitCast(std.mem.nativeToBig(u32, value));
     try list.appendSlice(allocator, &bytes);
 }
 
 /// Append a length-prefixed SSH string to an ArrayList.
-fn sshPutString(list: *std.ArrayListUnmanaged(u8), data: []const u8) !void {
+fn sshPutString(list: *std.ArrayList(u8), data: []const u8) !void {
     try sshPutU32(list, @intCast(data.len));
     try list.appendSlice(allocator, data);
 }
@@ -1565,7 +1565,7 @@ fn sshGetString(data: []const u8, pos: *usize) ![]const u8 {
 
 /// Build the public key blob: string "ssh-ed25519" + string <32-byte pubkey>
 fn buildPublicKeyBlob(pub_key: [32]u8) ![]u8 {
-    var blob: std.ArrayListUnmanaged(u8) = .empty;
+    var blob: std.ArrayList(u8) = .empty;
     errdefer blob.deinit(allocator);
     try sshPutString(&blob, "ssh-ed25519");
     try sshPutString(&blob, &pub_key);
@@ -1579,7 +1579,7 @@ fn buildPrivateSection(
     comment: []const u8,
     check: u32,
 ) ![]u8 {
-    var section: std.ArrayListUnmanaged(u8) = .empty;
+    var section: std.ArrayList(u8) = .empty;
     errdefer section.deinit(allocator);
 
     // Two identical check integers
@@ -1658,7 +1658,7 @@ fn decodePem(pem: []const u8, begin: []const u8, end: []const u8) ![]u8 {
     const body_start = begin_idx + begin.len;
     const end_idx = std.mem.indexOfPos(u8, pem, body_start, end) orelse return error.NotPem;
 
-    var cleaned: std.ArrayListUnmanaged(u8) = .empty;
+    var cleaned: std.ArrayList(u8) = .empty;
     defer cleaned.deinit(allocator);
     for (pem[body_start..end_idx]) |ch| {
         if (!std.ascii.isWhitespace(ch)) try cleaned.append(allocator, ch);
@@ -1719,7 +1719,7 @@ fn generateEd25519Key(
     defer allocator.free(pub_blob);
 
     // Assemble the full openssh-key-v1 binary
-    var key_data: std.ArrayListUnmanaged(u8) = .empty;
+    var key_data: std.ArrayList(u8) = .empty;
     defer key_data.deinit(allocator);
 
     // Magic
@@ -1733,7 +1733,7 @@ fn generateEd25519Key(
         try sshPutString(&key_data, "bcrypt");
 
         // kdfoptions: string(salt) + uint32(rounds)
-        var kdf_opts: std.ArrayListUnmanaged(u8) = .empty;
+        var kdf_opts: std.ArrayList(u8) = .empty;
         defer kdf_opts.deinit(allocator);
         var salt: [openssh_salt_len]u8 = undefined;
         io.randomBytes(&salt);

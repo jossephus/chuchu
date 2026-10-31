@@ -14,7 +14,7 @@ const close_wait_us = 10_000;
 const NativeLocalShellSession = struct {
     master_fd: c_int = -1,
     child_pid: c.pid_t = -1,
-    last_error: std.ArrayListUnmanaged(u8) = .empty,
+    last_error: std.ArrayList(u8) = .empty,
 };
 
 const LocalShellArgs = struct {

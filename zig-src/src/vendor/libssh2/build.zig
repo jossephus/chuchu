@@ -41,10 +41,13 @@ pub fn build(b: *std.Build) void {
     // Get optional libc file path from parent (as LazyPath)
     const libc_file = b.option(std.Build.LazyPath, "libc_file", "Path to libc configuration file");
 
+    const android_ndk = b.option([]const u8, "android-ndk", "Android NDK root forwarded to openssl");
+
     // Build openssl with libc_file option (parent should pass this)
     const openssl_dep = b.dependency("openssl", .{
         .target = target,
         .optimize = optimize,
+        .@"android-ndk" = android_ndk,
     });
 
     const config_header = b.addConfigHeader(.{

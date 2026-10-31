@@ -133,10 +133,10 @@ const ChuchuTerminal = struct {
     clipboard_len: usize = 0,
     clipboard_dirty: bool = false,
     bell_count: u32 = 0,
-    snapshot_buffer: std.ArrayListUnmanaged(u8) = .empty,
-    snapshot_extras_scratch: std.ArrayListUnmanaged(u32) = .empty,
-    image_snapshot_buffer: std.ArrayListUnmanaged(u8) = .empty,
-    pty_write_buffer: std.ArrayListUnmanaged(u8) = .empty,
+    snapshot_buffer: std.ArrayList(u8) = .empty,
+    snapshot_extras_scratch: std.ArrayList(u32) = .empty,
+    image_snapshot_buffer: std.ArrayList(u8) = .empty,
+    pty_write_buffer: std.ArrayList(u8) = .empty,
     pty_write_len: usize = 0,
     snapshot_perf_calls: u64 = 0,
     snapshot_perf_total_ns: u64 = 0,
@@ -324,7 +324,7 @@ fn logKittyState(stage: []const u8, terminal: *ChuchuTerminal) void {
     );
 }
 
-fn ensureListSize(list: *std.ArrayListUnmanaged(u8), size_needed: usize) ?[*]u8 {
+fn ensureListSize(list: *std.ArrayList(u8), size_needed: usize) ?[*]u8 {
     list.ensureTotalCapacityPrecise(allocator, size_needed) catch return null;
     list.items.len = size_needed;
     return list.items.ptr;

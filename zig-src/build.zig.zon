@@ -15,12 +15,12 @@
             .path = "src/vendor/libssh2",
         },
         .mosh = .{
-            .url = "git+https://github.com/jossephus/zig-mosh-client#c3535b552fd8d06f79083f64a4289330eaa8a3f2",
-            .hash = "mosh-0.0.0-H8gO1qEdAgDNLgHmMEczwaPt-E55qNBLas58lXQAi9x8",
+            .url = "git+https://github.com/jossephus/zig-mosh-client#02843a7d3533c3e627d93522796c70e3057e3141",
+            .hash = "mosh-0.0.0-H8gO1iYcAgAxeUCk65L-W7RC7USGLGpUz1eOSCecJfg3",
         },
         .openssl = .{
-            .url = "git+https://github.com/jossephus/openssl-zig#3241cbd45421508e72134d5f1539c394e194c455",
-            .hash = "openssl-3.6.0-wZcA7wsp8gEMhIjm_UBxlutB7bPLmq-fP234vBobSwho",
+            .url = "git+https://github.com/jossephus/openssl-zig#c9e173f10ecc2cbcfca487207c8e7b1983426873",
+            .hash = "openssl-3.6.0-wZcA72kq8gFZJg-TxgrT6Qlz_kfo-I5RQ2mnW7XmZMZT",
         },
         .translate_c = .{
             .url = "git+https://codeberg.org/ziglang/translate-c?ref=zig-0.17.x#cfac21f3199b2b02ce3fd7db652aa456421fe4ab",

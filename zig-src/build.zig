@@ -28,7 +28,7 @@ fn resolveBuildTargets(b: *std.Build) []const std.Target.Query {
 }
 
 fn ndkPrebuiltTag() []const u8 {
-    const os_part = switch (builtin.os.tag) {
+    const os_part = switch (builtin.target.os.tag) {
         .macos => "darwin",
         .linux => "linux",
         .windows => "windows",
@@ -36,19 +36,27 @@ fn ndkPrebuiltTag() []const u8 {
     };
 
     // NDK only provides x86_64 prebuilt tools for macOS (works on Apple Silicon via Rosetta 2)
-    const arch_part = switch (builtin.cpu.arch) {
+    const arch_part = switch (builtin.target.cpu.arch) {
         .x86_64 => "x86_64",
-        .aarch64 => if (builtin.os.tag == .macos) "x86_64" else "aarch64",
+        .aarch64 => if (builtin.target.os.tag == .macos) "x86_64" else "aarch64",
         else => @panic("Unsupported host architecture for Android NDK prebuilt toolchain"),
     };
 
     return std.fmt.comptimePrint("{s}-{s}", .{ os_part, arch_part });
 }
 
-fn resolveNdkHome(b: *std.Build, ndk_root: []const u8) []const u8 {
-    if (ndk_root.len == 0) return ndk_root;
-
+fn androidNdkRoot(b: *std.Build) ?[]const u8 {
+    const option = b.option([]const u8, "android-ndk", "Android NDK root (default: $ANDROID_NDK_HOME, then $ANDROID_NDK_ROOT)");
+    if (option) |path| {
+        if (path.len > 0) return path;
+    }
     b.graph.poisonCache();
+    const env = &b.graph.environ_map;
+    return env.get("ANDROID_NDK_HOME") orelse env.get("ANDROID_NDK_ROOT");
+}
+
+fn resolveNdkHome(b: *std.Build, ndk_root: []const u8) []const u8 {
+    b.dependOnDirectoryContents(.{ .cwd_relative = ndk_root });
     const io = b.graph.io;
     const cwd = std.Io.Dir.cwd();
 
@@ -71,7 +79,7 @@ fn resolveNdkHome(b: *std.Build, ndk_root: []const u8) []const u8 {
 fn translateBridgeHeaders(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     libc_file: std.Build.LazyPath,
     libssh2_include: std.Build.LazyPath,
 ) *std.Build.Module {
@@ -90,7 +98,8 @@ fn translateBridgeHeaders(
 fn buildNativeLibrary(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
+    ndk_home: []const u8,
 ) *std.Build.Step.Compile {
     const ghostty_dep = b.dependency("ghostty", .{
         .target = target,
@@ -105,9 +114,6 @@ fn buildNativeLibrary(
         .target = target,
         .optimize = optimize,
     });
-
-    const ndk_root = b.graph.environ_map.get("ANDROID_NDK_HOME") orelse b.graph.environ_map.get("ANDROID_NDK_ROOT").?;
-    const ndk_home = resolveNdkHome(b, ndk_root);
 
     const android_target = ndk.getAndroidTriple(target.result) catch {
         std.debug.panic("target must be Android", .{});
@@ -139,6 +145,7 @@ fn buildNativeLibrary(
         .target = target,
         .optimize = optimize,
         .libc_file = libc_config,
+        .@"android-ndk" = ndk_home,
     });
 
     const libssh2 = libssh2_dep.artifact("ssh2");
@@ -201,35 +208,32 @@ fn buildNativeLibrary(
 pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const build_targets = resolveBuildTargets(b);
-    const has_android_ndk = b.graph.environ_map.get("ANDROID_NDK_HOME") != null or b.graph.environ_map.get("ANDROID_NDK_ROOT") != null;
+    const ndk_root = androidNdkRoot(b);
 
     const native_step = b.step("native", "Build native JNI library");
     const jni_step = b.step("jni", "Build native library and copy to jniLibs");
 
-    if (has_android_ndk) {
+    if (ndk_root) |root| {
+        const ndk_home = resolveNdkHome(b, root);
+
         for (build_targets) |target_query| {
             const resolved_target = b.resolveTargetQuery(target_query);
-            const native_lib = buildNativeLibrary(b, resolved_target, optimize);
+            const native_lib = buildNativeLibrary(b, resolved_target, optimize, ndk_home);
             native_step.dependOn(&native_lib.step);
 
             const abi_name = ndk.getOutputDir(resolved_target.result) catch unreachable;
-            const jni_lib_dir = b.fmt("../android/app/src/main/jniLibs/{s}", .{abi_name});
-
-            const mkdir_jni_libs = b.addSystemCommand(&.{ "mkdir", "-p", jni_lib_dir });
-            mkdir_jni_libs.step.dependOn(&native_lib.step);
-
-            const copy_to_jni_libs = b.addSystemCommand(&.{"cp"});
-            copy_to_jni_libs.step.dependOn(&mkdir_jni_libs.step);
-            copy_to_jni_libs.addFileArg(native_lib.getEmittedBin());
-            _ = copy_to_jni_libs.addArg(b.fmt("{s}/libchuchu_jni.so", .{jni_lib_dir}));
-
-            jni_step.dependOn(&copy_to_jni_libs.step);
+            const update_jni_libs = b.addUpdateSourceFiles();
+            jni_step.dependOn(&update_jni_libs.step);
+            update_jni_libs.addCopyFileToSource(
+                native_lib.getEmittedBin(),
+                b.fmt("../android/app/src/main/jniLibs/{s}/libchuchu_jni.so", .{abi_name}),
+            );
         }
     }
 
     // Test: try building openssl for aarch64 android
     const openssl_test_step = b.step("test-openssl", "Test building OpenSSL for Android aarch64");
-    if (has_android_ndk) {
+    if (ndk_root) |root| {
         const test_target = b.resolveTargetQuery(.{
             .cpu_arch = .aarch64,
             .os_tag = .linux,
@@ -238,7 +242,8 @@ pub fn build(b: *std.Build) void {
         });
         const openssl_dep = b.dependency("openssl", .{
             .target = test_target,
-            .optimize = .ReleaseSmall,
+            .optimize = .small,
+            .@"android-ndk" = resolveNdkHome(b, root),
         });
         const crypto = openssl_dep.artifact("crypto");
         const ssl = openssl_dep.artifact("ssl");
