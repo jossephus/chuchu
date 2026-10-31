@@ -7,6 +7,7 @@ import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.mosh.MoshBootstrapParser
+import com.jossephus.chuchu.service.mosh.MoshEndpointAddress
 import com.jossephus.chuchu.service.mosh.MoshEventType
 import com.jossephus.chuchu.service.mosh.MoshReconnectPolicy
 import com.jossephus.chuchu.service.mosh.MoshState
@@ -897,7 +898,16 @@ class TerminalSessionEngine(
             publicKeyOpenSsh = params.publicKeyOpenSsh,
             privateKeyPem = params.privateKeyPem,
             keyPassphrase = params.keyPassphrase,
+            ipv4Only = true,
         )
+        val endpointHost =
+            try {
+                MoshEndpointAddress.fromSshPeer(params.host, nativeSsh.peerAddress())
+            } catch (err: Exception) {
+                nativeSsh.close()
+                throw err
+            }
+        Log.d("TerminalSession", "MOSH: endpoint host=$endpointHost from profile host=${params.host}")
         // Use exec channel to bypass shell init noise and MOTD.
         // Falls back to shell if the remote server doesn't support exec.
         val moshCommand = MoshReconnectPolicy.bootstrapCommand()
@@ -924,7 +934,7 @@ class TerminalSessionEngine(
                 if (chunk != null && chunk.isNotEmpty()) {
                     val text = String(chunk, Charsets.UTF_8)
                     outputBuffer.append(text)
-                    val result = MoshBootstrapParser.parse(params.host, outputBuffer.toString())
+                    val result = MoshBootstrapParser.parse(endpointHost, outputBuffer.toString())
                     if (result is MoshBootstrapParser.ParseResult.Success) {
                         Log.d(
                             "TerminalSession",
