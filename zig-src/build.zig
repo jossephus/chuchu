@@ -1,11 +1,11 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const ndk = @import("src/ndk.zig");
+const Translator = @import("translate_c").Translator;
 
 const default_build_targets: []const std.Target.Query = &.{
     .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .android, .android_api_level = 24 },
     .{ .cpu_arch = .arm, .os_tag = .linux, .abi = .androideabi, .android_api_level = 24 },
-    .{ .cpu_arch = .x86, .os_tag = .linux, .abi = .android, .android_api_level = 24 },
     .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .android, .android_api_level = 24 },
 };
 
@@ -27,7 +27,7 @@ fn resolveBuildTargets(b: *std.Build) []const std.Target.Query {
 }
 
 fn ndkPrebuiltTag() []const u8 {
-    const os_part = switch (builtin.os.tag) {
+    const os_part = switch (builtin.target.os.tag) {
         .macos => "darwin",
         .linux => "linux",
         .windows => "windows",
@@ -35,25 +35,37 @@ fn ndkPrebuiltTag() []const u8 {
     };
 
     // NDK only provides x86_64 prebuilt tools for macOS (works on Apple Silicon via Rosetta 2)
-    const arch_part = switch (builtin.cpu.arch) {
+    const arch_part = switch (builtin.target.cpu.arch) {
         .x86_64 => "x86_64",
-        .aarch64 => if (builtin.os.tag == .macos) "x86_64" else "aarch64",
+        .aarch64 => if (builtin.target.os.tag == .macos) "x86_64" else "aarch64",
         else => @panic("Unsupported host architecture for Android NDK prebuilt toolchain"),
     };
 
     return std.fmt.comptimePrint("{s}-{s}", .{ os_part, arch_part });
 }
 
+fn androidNdkRoot(b: *std.Build) ?[]const u8 {
+    const option = b.option([]const u8, "android-ndk", "Android NDK root (default: $ANDROID_NDK_HOME, then $ANDROID_NDK_ROOT)");
+    if (option) |path| {
+        if (path.len > 0) return path;
+    }
+    b.graph.poisonCache();
+    const env = &b.graph.environ_map;
+    return env.get("ANDROID_NDK_HOME") orelse env.get("ANDROID_NDK_ROOT");
+}
+
 fn resolveNdkHome(b: *std.Build, ndk_root: []const u8) []const u8 {
-    if (ndk_root.len == 0) return ndk_root;
+    b.dependOnDirectoryContents(.{ .cwd_relative = ndk_root });
+    const io = b.graph.io;
+    const cwd = std.Io.Dir.cwd();
 
     const toolchains_path = b.pathJoin(&.{ ndk_root, "toolchains", "llvm" });
-    std.fs.cwd().access(toolchains_path, .{}) catch {
-        var dir = std.fs.cwd().openDir(ndk_root, .{ .iterate = true }) catch return ndk_root;
-        defer dir.close();
+    cwd.access(io, toolchains_path, .{}) catch {
+        var dir = cwd.openDir(io, ndk_root, .{ .iterate = true }) catch return ndk_root;
+        defer dir.close(io);
 
         var iter = dir.iterate();
-        while (iter.next() catch null) |entry| {
+        while (iter.next(io) catch null) |entry| {
             if (entry.kind != .directory) continue;
             return b.pathJoin(&.{ ndk_root, entry.name });
         }
@@ -63,10 +75,31 @@ fn resolveNdkHome(b: *std.Build, ndk_root: []const u8) []const u8 {
     return ndk_root;
 }
 
+fn translateBridgeHeaders(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.lang.Optimize,
+    libc_file: std.Build.LazyPath,
+    libssh2_include: std.Build.LazyPath,
+) *std.Build.Module {
+    const translator: Translator = .init(b.dependency("translate_c", .{}), .{
+        .c_source_file = b.path("src/bridge/c.h"),
+        .target = target,
+        .optimize = if (optimize == .safe) .fast else optimize,
+        .libc_file = libc_file,
+    });
+    translator.addIncludePath(b.path("src/bridge"));
+    translator.addIncludePath(libssh2_include);
+    translator.defineCMacro("BIONIC_IOCTL_NO_SIGNEDNESS_OVERLOAD", null);
+    translator.mod.optimize = optimize;
+    return translator.mod;
+}
+
 fn buildNativeLibrary(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
+    ndk_home: []const u8,
 ) *std.Build.Step.Compile {
     const ghostty_dep = b.dependency("ghostty", .{
         .target = target,
@@ -81,9 +114,6 @@ fn buildNativeLibrary(
         .target = target,
         .optimize = optimize,
     });
-
-    const ndk_root = b.graph.env_map.get("ANDROID_NDK_HOME") orelse b.graph.env_map.get("ANDROID_NDK_ROOT").?;
-    const ndk_home = resolveNdkHome(b, ndk_root);
 
     const android_target = ndk.getAndroidTriple(target.result) catch {
         std.debug.panic("target must be Android", .{});
@@ -115,6 +145,7 @@ fn buildNativeLibrary(
         .target = target,
         .optimize = optimize,
         .libc_file = libc_config,
+        .@"android-ndk" = ndk_home,
     });
 
     const libssh2 = libssh2_dep.artifact("ssh2");
@@ -136,6 +167,7 @@ fn buildNativeLibrary(
     });
     root_module.addIncludePath(b.path("src/bridge"));
     root_module.addIncludePath(libssh2_upstream.path("include"));
+    root_module.addImport("c", translateBridgeHeaders(b, target, optimize, libc_config, libssh2_upstream.path("include")));
     root_module.addImport("ghostty-vt", ghostty_dep.module("ghostty-vt"));
     root_module.addImport("zigimg", zigimg_dep.module("zigimg"));
 
@@ -151,22 +183,22 @@ fn buildNativeLibrary(
     lib.link_gc_sections = true;
     lib.link_eh_frame_hdr = false;
     lib.lto = .thin;
+    lib.use_llvm = true;
     root_module.strip = true;
     root_module.unwind_tables = .none;
     root_module.omit_frame_pointer = true;
 
-    lib.addIncludePath(.{ .cwd_relative = include_dir });
-    lib.addIncludePath(.{ .cwd_relative = target_include_dir });
+    root_module.addIncludePath(.{ .cwd_relative = include_dir });
+    root_module.addIncludePath(.{ .cwd_relative = target_include_dir });
 
     const api_dir = b.fmt("{d}", .{android_api_version});
     const lib_dir = b.pathJoin(&.{ ndk_sysroot, "usr", "lib", android_target, api_dir });
-    lib.addLibraryPath(.{ .cwd_relative = lib_dir });
+    root_module.addLibraryPath(.{ .cwd_relative = lib_dir });
 
     lib.setLibCFile(libc_config);
-    lib.linkLibrary(libssh2);
-    lib.linkSystemLibrary("log");
-    lib.linkSystemLibrary("z");
-    lib.linkLibC();
+    root_module.linkLibrary(libssh2);
+    root_module.linkSystemLibrary("log", .{});
+    root_module.linkSystemLibrary("z", .{});
     lib.version_script = b.path("src/bridge/version-script.map");
 
     b.installArtifact(lib);
@@ -176,35 +208,32 @@ fn buildNativeLibrary(
 pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const build_targets = resolveBuildTargets(b);
-    const has_android_ndk = b.graph.env_map.get("ANDROID_NDK_HOME") != null or b.graph.env_map.get("ANDROID_NDK_ROOT") != null;
+    const ndk_root = androidNdkRoot(b);
 
     const native_step = b.step("native", "Build native JNI library");
     const jni_step = b.step("jni", "Build native library and copy to jniLibs");
 
-    if (has_android_ndk) {
+    if (ndk_root) |root| {
+        const ndk_home = resolveNdkHome(b, root);
+
         for (build_targets) |target_query| {
             const resolved_target = b.resolveTargetQuery(target_query);
-            const native_lib = buildNativeLibrary(b, resolved_target, optimize);
+            const native_lib = buildNativeLibrary(b, resolved_target, optimize, ndk_home);
             native_step.dependOn(&native_lib.step);
 
             const abi_name = ndk.getOutputDir(resolved_target.result) catch unreachable;
-            const jni_lib_dir = b.fmt("../android/app/src/main/jniLibs/{s}", .{abi_name});
-
-            const mkdir_jni_libs = b.addSystemCommand(&.{ "mkdir", "-p", jni_lib_dir });
-            mkdir_jni_libs.step.dependOn(&native_lib.step);
-
-            const copy_to_jni_libs = b.addSystemCommand(&.{"cp"});
-            copy_to_jni_libs.step.dependOn(&mkdir_jni_libs.step);
-            copy_to_jni_libs.addFileArg(native_lib.getEmittedBin());
-            _ = copy_to_jni_libs.addArg(b.fmt("{s}/libchuchu_jni.so", .{jni_lib_dir}));
-
-            jni_step.dependOn(&copy_to_jni_libs.step);
+            const update_jni_libs = b.addUpdateSourceFiles();
+            jni_step.dependOn(&update_jni_libs.step);
+            update_jni_libs.addCopyFileToSource(
+                native_lib.getEmittedBin(),
+                b.fmt("../android/app/src/main/jniLibs/{s}/libchuchu_jni.so", .{abi_name}),
+            );
         }
     }
 
     // Test: try building openssl for aarch64 android
     const openssl_test_step = b.step("test-openssl", "Test building OpenSSL for Android aarch64");
-    if (has_android_ndk) {
+    if (ndk_root) |root| {
         const test_target = b.resolveTargetQuery(.{
             .cpu_arch = .aarch64,
             .os_tag = .linux,
@@ -213,7 +242,8 @@ pub fn build(b: *std.Build) void {
         });
         const openssl_dep = b.dependency("openssl", .{
             .target = test_target,
-            .optimize = .ReleaseSmall,
+            .optimize = .small,
+            .@"android-ndk" = resolveNdkHome(b, root),
         });
         const crypto = openssl_dep.artifact("crypto");
         const ssl = openssl_dep.artifact("ssl");
@@ -221,7 +251,7 @@ pub fn build(b: *std.Build) void {
         openssl_test_step.dependOn(&ssl.step);
     }
 
-    const fmt_check = b.addFmt(.{ .paths = &.{ "src", "build.zig", "build.zig.zon" } });
+    const fmt_check = b.addFmt(.{ .paths = &.{ b.path("src"), b.path("build.zig"), b.path("build.zig.zon") } });
     const fmt_step = b.step("fmt", "Format Zig files");
     fmt_step.dependOn(&fmt_check.step);
 }

@@ -1,18 +1,7 @@
 const std = @import("std");
 
-const c = @cImport({
-    @cInclude("android/log.h");
-    @cInclude("jni.h");
-    @cInclude("libssh2.h");
-    @cInclude("libssh2_sftp.h");
-    @cInclude("sys/socket.h");
-    @cInclude("netdb.h");
-    @cInclude("arpa/inet.h");
-    @cInclude("unistd.h");
-    @cInclude("fcntl.h");
-    @cInclude("errno.h");
-    @cInclude("poll.h");
-});
+const c = @import("c");
+const jni_io = @import("io.zig");
 const ipc = @import("ipc.zig");
 
 const allocator = std.heap.c_allocator;
@@ -40,6 +29,7 @@ const io_wait_timeout_ms = 120;
 const sftp_idle_limit_ms: i64 = 15_000;
 
 const NativeSshSession = struct {
+    io: std.Io,
     socket_fd: c_int = -1,
     session: ?*c.LIBSSH2_SESSION = null,
     channel: ?*c.LIBSSH2_CHANNEL = null,
@@ -50,7 +40,7 @@ const NativeSshSession = struct {
     hostkey_len: usize = 0,
     hostkey_type: c_int = 0,
     hostkey_copy: ?[]u8 = null,
-    last_error: std.ArrayListUnmanaged(u8) = .empty,
+    last_error: std.ArrayList(u8) = .empty,
     empty_reads: u32 = 0,
 };
 
@@ -67,7 +57,7 @@ fn handleFromSession(session: *NativeSshSession) c.jlong {
 
 fn setError(session: *NativeSshSession, comptime fmt: []const u8, args: anytype) void {
     session.last_error.clearRetainingCapacity();
-    std.fmt.format(session.last_error.writer(allocator), fmt, args) catch return;
+    session.last_error.print(allocator, fmt, args) catch return;
 }
 
 fn setLibssh2Error(session: *NativeSshSession, prefix: []const u8, rc: c_int) void {
@@ -190,10 +180,6 @@ fn trySetChannelEnv(session: *NativeSshSession, channel: *c.LIBSSH2_CHANNEL, nam
     }
 }
 
-fn nowMs() i64 {
-    return std.time.milliTimestamp();
-}
-
 fn destroyNativeSshSession(session: *NativeSshSession) void {
     if (session.upload_handle) |uh| {
         _ = closeSftpHandle(session, uh, "destroy upload handle");
@@ -258,15 +244,15 @@ const SftpProgress = enum {
 fn awaitSftpProgress(session: *NativeSshSession, idle_since_ms: *i64) SftpProgress {
     if (session.session == null or session.socket_fd < 0) return .no_socket;
     if (waitSocket(session, io_wait_timeout_ms)) {
-        idle_since_ms.* = nowMs();
+        idle_since_ms.* = jni_io.nowMs(session.io);
         return .retry;
     }
-    if (nowMs() - idle_since_ms.* > sftp_idle_limit_ms) return .stalled;
+    if (jni_io.nowMs(session.io) - idle_since_ms.* > sftp_idle_limit_ms) return .stalled;
     return .retry;
 }
 
 fn shutdownSftp(session: *NativeSshSession, sftp: *c.LIBSSH2_SFTP, reason: []const u8) bool {
-    var idle_since_ms = nowMs();
+    var idle_since_ms = jni_io.nowMs(session.io);
     while (true) {
         const rc = c.libssh2_sftp_shutdown(sftp);
         if (rc == 0) return true;
@@ -281,7 +267,7 @@ fn shutdownSftp(session: *NativeSshSession, sftp: *c.LIBSSH2_SFTP, reason: []con
                 return false;
             },
             .stalled => {
-                const idle_ms = nowMs() - idle_since_ms;
+                const idle_ms = jni_io.nowMs(session.io) - idle_since_ms;
                 setError(session, "SFTP shutdown stalled during {s} (idle {d}ms)", .{ reason, idle_ms });
                 logError("SFTP shutdown stalled during {s} idle={}ms", .{ reason, idle_ms });
                 return false;
@@ -291,7 +277,7 @@ fn shutdownSftp(session: *NativeSshSession, sftp: *c.LIBSSH2_SFTP, reason: []con
 }
 
 fn closeSftpHandle(session: *NativeSshSession, handle: *c.LIBSSH2_SFTP_HANDLE, reason: []const u8) bool {
-    var idle_since_ms = nowMs();
+    var idle_since_ms = jni_io.nowMs(session.io);
     while (true) {
         const rc = c.libssh2_sftp_close_handle(handle);
         if (rc == 0) return true;
@@ -306,7 +292,7 @@ fn closeSftpHandle(session: *NativeSshSession, handle: *c.LIBSSH2_SFTP_HANDLE, r
                 return false;
             },
             .stalled => {
-                const idle_ms = nowMs() - idle_since_ms;
+                const idle_ms = jni_io.nowMs(session.io) - idle_since_ms;
                 setError(session, "{s} stalled (idle {d}ms)", .{ reason, idle_ms });
                 logError("{s} stalled idle={}ms", .{ reason, idle_ms });
                 return false;
@@ -330,7 +316,7 @@ fn resetSftpAfterFailure(session: *NativeSshSession, reason: []const u8) void {
 }
 
 fn sftpOpenDir(session: *NativeSshSession, sftp: *c.LIBSSH2_SFTP, path_z: [:0]u8) ?*c.LIBSSH2_SFTP_HANDLE {
-    const started_ms = nowMs();
+    const started_ms = jni_io.nowMs(session.io);
     var idle_since_ms = started_ms;
     var eagain_count: u32 = 0;
     while (true) {
@@ -346,7 +332,7 @@ fn sftpOpenDir(session: *NativeSshSession, sftp: *c.LIBSSH2_SFTP, path_z: [:0]u8
         switch (awaitSftpProgress(session, &idle_since_ms)) {
             .retry => {},
             .no_socket, .stalled => {
-                const now = nowMs();
+                const now = jni_io.nowMs(session.io);
                 setError(
                     session,
                     "SFTP opendir timed out for {s} after {d}ms (idle {d}ms, EAGAIN={d})",
@@ -368,7 +354,7 @@ fn connectSocket(host: [:0]const u8, port: u16) !c_int {
     hints.ai_socktype = c.SOCK_STREAM;
 
     var service_buf: [16]u8 = undefined;
-    const service = try std.fmt.bufPrintZ(&service_buf, "{}", .{port});
+    const service = try std.fmt.bufPrintSentinel(&service_buf, "{}", .{port}, 0);
 
     var addr_list: ?*c.struct_addrinfo = null;
     const rc = c.getaddrinfo(host.ptr, service.ptr, &hints, &addr_list);
@@ -516,7 +502,7 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeCreateSess
     _ = thiz;
     _ = c.libssh2_init(0);
     const session = allocator.create(NativeSshSession) catch return 0;
-    session.* = .{};
+    session.* = .{ .io = jni_io.get() };
     return handleFromSession(session);
 }
 
@@ -626,7 +612,7 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeAuthentica
         return c.JNI_TRUE;
     }
 
-    const deadline_ms = nowMs() + setup_wait_timeout_ms;
+    const deadline_ms = jni_io.nowMs(session.io) + setup_wait_timeout_ms;
     var attempts: u32 = 0;
     while (true) {
         attempts += 1;
@@ -639,7 +625,7 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeAuthentica
                 if ((attempts % 32) == 0) {
                     logInfo("None auth waiting (EAGAIN) attempts={}", .{attempts});
                 }
-                if (nowMs() >= deadline_ms) {
+                if (jni_io.nowMs(session.io) >= deadline_ms) {
                     setError(session, "None auth timed out after {} attempts", .{attempts});
                     return c.JNI_FALSE;
                 }
@@ -701,7 +687,7 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeAuthentica
     c.libssh2_session_set_blocking(ssh_session, 1);
     defer c.libssh2_session_set_blocking(ssh_session, 0);
     logInfo("Password auth attempt start username_len={} password_len={}", .{ username_slice.len, password_slice.len });
-    const password_deadline_ms = nowMs() + setup_wait_timeout_ms;
+    const password_deadline_ms = jni_io.nowMs(session.io) + setup_wait_timeout_ms;
     while (true) {
         const rc = c.libssh2_userauth_password_ex(ssh_session, username_slice.ptr, @intCast(username_slice.len), password_slice.ptr, @intCast(password_slice.len), null);
         if (rc == 0) {
@@ -713,7 +699,7 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeAuthentica
             setLibssh2Error(session, "Password auth failed", rc);
             return c.JNI_FALSE;
         }
-        if (nowMs() >= password_deadline_ms) {
+        if (jni_io.nowMs(session.io) >= password_deadline_ms) {
             logError("Password auth timed out (keyboard-interactive fallback disabled for diagnostics)", .{});
             setError(session, "Password auth timed out", .{});
             return c.JNI_FALSE;
@@ -754,7 +740,7 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeAuthentica
     defer c.libssh2_session_set_blocking(ssh_session, 0);
 
     logInfo("Public key auth attempt key={s}", .{key_path_slice});
-    const deadline_ms = nowMs() + setup_wait_timeout_ms;
+    const deadline_ms = jni_io.nowMs(session.io) + setup_wait_timeout_ms;
     while (true) {
         const rc = c.libssh2_userauth_publickey_fromfile_ex(
             ssh_session,
@@ -780,7 +766,7 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeAuthentica
             }
             return c.JNI_FALSE;
         }
-        if (nowMs() >= deadline_ms) {
+        if (jni_io.nowMs(session.io) >= deadline_ms) {
             setError(session, "Public key auth timed out", .{});
             return c.JNI_FALSE;
         }
@@ -815,7 +801,7 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeAuthentica
         var it = std.mem.tokenizeAny(u8, trimmed_public, " \t\r\n");
         const t0 = it.next() orelse break :blk null;
         const t1 = it.next() orelse break :blk null;
-        break :blk std.fmt.allocPrint(allocator, "{s} {s}", .{ t0, t1 }) catch null;
+        break :blk allocator.print("{s} {s}", .{ t0, t1 }) catch null;
     };
     defer if (compact_public) |pk| allocator.free(pk);
 
@@ -840,7 +826,7 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeAuthentica
         .{ username_slice, if (compact_public) |pk| pk.len else @as(usize, 0), private_key_slice.len, if (passphrase_slice) |ps| ps.len else @as(usize, 0) },
     );
 
-    const deadline_ms = nowMs() + setup_wait_timeout_ms;
+    const deadline_ms = jni_io.nowMs(session.io) + setup_wait_timeout_ms;
     while (true) {
         const rc = c.libssh2_userauth_publickey_frommemory(
             ssh_session,
@@ -869,7 +855,7 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeAuthentica
             }
             return c.JNI_FALSE;
         }
-        if (nowMs() >= deadline_ms) {
+        if (jni_io.nowMs(session.io) >= deadline_ms) {
             setError(session, "Public key memory auth timed out", .{});
             return c.JNI_FALSE;
         }
@@ -1162,7 +1148,7 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeIpcExchang
             ipc.appendMessage(allocator, &response, .Data, bytes) catch {};
         },
         else => {
-            setError(session, "Unsupported IPC tag {}", .{@intFromEnum(frame.header.tag)});
+            setError(session, "Unsupported IPC tag {}", .{@backingInt(frame.header.tag)});
             appendErrorFrame(&response, session, "Unsupported IPC tag");
         },
     }
@@ -1228,7 +1214,7 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeSftpListDi
 
     var entry_buf: [1024]u8 = undefined;
     var attrs: c.LIBSSH2_SFTP_ATTRIBUTES = undefined;
-    const started_ms = nowMs();
+    const started_ms = jni_io.nowMs(session.io);
     var idle_since_ms = started_ms;
     var eagain_count: u32 = 0;
     var read_failed = false;
@@ -1250,7 +1236,7 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeSftpListDi
             const size: u64 = if ((attrs.flags & c.LIBSSH2_SFTP_ATTR_SIZE) != 0) @intCast(attrs.filesize) else 0;
             const mtime: u64 = if ((attrs.flags & c.LIBSSH2_SFTP_ATTR_ACMODTIME) != 0) @intCast(attrs.mtime) else 0;
             const perms: u64 = if ((attrs.flags & c.LIBSSH2_SFTP_ATTR_PERMISSIONS) != 0) @intCast(attrs.permissions) else 0;
-            const line = std.fmt.allocPrint(allocator, "{s}\t{s}\t{}\t{}\t{}", .{ name, kind, size, mtime, perms }) catch {
+            const line = allocator.print("{s}\t{s}\t{}\t{}\t{}", .{ name, kind, size, mtime, perms }) catch {
                 setError(session, "SFTP list allocation failed after {} entries", .{names.items.len});
                 read_failed = true;
                 break;
@@ -1262,7 +1248,7 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeSftpListDi
                 read_failed = true;
                 break;
             };
-            idle_since_ms = nowMs();
+            idle_since_ms = jni_io.nowMs(session.io);
             continue;
         }
         if (rc == 0) break;
@@ -1271,7 +1257,7 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeSftpListDi
             switch (awaitSftpProgress(session, &idle_since_ms)) {
                 .retry => continue,
                 .no_socket, .stalled => {
-                    const now = nowMs();
+                    const now = jni_io.nowMs(session.io);
                     setError(
                         session,
                         "SFTP readdir timed out for {s} after {d}ms (idle {d}ms, EAGAIN={d}, entries={d})",
@@ -1321,7 +1307,7 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeSftpRealpa
     defer allocator.free(path_z);
 
     var out_buf: [2048]u8 = undefined;
-    const started_ms = nowMs();
+    const started_ms = jni_io.nowMs(session.io);
     var idle_since_ms = started_ms;
     var eagain_count: u32 = 0;
     while (true) {
@@ -1337,7 +1323,7 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeSftpRealpa
         switch (awaitSftpProgress(session, &idle_since_ms)) {
             .retry => {},
             .no_socket, .stalled => {
-                const now = nowMs();
+                const now = jni_io.nowMs(session.io);
                 setError(
                     session,
                     "SFTP realpath timed out for {s} after {d}ms (idle {d}ms, EAGAIN={d})",
@@ -1391,15 +1377,15 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeSftpWriteC
     const ptr: [*]const u8 = @ptrCast(data_ptr);
     const sftp_write_idle_limit_ms: i64 = 30_000;
     var written: usize = 0;
-    var idle_since_ms: i64 = std.time.milliTimestamp();
+    var idle_since_ms: i64 = jni_io.nowMs(session.io);
     while (written < @as(usize, @intCast(data_len))) {
         const remaining: usize = @as(usize, @intCast(data_len)) - written;
         const chunk_size: usize = @min(remaining, 32768);
         const rc = c.libssh2_sftp_write(sftp_handle, ptr + written, chunk_size);
         if (rc == c.LIBSSH2_ERROR_EAGAIN or rc == 0) {
             if (waitSocket(session, io_wait_timeout_ms)) {
-                idle_since_ms = std.time.milliTimestamp();
-            } else if (std.time.milliTimestamp() - idle_since_ms > sftp_write_idle_limit_ms) {
+                idle_since_ms = jni_io.nowMs(session.io);
+            } else if (jni_io.nowMs(session.io) - idle_since_ms > sftp_write_idle_limit_ms) {
                 setError(session, "SFTP write stalled (no socket activity for {d}ms)", .{sftp_write_idle_limit_ms});
                 return -1;
             }
@@ -1410,7 +1396,7 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeSftpWriteC
             return -1;
         }
         written += @intCast(rc);
-        idle_since_ms = std.time.milliTimestamp();
+        idle_since_ms = jni_io.nowMs(session.io);
     }
 
     return @intCast(written);
@@ -1423,16 +1409,16 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeSftpCloseW
     const sftp_handle = session.upload_handle orelse return c.JNI_FALSE;
     session.upload_handle = null;
     const close_idle_limit_ms: i64 = 10_000;
-    var idle_since_ms: i64 = std.time.milliTimestamp();
+    var idle_since_ms: i64 = jni_io.nowMs(session.io);
     while (true) {
         const rc = c.libssh2_sftp_close_handle(sftp_handle);
         if (rc == 0) return c.JNI_TRUE;
         if (rc == c.LIBSSH2_ERROR_EAGAIN) {
             if (waitSocket(session, io_wait_timeout_ms)) {
-                idle_since_ms = std.time.milliTimestamp();
+                idle_since_ms = jni_io.nowMs(session.io);
                 continue;
             }
-            if (std.time.milliTimestamp() - idle_since_ms < close_idle_limit_ms) continue;
+            if (jni_io.nowMs(session.io) - idle_since_ms < close_idle_limit_ms) continue;
             setError(session, "SFTP close stalled (no socket activity for {d}ms)", .{close_idle_limit_ms});
             return c.JNI_FALSE;
         }
@@ -1548,13 +1534,13 @@ const openssh_pem_end = "-----END OPENSSH PRIVATE KEY-----";
 const aes_block_len = 16;
 
 /// Append a uint32 big-endian to an ArrayList.
-fn sshPutU32(list: *std.ArrayListUnmanaged(u8), value: u32) !void {
+fn sshPutU32(list: *std.ArrayList(u8), value: u32) !void {
     const bytes: [4]u8 = @bitCast(std.mem.nativeToBig(u32, value));
     try list.appendSlice(allocator, &bytes);
 }
 
 /// Append a length-prefixed SSH string to an ArrayList.
-fn sshPutString(list: *std.ArrayListUnmanaged(u8), data: []const u8) !void {
+fn sshPutString(list: *std.ArrayList(u8), data: []const u8) !void {
     try sshPutU32(list, @intCast(data.len));
     try list.appendSlice(allocator, data);
 }
@@ -1576,7 +1562,7 @@ fn sshGetString(data: []const u8, pos: *usize) ![]const u8 {
 
 /// Build the public key blob: string "ssh-ed25519" + string <32-byte pubkey>
 fn buildPublicKeyBlob(pub_key: [32]u8) ![]u8 {
-    var blob: std.ArrayListUnmanaged(u8) = .empty;
+    var blob: std.ArrayList(u8) = .empty;
     errdefer blob.deinit(allocator);
     try sshPutString(&blob, "ssh-ed25519");
     try sshPutString(&blob, &pub_key);
@@ -1590,7 +1576,7 @@ fn buildPrivateSection(
     comment: []const u8,
     check: u32,
 ) ![]u8 {
-    var section: std.ArrayListUnmanaged(u8) = .empty;
+    var section: std.ArrayList(u8) = .empty;
     errdefer section.deinit(allocator);
 
     // Two identical check integers
@@ -1669,7 +1655,7 @@ fn decodePem(pem: []const u8, begin: []const u8, end: []const u8) ![]u8 {
     const body_start = begin_idx + begin.len;
     const end_idx = std.mem.indexOfPos(u8, pem, body_start, end) orelse return error.NotPem;
 
-    var cleaned: std.ArrayListUnmanaged(u8) = .empty;
+    var cleaned: std.ArrayList(u8) = .empty;
     defer cleaned.deinit(allocator);
     for (pem[body_start..end_idx]) |ch| {
         if (!std.ascii.isWhitespace(ch)) try cleaned.append(allocator, ch);
@@ -1710,16 +1696,22 @@ fn formatPublicKeyLine(keytype: []const u8, pub_blob: []const u8, comment: []con
 /// If passphrase is non-empty, encrypt with bcrypt + aes256-ctr.
 /// Returns the private key PEM and public key OpenSSH string via out params.
 fn generateEd25519Key(
+    io: std.Io,
     comment: []const u8,
     passphrase: []const u8,
     out_private_pem: *[]u8,
     out_public_openssh: *[]u8,
 ) !void {
-    const key_pair = Ed25519.KeyPair.generate();
+    const key_pair = while (true) {
+        var seed: [Ed25519.KeyPair.seed_length]u8 = undefined;
+        defer std.crypto.secureZero(u8, &seed);
+        try io.randomSecure(&seed);
+        break Ed25519.KeyPair.generateDeterministic(seed) catch continue;
+    };
     const pub_key: [32]u8 = key_pair.public_key.bytes;
     const seed: [32]u8 = key_pair.secret_key.seed();
 
-    const check = std.crypto.random.int(u32);
+    const check = try jni_io.randomSecureInt(io, u32);
 
     // Build private section (plaintext)
     const private_section = try buildPrivateSection(seed, pub_key, comment, check);
@@ -1730,7 +1722,7 @@ fn generateEd25519Key(
     defer allocator.free(pub_blob);
 
     // Assemble the full openssh-key-v1 binary
-    var key_data: std.ArrayListUnmanaged(u8) = .empty;
+    var key_data: std.ArrayList(u8) = .empty;
     defer key_data.deinit(allocator);
 
     // Magic
@@ -1744,10 +1736,10 @@ fn generateEd25519Key(
         try sshPutString(&key_data, "bcrypt");
 
         // kdfoptions: string(salt) + uint32(rounds)
-        var kdf_opts: std.ArrayListUnmanaged(u8) = .empty;
+        var kdf_opts: std.ArrayList(u8) = .empty;
         defer kdf_opts.deinit(allocator);
         var salt: [openssh_salt_len]u8 = undefined;
-        std.crypto.random.bytes(&salt);
+        try io.randomSecure(&salt);
         try sshPutString(&kdf_opts, &salt);
         try sshPutU32(&kdf_opts, openssh_kdf_rounds);
         try sshPutString(&key_data, kdf_opts.items);
@@ -1816,7 +1808,7 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeGenerateEd
     var private_pem: []u8 = undefined;
     var public_openssh: []u8 = undefined;
 
-    generateEd25519Key(comment_slice, passphrase_slice, &private_pem, &public_openssh) catch |err| {
+    generateEd25519Key(jni_io.get(), comment_slice, passphrase_slice, &private_pem, &public_openssh) catch |err| {
         logError("Ed25519 keygen failed: {}", .{err});
         return null;
     };

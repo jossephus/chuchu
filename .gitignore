@@ -27,5 +27,6 @@ android/app/key.jks
 # Zig
 zig-src/.zig-cache/
 zig-src/zig-out/
+zig-pkg/
 zig-out/
 .comview/
