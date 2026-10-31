@@ -97,6 +97,10 @@ internal fun TerminalSettings(
     onKeepScreenAwakeChanged: (Boolean) -> Unit = {},
     hideScreenContents: Boolean = false,
     onHideScreenContentsChanged: (Boolean) -> Unit = {},
+    disableAutocorrect: Boolean = false,
+    onDisableAutocorrectChanged: (Boolean) -> Unit = {},
+    remoteClipboardWriteEnabled: Boolean = false,
+    onRemoteClipboardWriteEnabledChanged: (Boolean) -> Unit = {},
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
@@ -504,6 +508,33 @@ internal fun TerminalSettings(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
+                    ChuText("allow remote clipboard writes", style = typography.label)
+                    ChuText(
+                        "lets the remote host set this device's clipboard (OSC 52). only the visible tab can write.",
+                        style = typography.bodySmall,
+                        color = colors.textMuted,
+                    )
+                }
+                ChuSwitch(
+                    checked = remoteClipboardWriteEnabled,
+                    onCheckedChange = onRemoteClipboardWriteEnabledChanged,
+                )
+            }
+        }
+
+        ChuCard(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .defaultMinSize(minHeight = 48.dp)
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
                     ChuText("keep screen awake", style = typography.label)
                     ChuText(
                         "prevent the display from sleeping while a terminal is open",
@@ -543,6 +574,48 @@ internal fun TerminalSettings(
                     onCheckedChange = onHideScreenContentsChanged,
                 )
             }
+        }
+
+        DisableAutocorrectSetting(
+            checked = disableAutocorrect,
+            onCheckedChange = onDisableAutocorrectChanged,
+        )
+    }
+}
+
+@Composable
+private fun DisableAutocorrectSetting(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+
+    ChuCard(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .defaultMinSize(minHeight = 48.dp)
+                    .padding(12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                ChuText("disable autocorrect", style = typography.label)
+                ChuText(
+                    "for keyboards that ignore the standard hint; may disable glide typing",
+                    style = typography.bodySmall,
+                    color = colors.textMuted,
+                )
+            }
+            ChuSwitch(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+            )
         }
     }
 }
