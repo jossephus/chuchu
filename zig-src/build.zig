@@ -85,12 +85,13 @@ fn translateBridgeHeaders(
     const translator: Translator = .init(b.dependency("translate_c", .{}), .{
         .c_source_file = b.path("src/bridge/c.h"),
         .target = target,
-        .optimize = optimize,
+        .optimize = if (optimize == .safe) .fast else optimize,
         .libc_file = libc_file,
     });
     translator.addIncludePath(b.path("src/bridge"));
     translator.addIncludePath(libssh2_include);
     translator.defineCMacro("BIONIC_IOCTL_NO_SIGNEDNESS_OVERLOAD", null);
+    translator.mod.optimize = optimize;
     return translator.mod;
 }
 

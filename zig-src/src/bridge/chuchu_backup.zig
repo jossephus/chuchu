@@ -3,7 +3,7 @@
 const std = @import("std");
 
 const c = @import("c");
-const io = @import("io.zig");
+const jni_io = @import("io.zig");
 
 const allocator = std.heap.c_allocator;
 
@@ -53,7 +53,7 @@ export fn Java_com_jossephus_chuchu_service_backup_NativeBackupBridge_nativeEncr
         allocator.free(passphrase_bytes);
     }
 
-    const encrypted = encryptPayload(plaintext_bytes, passphrase_bytes) catch |err| {
+    const encrypted = encryptPayload(jni_io.get(), plaintext_bytes, passphrase_bytes) catch |err| {
         return statusFromError(env, err);
     };
     defer {
@@ -104,14 +104,14 @@ export fn Java_com_jossephus_chuchu_service_backup_NativeBackupBridge_nativeDecr
     return statusResultBytes(env, STATUS_OK, plaintext);
 }
 
-fn encryptPayload(plaintext: []const u8, passphrase: []const u8) NativeError![]u8 {
+fn encryptPayload(io: std.Io, plaintext: []const u8, passphrase: []const u8) NativeError![]u8 {
     if (plaintext.len > MAX_BACKUP_SIZE_BYTES) return error.BackupTooLarge;
     if (passphrase.len == 0) return error.InvalidInput;
 
     var salt: [SALT_SIZE_BYTES]u8 = undefined;
     var iv: [IV_SIZE_BYTES]u8 = undefined;
-    io.randomBytes(&salt);
-    io.randomBytes(&iv);
+    io.random(&salt);
+    io.random(&iv);
 
     const metadata = buildMetadata(salt, iv);
     var key: [32]u8 = undefined;
@@ -438,6 +438,18 @@ fn encryptPayloadForTest(plaintext: []const u8, passphrase: []const u8, salt: [S
     offset += ciphertext.len;
     @memcpy(out[offset .. offset + tag.len], &tag);
     return out;
+}
+
+test "encryptPayload round-trips through decryptPayload" {
+    const plaintext = "round-trip-check";
+    const passphrase = "\x00a\x00w\x00d\x00s";
+
+    const container = try encryptPayload(std.testing.io, plaintext, passphrase);
+    defer allocator.free(container);
+
+    const decrypted = try decryptPayload(container, passphrase);
+    defer allocator.free(decrypted);
+    try std.testing.expectEqualStrings(plaintext, decrypted);
 }
 
 test "deriveKey matches JVM-compatible UTF-16BE PBKDF2 vector ascii" {

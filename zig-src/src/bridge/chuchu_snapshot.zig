@@ -3,7 +3,7 @@ const ghostty = @import("ghostty-vt");
 const zignal_png = @import("zignal_png.zig");
 
 const c = @import("c");
-const io = @import("io.zig");
+const jni_io = @import("io.zig");
 
 const allocator = std.heap.c_allocator;
 const LOG_TAG = "ChuKittyNative";
@@ -110,6 +110,7 @@ fn appHandlesSelectionDrag(event: anytype) bool {
 }
 
 const ChuchuTerminal = struct {
+    io: std.Io,
     terminal: ghostty.Terminal,
     render_state: ghostty.RenderState = .empty,
     stream_handler: ChuchuStreamHandler = undefined,
@@ -281,7 +282,7 @@ fn maybeLogSnapshotPerf(
     terminal.snapshot_perf_calls += 1;
     terminal.snapshot_perf_total_ns +%= total_u64;
 
-    const now: i64 = @intCast(io.nowNs());
+    const now: i64 = @intCast(jni_io.nowNs(terminal.io));
     const slow = total_ns >= 8 * std.time.ns_per_ms or update_ns >= 4 * std.time.ns_per_ms or build_ns >= 6 * std.time.ns_per_ms;
     const interval_elapsed = now - terminal.snapshot_perf_last_log_ns >= std.time.ns_per_s;
     if (!slow and !interval_elapsed) return;
@@ -477,12 +478,13 @@ fn kittyTempDir() []const u8 {
 export fn chuchu_create_terminal(cols: c.jint, rows: c.jint, max_scrollback: c.jint) callconv(.c) c.jlong {
     ghostty.sys.decode_png = chuchuDecodePng;
 
+    const io = jni_io.get();
     const terminal = allocator.create(ChuchuTerminal) catch return 0;
     errdefer allocator.destroy(terminal);
 
     const init_cols: u16 = @intCast(clampI32(cols, 1, 80));
     const init_rows: u16 = @intCast(clampI32(rows, 1, 24));
-    var inner = ghostty.Terminal.init(io.get(), allocator, .{
+    var inner = ghostty.Terminal.init(io, allocator, .{
         .cols = init_cols,
         .rows = init_rows,
         .max_scrollback_bytes = @intCast(clampI32(max_scrollback, 0, 10000)),
@@ -496,6 +498,7 @@ export fn chuchu_create_terminal(cols: c.jint, rows: c.jint, max_scrollback: c.j
     errdefer inner.deinit(allocator);
 
     terminal.* = .{
+        .io = io,
         .terminal = inner,
         .stream_handler = undefined,
         .stream = undefined,
@@ -871,9 +874,9 @@ export fn chuchu_build_text_snapshot(handle: c.jlong, out_size: [*c]usize) callc
     const terminal = chuchuFromHandle(handle) orelse return null;
     if (out_size == null) return null;
 
-    const t_start = io.nowNs();
+    const t_start = jni_io.nowNs(terminal.io);
     update_render_state(terminal);
-    const t_after_update = io.nowNs();
+    const t_after_update = jni_io.nowNs(terminal.io);
 
     const cols: usize = terminal.render_state.cols;
     const rows: usize = terminal.render_state.rows;
@@ -987,7 +990,7 @@ export fn chuchu_build_text_snapshot(handle: c.jlong, out_size: [*c]usize) callc
     if (extras_records == 0) {
         out_size.* = base_total_size;
 
-        const t_end = io.nowNs();
+        const t_end = jni_io.nowNs(terminal.io);
         maybeLogSnapshotPerf(
             terminal,
             cols,
@@ -1028,7 +1031,7 @@ export fn chuchu_build_text_snapshot(handle: c.jlong, out_size: [*c]usize) callc
 
     out_size.* = total_size;
 
-    const t_end = io.nowNs();
+    const t_end = jni_io.nowNs(terminal.io);
     maybeLogSnapshotPerf(
         terminal,
         cols,
