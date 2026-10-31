@@ -913,10 +913,13 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeAuthentica
             return c.JNI_TRUE;
         }
         if (rc != c.LIBSSH2_ERROR_EAGAIN) {
-            logError("Public key memory auth failed rc={}", .{rc});
-            // userauth_list() can leave an unrelated EAGAIN message behind, so
-            // report the return code from this attempt rather than that stale text.
-            setError(session, "Public key memory auth failed (rc={})", .{rc});
+            const last_errno = c.libssh2_session_last_errno(ssh_session);
+            logError("Public key memory auth failed rc={} last_errno={}", .{ rc, last_errno });
+            if (last_errno == rc) {
+                setLibssh2Error(session, "Public key memory auth failed", rc);
+            } else {
+                setError(session, "Public key memory auth failed (rc={})", .{rc});
+            }
             return c.JNI_FALSE;
         }
         if (jni_io.nowMs(session.io) >= deadline_ms) {

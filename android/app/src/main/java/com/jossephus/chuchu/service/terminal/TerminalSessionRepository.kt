@@ -243,7 +243,9 @@ class TerminalSessionRepository private constructor(application: Application) {
         preflightEngine = engine
         return try {
             PreflightAttempt.Completed(block(engine))
-        } catch (error: IllegalStateException) {
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
             verification?.let { PreflightAttempt.HostKeyVerificationRequired(it) } ?: throw error
         } finally {
             // A preflight key check must not retain a live libssh2 session while the
