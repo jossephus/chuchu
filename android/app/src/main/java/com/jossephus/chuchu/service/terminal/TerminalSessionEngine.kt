@@ -898,6 +898,7 @@ class TerminalSessionEngine(
             publicKeyOpenSsh = params.publicKeyOpenSsh,
             privateKeyPem = params.privateKeyPem,
             keyPassphrase = params.keyPassphrase,
+            ipv4Only = true,
         )
         val endpointHost =
             try {

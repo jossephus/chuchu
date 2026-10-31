@@ -413,9 +413,9 @@ fn sftpOpenDir(session: *NativeSshSession, sftp: *c.LIBSSH2_SFTP, path_z: [:0]u8
     }
 }
 
-fn connectSocket(host: [:0]const u8, port: u16) !c_int {
+fn connectSocket(host: [:0]const u8, port: u16, family: c_int) !c_int {
     var hints: c.struct_addrinfo = std.mem.zeroes(c.struct_addrinfo);
-    hints.ai_family = c.AF_UNSPEC;
+    hints.ai_family = family;
     hints.ai_socktype = c.SOCK_STREAM;
 
     var service_buf: [16]u8 = undefined;
@@ -578,7 +578,7 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeDestroySes
     destroyNativeSshSession(session);
 }
 
-export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeConnect(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, host: c.jstring, port: c.jint, username: c.jstring) callconv(.c) c.jboolean {
+export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeConnect(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, host: c.jstring, port: c.jint, username: c.jstring, ipv4_only: c.jboolean) callconv(.c) c.jboolean {
     _ = thiz;
     const session = sessionFromHandle(handle) orelse return c.JNI_FALSE;
     const host_slice = jniDupString(env, host) orelse {
@@ -607,9 +607,14 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeConnect(en
         return c.JNI_FALSE;
     };
 
-    const fd = connectSocket(host_z, @intCast(@max(port, 0))) catch {
-        logError("Socket connect failed host={s} port={}", .{ host_slice, port });
-        setError(session, "Socket connect failed host={s} port={}", .{ host_slice, port });
+    const family: c_int = if (ipv4_only != c.JNI_FALSE) c.AF_INET else c.AF_UNSPEC;
+    const fd = connectSocket(host_z, @intCast(@max(port, 0)), family) catch |err| {
+        logError("Socket connect failed host={s} port={} err={s}", .{ host_slice, port, @errorName(err) });
+        if (family == c.AF_INET and err == error.AddressLookupFailed) {
+            setError(session, "No IPv4 address found for host={s}", .{host_slice});
+        } else {
+            setError(session, "Socket connect failed host={s} port={}", .{ host_slice, port });
+        }
         return c.JNI_FALSE;
     };
     logInfo("Socket connected fd={}", .{fd});
