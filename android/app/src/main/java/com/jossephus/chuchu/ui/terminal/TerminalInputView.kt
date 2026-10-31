@@ -1,6 +1,7 @@
 package com.jossephus.chuchu.ui.terminal
 
 import android.content.Context
+import android.os.Build
 import android.os.SystemClock
 import android.text.Editable
 import android.text.InputType
@@ -13,7 +14,10 @@ import android.view.inputmethod.ExtractedText
 import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
+import android.view.inputmethod.SurroundingText
 import android.widget.EditText
+import androidx.annotation.RequiresApi
+import kotlin.math.abs
 
 fun terminalImeInputType(disableAutocorrect: Boolean): Int {
     // TYPE_NULL matches Termux's default and prevents keyboards from treating terminal input as prose.
@@ -30,6 +34,8 @@ class TerminalInputView(context: Context) : EditText(context) {
         private const val LOG_TAG = "TerminalInput"
         private const val DEBUG_INPUT_LOGS = false
         private const val SUPPRESSION_CLEANUP_WINDOW_MS = 120L
+        private const val CARET_PAD_CHARS = 1024
+        private val CARET_PAD = "\n".repeat(CARET_PAD_CHARS * 2)
     }
 
     var onTerminalText: ((String) -> Unit)? = null
@@ -224,8 +230,8 @@ class TerminalInputView(context: Context) : EditText(context) {
             EditorInfo.IME_FLAG_NO_FULLSCREEN or
             EditorInfo.IME_ACTION_NONE
         outAttrs.inputType = terminalImeInputType(disableAutocorrect)
-        outAttrs.initialSelStart = selectionStart
-        outAttrs.initialSelEnd = selectionEnd
+        outAttrs.initialSelStart = CARET_PAD_CHARS + selectionStart.coerceAtLeast(0)
+        outAttrs.initialSelEnd = CARET_PAD_CHARS + selectionEnd.coerceAtLeast(0)
 
         val conn = TerminalInputConnection(this)
         activeInputConnection = conn
@@ -245,11 +251,73 @@ class TerminalInputView(context: Context) : EditText(context) {
         private var outerBatchBeforeText: String? = null
         private var outerBatchHadDirectEmission = false
         private var directMutationDepth = 0
+        private var caretOffset = 0
+        private var imeSelectionDirty = false
 
         override fun getEditable(): Editable = view.editableText
 
         private fun logConn(message: String) {
             view.logInput("conn=$connectionId $message")
+        }
+
+        private fun imeOffset(): Int = CARET_PAD_CHARS + caretOffset
+
+        private fun imeDocument(): String =
+            CARET_PAD.substring(0, imeOffset()) +
+                getEditable().toString() +
+                CARET_PAD.substring(0, CARET_PAD_CHARS - caretOffset)
+
+        private fun imeSelectionStart(): Int =
+            imeOffset() + Selection.getSelectionStart(getEditable()).coerceAtLeast(0)
+
+        private fun imeSelectionEnd(): Int =
+            imeOffset() + Selection.getSelectionEnd(getEditable()).coerceAtLeast(0)
+
+        private fun toMirror(imePosition: Int): Int =
+            (imePosition - imeOffset()).coerceIn(0, getEditable().length)
+
+        private fun moveImeCaret(delta: Int) {
+            caretOffset += delta
+            if (abs(caretOffset) > CARET_PAD_CHARS / 2) caretOffset = 0
+            markImeSelectionChanged()
+        }
+
+        private fun markImeSelectionChanged() {
+            if (batchEditDepth > 0) {
+                imeSelectionDirty = true
+                return
+            }
+            reportImeSelection()
+        }
+
+        private fun reportImeSelection() {
+            imeSelectionDirty = false
+            val editable = getEditable()
+            val offset = imeOffset()
+            val composingStart = BaseInputConnection.getComposingSpanStart(editable)
+            val composingEnd = BaseInputConnection.getComposingSpanEnd(editable)
+            val imm = view.inputMethodManager
+                ?: view.context.getSystemService(InputMethodManager::class.java)
+                ?: return
+            imm.updateSelection(
+                view,
+                imeSelectionStart(),
+                imeSelectionEnd(),
+                if (composingStart < 0) -1 else offset + composingStart,
+                if (composingEnd < 0) -1 else offset + composingEnd,
+            )
+        }
+
+        private fun emitCaretMove(steps: Int) {
+            if (steps == 0) return
+            val keyCode = if (steps < 0) KeyEvent.KEYCODE_DPAD_LEFT else KeyEvent.KEYCODE_DPAD_RIGHT
+            val mapped = KeyMapper.map(keyCode, 0, 0) ?: return
+            if (view.suppressInput) view.clearSuppression("setSelection caret move")
+            logConn("emitCaretMove steps=$steps")
+            repeat(abs(steps)) {
+                view.onTerminalKey?.invoke(mapped.key, mapped.codepoint, mapped.mods, GhosttyKeyAction.Press, mapped.charCode)
+                view.onTerminalKey?.invoke(mapped.key, mapped.codepoint, mapped.mods, GhosttyKeyAction.Release, mapped.charCode)
+            }
         }
 
         fun armSuppression() {
@@ -264,9 +332,11 @@ class TerminalInputView(context: Context) : EditText(context) {
 
         private fun clearImeBuffer(restart: Boolean) {
             val editable = getEditable()
+            val mirrorCaret = Selection.getSelectionEnd(editable).coerceAtLeast(0)
             BaseInputConnection.removeComposingSpans(editable)
             if (editable.isNotEmpty()) editable.clear()
             Selection.setSelection(editable, 0)
+            moveImeCaret(mirrorCaret)
             logConn("clearImeBuffer restart=$restart")
             if (restart) {
                 view.inputMethodManager?.restartInput(view)
@@ -362,6 +432,7 @@ class TerminalInputView(context: Context) : EditText(context) {
             if (!composing && getEditable().isNotEmpty()) {
                 clearMirrorSilently()
             }
+            markImeSelectionChanged()
             return ok
         }
 
@@ -369,9 +440,11 @@ class TerminalInputView(context: Context) : EditText(context) {
         // it empty between commits so a later delete can't over-emit backspaces.
         private fun clearMirrorSilently() {
             val editable = getEditable()
+            val mirrorCaret = Selection.getSelectionEnd(editable).coerceAtLeast(0)
             BaseInputConnection.removeComposingSpans(editable)
             if (editable.isNotEmpty()) editable.clear()
             Selection.setSelection(editable, 0)
+            moveImeCaret(mirrorCaret)
             logConn("clearMirrorSilently")
         }
 
@@ -407,23 +480,56 @@ class TerminalInputView(context: Context) : EditText(context) {
 
         override fun setComposingRegion(start: Int, end: Int): Boolean {
             logConn("setComposingRegion start=$start end=$end")
-            return super.setComposingRegion(start, end)
+            return super.setComposingRegion(toMirror(start), toMirror(end))
         }
 
         override fun setSelection(start: Int, end: Int): Boolean {
             logConn("setSelection start=$start end=$end")
-            return super.setSelection(start, end)
+            if (
+                start != end ||
+                getEditable().isNotEmpty() ||
+                directMutationDepth > 0 ||
+                view.isSuppressionCleanupWindowActive()
+            ) {
+                return super.setSelection(toMirror(start), toMirror(end))
+            }
+            val target = (start - CARET_PAD_CHARS).coerceIn(-CARET_PAD_CHARS, CARET_PAD_CHARS)
+            val steps = target - caretOffset
+            caretOffset = target
+            emitCaretMove(steps)
+            markImeSelectionChanged()
+            return true
+        }
+
+        override fun getTextBeforeCursor(n: Int, flags: Int): CharSequence {
+            val end = imeSelectionStart()
+            return imeDocument().substring((end - n).coerceAtLeast(0), end)
+        }
+
+        override fun getTextAfterCursor(n: Int, flags: Int): CharSequence {
+            val document = imeDocument()
+            val start = imeSelectionEnd()
+            return document.substring(start, (start + n).coerceAtMost(document.length))
+        }
+
+        @RequiresApi(Build.VERSION_CODES.S)
+        override fun getSurroundingText(beforeLength: Int, afterLength: Int, flags: Int): SurroundingText {
+            val document = imeDocument()
+            val selStart = imeSelectionStart()
+            val selEnd = imeSelectionEnd()
+            val start = (selStart - beforeLength).coerceAtLeast(0)
+            val end = (selEnd + afterLength).coerceAtMost(document.length)
+            return SurroundingText(document.substring(start, end), selStart - start, selEnd - start, start)
         }
 
         override fun getExtractedText(request: ExtractedTextRequest?, flags: Int): ExtractedText {
-            val editable = getEditable()
             val extracted = ExtractedText().apply {
-                text = editable.toString()
+                text = imeDocument()
                 startOffset = 0
                 partialStartOffset = -1
                 partialEndOffset = -1
-                selectionStart = Selection.getSelectionStart(editable).coerceAtLeast(0)
-                selectionEnd = Selection.getSelectionEnd(editable).coerceAtLeast(0)
+                selectionStart = imeSelectionStart()
+                selectionEnd = imeSelectionEnd()
             }
             logConn(
                 "getExtractedText flags=$flags text=${view.describeText(extracted.text.toString())} sel=${extracted.selectionStart}..${extracted.selectionEnd}",
@@ -432,6 +538,13 @@ class TerminalInputView(context: Context) : EditText(context) {
         }
 
         override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
+            val mirrorWasEmpty = getEditable().isEmpty()
+            val ok = deleteSurroundingTextAndEmit(beforeLength, afterLength)
+            moveImeCaret(if (mirrorWasEmpty) -beforeLength.coerceAtLeast(0) else 0)
+            return ok
+        }
+
+        private fun deleteSurroundingTextAndEmit(beforeLength: Int, afterLength: Int): Boolean {
             val before = getEditable().toString()
             val ok = super.deleteSurroundingText(beforeLength, afterLength)
             val after = getEditable().toString()
@@ -505,6 +618,8 @@ class TerminalInputView(context: Context) : EditText(context) {
                     )
                     reconcileAndEmitMutation("endBatchEdit", batchBefore, editableAfter)
                 }
+
+                if (imeSelectionDirty) reportImeSelection()
             }
 
             return ok
