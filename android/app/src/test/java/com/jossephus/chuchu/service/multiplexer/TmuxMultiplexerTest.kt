@@ -101,10 +101,35 @@ class TmuxMultiplexerTest {
 
     @Test
     fun skipsMalformedSessionListLines() {
-        val sessions = TmuxMultiplexer.parseSessions("missing-separator\n1 \n")
+        val sessions = TmuxMultiplexer.parseSessions(
+            "missing-separator\n1 \nbad work\n-1 work\n work\n2147483648 work\n",
+        )
 
         assertEquals(
             emptyList<RemoteMultiplexerSession>(),
+            sessions,
+        )
+    }
+
+    @Test
+    fun preservesSessionNameWhitespaceWithCrLfOutput() {
+        val sessions = TmuxMultiplexer.parseSessions("0  work space \r\n2 main\r\n")
+
+        assertEquals(
+            listOf(
+                RemoteMultiplexerSession(name = " work space ", attached = false),
+                RemoteMultiplexerSession(name = "main", attached = true),
+            ),
+            sessions,
+        )
+    }
+
+    @Test
+    fun invalidAttachedCountsDoNotProduceDetachedSessions() {
+        val sessions = TmuxMultiplexer.parseSessions("0 chuchu-1\nbad chuchu-9\n-1 chuchu-10\n")
+
+        assertEquals(
+            listOf(RemoteMultiplexerSession(name = "chuchu-1", attached = false)),
             sessions,
         )
     }
