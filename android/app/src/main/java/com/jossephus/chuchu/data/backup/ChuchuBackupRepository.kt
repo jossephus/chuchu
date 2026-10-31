@@ -62,13 +62,20 @@ class ChuchuBackupRepository(
         }
 
         var importedHosts = 0
+        val localHostIdsByExportedId = mutableMapOf<Long, Long>()
         plan.hostActions.forEach { action ->
             check(action.host.id == 0L) { "Imported hosts must not preserve exported ids" }
             val localKeyId = action.keyActionIndex?.let { insertedKeyIdsByActionIndex[it] }
                 ?: action.host.keyId
-            val host = action.host.copy(keyId = localKeyId)
-            db.hostProfileDao().insertForImport(host)
+            val host = action.host.copy(keyId = localKeyId, jumpHostId = null)
+            localHostIdsByExportedId[action.exportedId] = db.hostProfileDao().insertForImport(host)
             importedHosts += 1
+        }
+        plan.hostActions.forEach { action ->
+            val exportedJumpHostId = action.exportedJumpHostId ?: return@forEach
+            val localId = localHostIdsByExportedId.getValue(action.exportedId)
+            val localJumpHostId = localHostIdsByExportedId.getValue(exportedJumpHostId)
+            db.hostProfileDao().setJumpHostId(localId, localJumpHostId)
         }
 
         return BackupImportResult(

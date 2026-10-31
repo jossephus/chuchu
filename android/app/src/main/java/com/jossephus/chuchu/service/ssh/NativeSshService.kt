@@ -110,41 +110,108 @@ class NativeSshService(
         privateKeyPem: String = "",
         keyPassphrase: String = "",
         ipv4Only: Boolean = false,
+        jumpHost: SshJumpHost? = null,
     ) {
         require(bridge.isLoaded()) { "Native SSH unavailable: ${bridge.nativeStatus()}" }
         close()
+        val jumpHandle = jumpHost?.let { connectJumpHost(it) } ?: 0L
         handle = bridge.nativeCreateSession()
-        check(handle != 0L) { "Failed to create native SSH session" }
+        if (handle == 0L) {
+            destroyHandle(jumpHandle)
+            throw IllegalStateException("Failed to create native SSH session")
+        }
 
-        if (!bridge.nativeConnect(handle, host, port, username, ipv4Only)) {
+        val connected =
+            if (jumpHandle != 0L) {
+                bridge.nativeConnectViaJump(handle, jumpHandle, host, port, username)
+            } else {
+                bridge.nativeConnect(handle, host, port, username, ipv4Only)
+            }
+        if (!connected) {
             throw IllegalStateException(
                 bridge.nativeGetLastError(handle) ?: "Native SSH connect failed"
             )
         }
 
+        verifyHostKey(handle, host, port)
+        authenticate(
+            handle,
+            authMethod,
+            password,
+            publicKeyOpenSsh,
+            privateKeyPem,
+            keyPassphrase,
+        )
+    }
+
+    private fun connectJumpHost(jumpHost: SshJumpHost): Long {
+        val jumpHandle = bridge.nativeCreateSession()
+        check(jumpHandle != 0L) { "Failed to create native SSH session for jump host" }
+        try {
+            if (!bridge.nativeConnect(jumpHandle, jumpHost.host, jumpHost.port, jumpHost.username, false)) {
+                throw IllegalStateException(
+                    "Jump host: " + (bridge.nativeGetLastError(jumpHandle) ?: "connect failed")
+                )
+            }
+            verifyHostKey(jumpHandle, jumpHost.host, jumpHost.port)
+            try {
+                authenticate(
+                    jumpHandle,
+                    jumpHost.authMethod,
+                    jumpHost.password,
+                    jumpHost.publicKeyOpenSsh,
+                    jumpHost.privateKeyPem,
+                    jumpHost.keyPassphrase,
+                )
+            } catch (e: IllegalStateException) {
+                throw IllegalStateException("Jump host: ${e.message}", e)
+            }
+            return jumpHandle
+        } catch (e: Throwable) {
+            destroyHandle(jumpHandle)
+            throw e
+        }
+    }
+
+    private fun destroyHandle(target: Long) {
+        if (target == 0L) return
+        bridge.nativeClose(target)
+        bridge.nativeDestroySession(target)
+    }
+
+    private fun verifyHostKey(target: Long, host: String, port: Int) {
         val algorithm =
-            bridge.nativeGetHostKeyAlgorithm(handle)
+            bridge.nativeGetHostKeyAlgorithm(target)
                 ?: throw IllegalStateException("Missing server host key algorithm")
         val keyBytes =
-            bridge.nativeGetHostKey(handle)
+            bridge.nativeGetHostKey(target)
                 ?: throw IllegalStateException("Missing server host key")
         if (!hostKeyPolicy.verify(host, port, algorithm, keyBytes)) {
             throw IllegalStateException("Host key rejected")
         }
+    }
 
+    private fun authenticate(
+        target: Long,
+        authMethod: AuthMethod,
+        password: String,
+        publicKeyOpenSsh: String,
+        privateKeyPem: String,
+        keyPassphrase: String,
+    ) {
         when (authMethod) {
             AuthMethod.None -> {
-                if (!bridge.nativeAuthenticateNone(handle)) {
+                if (!bridge.nativeAuthenticateNone(target)) {
                     throw IllegalStateException(
-                        bridge.nativeGetLastError(handle)
+                        bridge.nativeGetLastError(target)
                             ?: "Server did not accept none authentication"
                     )
                 }
             }
             AuthMethod.Password -> {
-                if (!bridge.nativeAuthenticatePassword(handle, password)) {
+                if (!bridge.nativeAuthenticatePassword(target, password)) {
                     throw IllegalStateException(
-                        passwordAuthErrorMessage(bridge.nativeGetLastError(handle))
+                        passwordAuthErrorMessage(bridge.nativeGetLastError(target))
                     )
                 }
             }
@@ -152,14 +219,14 @@ class NativeSshService(
                 check(privateKeyPem.isNotBlank()) { "Missing in-app private key for key auth" }
                 val ok =
                     bridge.nativeAuthenticatePublicKeyMemory(
-                        handle,
+                        target,
                         publicKeyOpenSsh.ifBlank { null },
                         privateKeyPem,
                         null,
                     )
                 if (!ok) {
                     throw IllegalStateException(
-                        bridge.nativeGetLastError(handle) ?: "Native SSH public key auth failed"
+                        bridge.nativeGetLastError(target) ?: "Native SSH public key auth failed"
                     )
                 }
             }
@@ -170,13 +237,13 @@ class NativeSshService(
                 }
                 val ok =
                     bridge.nativeAuthenticatePublicKeyMemory(
-                        handle,
+                        target,
                         publicKeyOpenSsh.ifBlank { null },
                         privateKeyPem,
                         keyPassphrase,
                     )
                 if (!ok) {
-                    val nativeError = bridge.nativeGetLastError(handle)
+                    val nativeError = bridge.nativeGetLastError(target)
                     val hint =
                         if (
                             nativeError?.contains("Callback returned error", ignoreCase = true) ==

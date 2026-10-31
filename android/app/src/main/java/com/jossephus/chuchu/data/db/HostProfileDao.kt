@@ -5,6 +5,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import com.jossephus.chuchu.model.HostProfile
 import kotlinx.coroutines.flow.Flow
@@ -24,6 +25,18 @@ interface HostProfileDao {
     @Update suspend fun update(profile: HostProfile)
 
     @Delete suspend fun delete(profile: HostProfile)
+
+    @Query("UPDATE host_profiles SET jumpHostId = :jumpHostId WHERE id = :hostId")
+    suspend fun setJumpHostId(hostId: Long, jumpHostId: Long?)
+
+    @Query("UPDATE host_profiles SET jumpHostId = NULL WHERE jumpHostId = :hostId")
+    suspend fun clearJumpHostReference(hostId: Long)
+
+    @Transaction
+    suspend fun deleteAndClearJumpHostReferences(profile: HostProfile) {
+        clearJumpHostReference(profile.id)
+        delete(profile)
+    }
 
     @Query("UPDATE host_profiles SET keyId = NULL, keyPassphrase = '' WHERE keyId = :keyId")
     suspend fun clearKeyReference(keyId: Long)
