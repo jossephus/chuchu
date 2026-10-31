@@ -37,7 +37,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -48,6 +47,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -69,6 +69,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     private var pendingMultiplexerAction: PendingMultiplexerAction? = null
     private var multiplexerActionGeneration = 0L
     private var multiplexerSessionListGeneration = 0L
+    private var multiplexerDuplicateInFlight = false
 
     private val _tailscaleActive = MutableStateFlow(tailscaleStatusChecker.isActive())
     val tailscaleActive: StateFlow<Boolean> = _tailscaleActive.asStateFlow()
@@ -175,24 +176,38 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun startMultiplexerDuplicate(spec: TabSpec) {
+        if (multiplexerDuplicateInFlight) return
+        multiplexerDuplicateInFlight = true
+        _multiplexerState.value =
+            _multiplexerState.value.copy(
+                duplicateLoading = true,
+                preflightError = null,
+            )
         val duplicateSpec = spec.copy(
             multiplexer = spec.multiplexer ?: MultiplexerRegistry.defaultType,
             multiplexerSessionName = null,
             multiplexerCreateIfMissing = true,
         )
         viewModelScope.launch(Dispatchers.IO) {
-            val result = runCatching { sessionRepository.resolveMultiplexerSessionName(duplicateSpec) }
-            withContext(Dispatchers.Main) {
-                result.fold(
-                    onSuccess = { name ->
-                        openTab(duplicateSpec.copy(multiplexerSessionName = name))
-                    },
-                    onFailure = { error ->
-                        _multiplexerState.value = _multiplexerState.value.copy(
-                            preflightError = error.message ?: "Could not create multiplexer session",
-                        )
-                    },
-                )
+            try {
+                val result = runCatching { sessionRepository.resolveMultiplexerSessionName(duplicateSpec) }
+                withContext(Dispatchers.Main) {
+                    result.fold(
+                        onSuccess = { name ->
+                            openTab(duplicateSpec.copy(multiplexerSessionName = name))
+                        },
+                        onFailure = { error ->
+                            _multiplexerState.value = _multiplexerState.value.copy(
+                                preflightError = error.message ?: "Could not create multiplexer session",
+                            )
+                        },
+                    )
+                }
+            } finally {
+                withContext(NonCancellable + Dispatchers.Main) {
+                    multiplexerDuplicateInFlight = false
+                    _multiplexerState.value = _multiplexerState.value.copy(duplicateLoading = false)
+                }
             }
         }
     }
@@ -246,41 +261,28 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             reconnectRecovery = reconnectRecovery,
         )
         viewModelScope.launch(Dispatchers.IO) {
-            val result =
-                try {
-                    Result.success(
-                        sessionRepository.resolveMultiplexerSessionName(
-                            spec = spec,
-                            reuseDetachedChuchuSession =
-                                preparedAction is PendingMultiplexerAction.Open &&
-                                    spec.multiplexerSessionName.isNullOrBlank(),
-                        ),
-                    )
-                } catch (_: CancellationException) {
-                    withContext(NonCancellable + Dispatchers.Main) {
-                        reportMultiplexerActionStopped(actionGeneration, preparedAction)
-                    }
-                    return@launch
-                } catch (error: Exception) {
-                    Result.failure(error)
-                }
+            val result = runCatching {
+                sessionRepository.resolveMultiplexerSessionName(
+                    spec = spec,
+                    reuseDetachedChuchuSession =
+                        preparedAction is PendingMultiplexerAction.Open &&
+                            spec.multiplexerSessionName.isNullOrBlank(),
+                )
+            }
             withContext(Dispatchers.Main) {
-                if (isCurrentMultiplexerAction(actionGeneration, preparedAction)) {
-                    result.fold(
-                        onSuccess = { sessionName ->
-                            completeMultiplexerAction(actionGeneration, preparedAction, sessionName)
-                        },
-                        onFailure = { error ->
-                            _multiplexerState.value = _multiplexerState.value.copy(
-                                preflightLoading = false,
-                                preflightHostLabel = null,
-                                preflightError = error.message ?: "Could not prepare multiplexer session",
-                            )
-                        },
-                    )
-                } else {
-                    reportMultiplexerActionStopped(actionGeneration, preparedAction)
-                }
+                if (!isCurrentMultiplexerAction(actionGeneration, preparedAction)) return@withContext
+                result.fold(
+                    onSuccess = { sessionName ->
+                        completeMultiplexerAction(actionGeneration, preparedAction, sessionName)
+                    },
+                    onFailure = { error ->
+                        _multiplexerState.value = _multiplexerState.value.copy(
+                            preflightLoading = false,
+                            preflightHostLabel = null,
+                            preflightError = error.message ?: "Could not prepare multiplexer session",
+                        )
+                    },
+                )
             }
         }
     }
@@ -293,48 +295,23 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         action: PendingMultiplexerAction,
         sessionName: String,
     ) {
-        if (isCurrentMultiplexerAction(actionGeneration, action)) {
-            val nextSpec = action.spec.copy(
-                multiplexer = action.spec.multiplexer ?: MultiplexerRegistry.defaultType,
-                multiplexerSessionName = sessionName,
-                multiplexerCreateIfMissing = action.spec.multiplexerCreateIfMissing,
-            )
-            pendingMultiplexerAction = null
-            _multiplexerState.value = MultiplexerUiState()
-            when (action) {
-                is PendingMultiplexerAction.Open -> openTab(nextSpec)
-                is PendingMultiplexerAction.Reconnect -> {
-                    if (!reconnectTabWithSpec(action.tabId, nextSpec)) {
-                        _multiplexerState.value = MultiplexerUiState(
-                            preflightError = "Terminal session is no longer available",
-                            reconnectRecovery = true,
-                        )
-                    }
+        if (!isCurrentMultiplexerAction(actionGeneration, action)) return
+        val nextSpec = action.spec.copy(
+            multiplexer = action.spec.multiplexer ?: MultiplexerRegistry.defaultType,
+            multiplexerSessionName = sessionName,
+            multiplexerCreateIfMissing = action.spec.multiplexerCreateIfMissing,
+        )
+        pendingMultiplexerAction = null
+        _multiplexerState.value = MultiplexerUiState()
+        when (action) {
+            is PendingMultiplexerAction.Open -> openTab(nextSpec)
+            is PendingMultiplexerAction.Reconnect -> {
+                if (!reconnectTabWithSpec(action.tabId, nextSpec)) {
+                    _multiplexerState.value = MultiplexerUiState(
+                        preflightError = "Terminal session is no longer available",
+                        reconnectRecovery = true,
+                    )
                 }
-            }
-        } else {
-            reportMultiplexerActionStopped(actionGeneration, action)
-        }
-    }
-
-    private fun reportMultiplexerActionStopped(
-        actionGeneration: Long,
-        action: PendingMultiplexerAction,
-    ) {
-        when {
-            isCurrentMultiplexerAction(actionGeneration, action) -> {
-                _multiplexerState.value = _multiplexerState.value.copy(
-                    preflightLoading = false,
-                    preflightHostLabel = null,
-                    preflightError = "Connection preparation was cancelled",
-                )
-            }
-
-            pendingMultiplexerAction == null -> {
-                _multiplexerState.value = MultiplexerUiState(
-                    preflightError = "Connection preparation was superseded",
-                    reconnectRecovery = action is PendingMultiplexerAction.Reconnect,
-                )
             }
         }
     }
