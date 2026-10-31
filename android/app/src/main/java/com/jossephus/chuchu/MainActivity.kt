@@ -1,6 +1,7 @@
 package com.jossephus.chuchu
 
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -13,16 +14,28 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.lifecycleScope
 import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.ui.ApplicationNavController
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTheme
 import com.jossephus.chuchu.ui.theme.GhosttyThemeRegistry
 import com.jossephus.chuchu.ui.theme.resolveActiveThemeName
+import kotlinx.coroutines.launch
 
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val settings = SettingsRepository.getInstance(this)
+        lifecycleScope.launch {
+            settings.hideScreenContents.collect { hideScreenContents ->
+                if (hideScreenContents) {
+                    window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                } else {
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                }
+            }
+        }
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(0x00000000),
             navigationBarStyle = SystemBarStyle.dark(0x00000000),

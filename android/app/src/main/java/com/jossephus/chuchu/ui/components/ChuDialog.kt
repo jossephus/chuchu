@@ -13,6 +13,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.dp
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
@@ -25,13 +26,17 @@ fun ChuDialog(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     dismissLabel: String = "Cancel",
+    properties: DialogProperties = DialogProperties(),
     content: @Composable () -> Unit,
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
     val shape = RectangleShape
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = properties,
+    ) {
         Column(
             modifier = modifier
                 .fillMaxWidth()

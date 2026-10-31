@@ -135,7 +135,7 @@ pub fn build(b: *std.Build) void {
     }
 
     lib.root_module.addIncludePath(upstream.path("include"));
-    lib.addCSourceFiles(.{
+    lib.root_module.addCSourceFiles(.{
         .root = upstream.path("library"),
         .files = mbedtls_src,
     });

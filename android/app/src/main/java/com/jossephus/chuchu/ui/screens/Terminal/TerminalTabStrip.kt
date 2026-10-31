@@ -40,6 +40,9 @@ import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
 
+// Approximates the visible title width before the fixed-size tab ellipsizes it.
+private const val TAB_TITLE_COLLISION_PREFIX_LENGTH = 14
+
 /**
  * Human-readable status text for accessibility.
  */
@@ -64,17 +67,30 @@ fun TerminalTabStrip(
     onTabSelected: (String) -> Unit,
     onAddTab: () -> Unit,
     onOpenManager: () -> Unit,
+    newTabPicker: @Composable () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
     val scrollState = rememberScrollState()
-    val trailingActionWidth = if (tabs.size > 1) 72.dp else 40.dp
+    val trailingActionWidth = if (tabs.isNotEmpty()) 72.dp else 40.dp
     val tabOffsets = remember { mutableStateMapOf<String, Int>() }
     val rowRootLeft = remember { mutableStateOf(0) }
+    val titles = tabs.map { tab ->
+        val title by remember(tab) {
+            tab.sessionState.map { it.title?.takeIf(String::isNotBlank) }
+        }.collectAsStateWithLifecycle(initialValue = null)
+        title
+    }
+    val titlePrefixCounts = titles
+        .filterNotNull()
+        .groupingBy { it.take(TAB_TITLE_COLLISION_PREFIX_LENGTH) }
+        .eachCount()
 
-    LaunchedEffect(activeTabId) {
-        val target = activeTabId?.let { tabOffsets[it] } ?: return@LaunchedEffect
+    val activeTabOffset = activeTabId?.let { tabOffsets[it] }
+
+    LaunchedEffect(activeTabId, activeTabOffset) {
+        val target = activeTabOffset ?: return@LaunchedEffect
         scrollState.animateScrollTo(target)
     }
 
@@ -95,13 +111,15 @@ fun TerminalTabStrip(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            tabs.forEach { tab ->
+            tabs.forEachIndexed { index, tab ->
                 val isActive = tab.id == activeTabId
                 val alias = terminalTabDisplayLabel(tab)
-                val title by remember(tab) {
-                    tab.sessionState.map { it.title?.takeIf(String::isNotBlank) }
-                }.collectAsStateWithLifecycle(initialValue = null)
-                val label = title ?: alias
+                val title = titles[index]
+                val label = when {
+                    title == null -> alias
+                    titlePrefixCounts.getValue(title.take(TAB_TITLE_COLLISION_PREFIX_LENGTH)) == 1 -> title
+                    else -> "$alias · $title"
+                }
 
                 Box(
                     modifier = Modifier
@@ -146,7 +164,7 @@ fun TerminalTabStrip(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            if (tabs.size > 1) {
+            if (tabs.isNotEmpty()) {
                 ChuButton(
                     onClick = onOpenManager,
                     modifier = Modifier.defaultMinSize(minHeight = 32.dp, minWidth = 32.dp),
@@ -162,14 +180,17 @@ fun TerminalTabStrip(
                 }
             }
 
-            ChuButton(
-                onClick = onAddTab,
-                modifier = Modifier.defaultMinSize(minHeight = 32.dp, minWidth = 32.dp),
-                variant = ChuButtonVariant.Ghost,
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                contentDescription = "new connection",
-            ) {
-                ChuText("+", style = typography.label, color = colors.accent)
+            Box {
+                ChuButton(
+                    onClick = onAddTab,
+                    modifier = Modifier.defaultMinSize(minHeight = 32.dp, minWidth = 32.dp),
+                    variant = ChuButtonVariant.Ghost,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    contentDescription = "new connection",
+                ) {
+                    ChuText("+", style = typography.label, color = colors.accent)
+                }
+                newTabPicker()
             }
         }
     }
