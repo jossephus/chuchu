@@ -85,7 +85,8 @@ class TerminalSessionRepository private constructor(application: Application) {
     private val _preflightHostKeyPrompt = MutableStateFlow<HostKeyPrompt?>(null)
     private val preflightMutex = Mutex()
     private var preflightEngine: TerminalSessionEngine? = null
-    private var preflightHostKeyDecision: CompletableDeferred<Boolean>? = null
+    @Volatile private var preflightHostKeyDecision: CompletableDeferred<Boolean>? = null
+    @Volatile private var preflightGeneration = 0L
 
     private val activeHostKeyPrompt: StateFlow<HostKeyPrompt?> =
         activeTab
@@ -200,19 +201,23 @@ class TerminalSessionRepository private constructor(application: Application) {
     suspend fun listMultiplexerSessions(spec: TabSpec): List<RemoteMultiplexerSession> =
         withPreflightEngine { engine -> engine.listMultiplexerSessions(spec) }
 
-    private suspend fun <T> withPreflightEngine(block: suspend (TerminalSessionEngine) -> T): T =
-        preflightMutex.withLock { runPreflightWithHostKeyRetries(block) }
+    private suspend fun <T> withPreflightEngine(block: suspend (TerminalSessionEngine) -> T): T {
+        val generation = preflightGeneration
+        return preflightMutex.withLock { runPreflightWithHostKeyRetries(generation, block) }
+    }
 
     private suspend fun <T> runPreflightWithHostKeyRetries(
+        generation: Long,
         block: suspend (TerminalSessionEngine) -> T,
     ): T {
         while (true) {
             when (val attempt = runPreflightAttempt(block)) {
                 is PreflightAttempt.Completed -> return attempt.value
                 is PreflightAttempt.HostKeyVerificationRequired -> {
-                    if (!awaitPreflightHostKeyDecision(attempt.verification)) {
+                    if (!awaitPreflightHostKeyDecision(generation, attempt.verification)) {
                         throw IllegalStateException("Host key rejected")
                     }
+                    ensurePreflightCurrent(generation)
                     val prompt = attempt.verification.prompt
                     hostKeyStore.saveKey(
                         prompt.host,
@@ -223,6 +228,10 @@ class TerminalSessionRepository private constructor(application: Application) {
                 }
             }
         }
+    }
+
+    private fun ensurePreflightCurrent(generation: Long) {
+        check(preflightGeneration == generation) { "Disconnected while preparing the connection" }
     }
 
     private suspend fun <T> runPreflightAttempt(
@@ -258,12 +267,14 @@ class TerminalSessionRepository private constructor(application: Application) {
     }
 
     private suspend fun awaitPreflightHostKeyDecision(
+        generation: Long,
         verification: PreflightHostKeyVerification,
     ): Boolean {
         val decision = CompletableDeferred<Boolean>()
         preflightHostKeyDecision = decision
-        _preflightHostKeyPrompt.value = verification.prompt
         return try {
+            ensurePreflightCurrent(generation)
+            _preflightHostKeyPrompt.value = verification.prompt
             decision.await()
         } finally {
             if (preflightHostKeyDecision === decision) {
@@ -362,6 +373,7 @@ class TerminalSessionRepository private constructor(application: Application) {
     }
 
     fun disconnect() {
+        preflightGeneration += 1
         preflightHostKeyDecision?.cancel()
         preflightHostKeyDecision = null
         preflightEngine?.dispose()
