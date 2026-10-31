@@ -15,6 +15,7 @@ import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
 import android.view.inputmethod.SurroundingText
+import android.view.inputmethod.TextAttribute
 import android.widget.EditText
 import androidx.annotation.RequiresApi
 import kotlin.math.abs
@@ -187,6 +188,7 @@ class TerminalInputView(context: Context) : EditText(context) {
                     restartIme = shouldRestartImeAfterMirrorInvalidate(keyCode),
                 )
             }
+            if (ghosttyAction != GhosttyKeyAction.Release) activeInputConnection?.trackKeyCaretMove(keyCode)
             onTerminalKey?.invoke(mapped.key, mapped.codepoint, mapped.mods, ghosttyAction, mapped.charCode)
             return true
         }
@@ -328,6 +330,15 @@ class TerminalInputView(context: Context) : EditText(context) {
         fun invalidateImeMirror(restartIme: Boolean = false) {
             logConn("invalidateImeMirror restartIme=$restartIme -> clearImeBuffer")
             clearImeBuffer(restart = restartIme)
+        }
+
+        fun trackKeyCaretMove(keyCode: Int) {
+            val delta = when (keyCode) {
+                KeyEvent.KEYCODE_DEL, KeyEvent.KEYCODE_DPAD_LEFT -> -1
+                KeyEvent.KEYCODE_DPAD_RIGHT -> 1
+                else -> return
+            }
+            moveImeCaret(delta)
         }
 
         private fun clearImeBuffer(restart: Boolean) {
@@ -496,7 +507,7 @@ class TerminalInputView(context: Context) : EditText(context) {
             val target = (start - CARET_PAD_CHARS).coerceIn(-CARET_PAD_CHARS, CARET_PAD_CHARS)
             val steps = target - caretOffset
             caretOffset = target
-            emitCaretMove(steps)
+            if (batchEditDepth == 0) emitCaretMove(steps)
             markImeSelectionChanged()
             return true
         }
@@ -580,6 +591,31 @@ class TerminalInputView(context: Context) : EditText(context) {
             return ok
         }
 
+        @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+        override fun replaceText(
+            start: Int,
+            end: Int,
+            text: CharSequence,
+            newCursorPosition: Int,
+            textAttribute: TextAttribute?,
+        ): Boolean {
+            logConn("replaceText start=$start end=$end text=${view.describeText(text.toString())}")
+            if (getEditable().isNotEmpty()) {
+                return mutateEditableAndEmit("replaceText", composing = false) {
+                    super.replaceText(toMirror(start), toMirror(end), text, newCursorPosition, textAttribute)
+                }
+            }
+            val low = (minOf(start, end) - CARET_PAD_CHARS).coerceIn(-CARET_PAD_CHARS, CARET_PAD_CHARS)
+            val high = (maxOf(start, end) - CARET_PAD_CHARS).coerceIn(-CARET_PAD_CHARS, CARET_PAD_CHARS)
+            val replacement = text.toString().filterNot { it == '\n' || it == '\r' }
+            emitCaretMove(high - caretOffset)
+            repeat(high - low) { view.emitBackspaceText("replaceText") }
+            if (replacement.isNotEmpty()) view.emitTerminalText("replaceText", replacement)
+            caretOffset = low + replacement.length
+            markImeSelectionChanged()
+            return true
+        }
+
         override fun beginBatchEdit(): Boolean {
             if (batchEditDepth == 0) {
                 outerBatchBeforeText = getEditable().toString()
@@ -638,6 +674,7 @@ class TerminalInputView(context: Context) : EditText(context) {
                             restartIme = view.shouldRestartImeAfterMirrorInvalidate(event.keyCode),
                         )
                     }
+                    if (ghosttyAction != GhosttyKeyAction.Release) trackKeyCaretMove(event.keyCode)
                     view.onTerminalKey?.invoke(mapped.key, mapped.codepoint, mapped.mods, ghosttyAction, mapped.charCode)
                     return true
                 }
