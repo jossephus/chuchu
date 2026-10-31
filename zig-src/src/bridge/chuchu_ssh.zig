@@ -151,7 +151,11 @@ fn pollSocket(session: *NativeSshSession, timeout_ms: c_int) SocketWait {
     if (events == 0) {
         events = c.POLLIN | c.POLLOUT;
     }
+    return pollSocketEvents(session, events, timeout_ms);
+}
 
+fn pollSocketEvents(session: *NativeSshSession, events: c_short, timeout_ms: c_int) SocketWait {
+    if (session.socket_fd < 0) return .failed;
     var poll_fds: [1]c.struct_pollfd = .{.{
         .fd = session.socket_fd,
         .events = events,
@@ -334,6 +338,21 @@ const SftpWait = struct {
         self.eagain_count +%= 1;
         const progress = awaitSftpProgress(session, &self.idle_since_ms);
         if (progress == .retry) return true;
+        return self.giveUp(session, operation, progress);
+    }
+
+    fn awaitAck(self: *SftpWait, session: *NativeSshSession, operation: []const u8) bool {
+        self.eagain_count +%= 1;
+        if (pollSocketEvents(session, c.POLLIN, io_wait_timeout_ms) == .failed) {
+            return self.giveUp(session, operation, .no_socket);
+        }
+        if (jni_io.nowMs(session.io) - self.idle_since_ms > sftp_idle_limit_ms) {
+            return self.giveUp(session, operation, .stalled);
+        }
+        return true;
+    }
+
+    fn giveUp(self: *SftpWait, session: *NativeSshSession, operation: []const u8, progress: SftpProgress) bool {
         const now = jni_io.nowMs(session.io);
         const elapsed_ms = now - self.started_ms;
         const idle_ms = now - self.idle_since_ms;
@@ -1423,8 +1442,12 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeSftpWriteC
         const remaining: usize = @as(usize, @intCast(data_len)) - written;
         const chunk_size: usize = @min(remaining, 32768);
         const rc = c.libssh2_sftp_write(sftp_handle, ptr + written, chunk_size);
-        if (rc == c.LIBSSH2_ERROR_EAGAIN or rc == 0) {
+        if (rc == c.LIBSSH2_ERROR_EAGAIN) {
             if (!wait.retry(session, "SFTP write")) return -1;
+            continue;
+        }
+        if (rc == 0) {
+            if (!wait.awaitAck(session, "SFTP write")) return -1;
             continue;
         }
         if (rc < 0) {
