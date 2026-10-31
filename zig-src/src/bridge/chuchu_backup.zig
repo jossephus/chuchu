@@ -110,8 +110,8 @@ fn encryptPayload(io: std.Io, plaintext: []const u8, passphrase: []const u8) Nat
 
     var salt: [SALT_SIZE_BYTES]u8 = undefined;
     var iv: [IV_SIZE_BYTES]u8 = undefined;
-    io.random(&salt);
-    io.random(&iv);
+    io.randomSecure(&salt) catch return error.CryptoFailure;
+    io.randomSecure(&iv) catch return error.CryptoFailure;
 
     const metadata = buildMetadata(salt, iv);
     var key: [32]u8 = undefined;

@@ -22,8 +22,8 @@ pub fn nowNs(io: std.Io) i128 {
     return std.Io.Timestamp.now(io, .awake).toNanoseconds();
 }
 
-pub fn randomInt(io: std.Io, comptime T: type) T {
+pub fn randomSecureInt(io: std.Io, comptime T: type) std.Io.RandomSecureError!T {
     var bytes: [@sizeOf(T)]u8 = undefined;
-    io.random(&bytes);
+    try io.randomSecure(&bytes);
     return std.mem.readInt(T, &bytes, .little);
 }

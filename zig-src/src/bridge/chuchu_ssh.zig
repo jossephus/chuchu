@@ -1702,11 +1702,16 @@ fn generateEd25519Key(
     out_private_pem: *[]u8,
     out_public_openssh: *[]u8,
 ) !void {
-    const key_pair = Ed25519.KeyPair.generate(io);
+    const key_pair = while (true) {
+        var seed: [Ed25519.KeyPair.seed_length]u8 = undefined;
+        defer std.crypto.secureZero(u8, &seed);
+        try io.randomSecure(&seed);
+        break Ed25519.KeyPair.generateDeterministic(seed) catch continue;
+    };
     const pub_key: [32]u8 = key_pair.public_key.bytes;
     const seed: [32]u8 = key_pair.secret_key.seed();
 
-    const check = jni_io.randomInt(io, u32);
+    const check = try jni_io.randomSecureInt(io, u32);
 
     // Build private section (plaintext)
     const private_section = try buildPrivateSection(seed, pub_key, comment, check);
@@ -1734,7 +1739,7 @@ fn generateEd25519Key(
         var kdf_opts: std.ArrayList(u8) = .empty;
         defer kdf_opts.deinit(allocator);
         var salt: [openssh_salt_len]u8 = undefined;
-        io.random(&salt);
+        try io.randomSecure(&salt);
         try sshPutString(&kdf_opts, &salt);
         try sshPutU32(&kdf_opts, openssh_kdf_rounds);
         try sshPutString(&key_data, kdf_opts.items);

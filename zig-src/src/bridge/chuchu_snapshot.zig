@@ -1062,7 +1062,7 @@ fn allocRgba(pixel_count: usize) ?[]u8 {
 }
 
 fn prepareImageData(image_id: u32, image: ghostty.kitty.graphics.Image) ?PreparedImageData {
-    const bytes = image.data.bytes() orelse &.{};
+    const bytes = image.renderData().bytes() orelse return null;
     var data_ptr: [*c]const u8 = if (bytes.len == 0) null else bytes.ptr;
     var data_len: usize = bytes.len;
     var img_w = image.width;
