@@ -99,6 +99,8 @@ internal fun TerminalSettings(
     onHideScreenContentsChanged: (Boolean) -> Unit = {},
     disableAutocorrect: Boolean = false,
     onDisableAutocorrectChanged: (Boolean) -> Unit = {},
+    remoteClipboardWriteEnabled: Boolean = false,
+    onRemoteClipboardWriteEnabledChanged: (Boolean) -> Unit = {},
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
@@ -489,6 +491,33 @@ internal fun TerminalSettings(
                 ChuSwitch(
                     checked = localShellEnabled,
                     onCheckedChange = onLocalShellEnabledChanged,
+                )
+            }
+        }
+
+        ChuCard(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .defaultMinSize(minHeight = 48.dp)
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    ChuText("allow remote clipboard writes", style = typography.label)
+                    ChuText(
+                        "lets the remote host set this device's clipboard (OSC 52). only the visible tab can write.",
+                        style = typography.bodySmall,
+                        color = colors.textMuted,
+                    )
+                }
+                ChuSwitch(
+                    checked = remoteClipboardWriteEnabled,
+                    onCheckedChange = onRemoteClipboardWriteEnabledChanged,
                 )
             }
         }
