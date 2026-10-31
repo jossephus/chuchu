@@ -221,7 +221,6 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun beginMultiplexerAction(action: PendingMultiplexerAction) {
-        val actionGeneration = ++multiplexerActionGeneration
         val preparedAction = when (action) {
             is PendingMultiplexerAction.Open -> action.copy(
                 spec = action.spec.copy(multiplexer = action.spec.multiplexer ?: MultiplexerRegistry.defaultType),
@@ -230,6 +229,14 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 spec = action.spec.copy(multiplexer = action.spec.multiplexer ?: MultiplexerRegistry.defaultType),
             )
         }
+        if (
+            pendingMultiplexerAction == preparedAction &&
+                _multiplexerState.value.preflightLoading
+        ) {
+            // Keep the original generation alive while its host-key prompt is awaiting a decision.
+            return
+        }
+        val actionGeneration = ++multiplexerActionGeneration
         pendingMultiplexerAction = preparedAction
         val spec = preparedAction.spec
         val label = spec.multiplexer?.label ?: MultiplexerRegistry.defaultType.label
@@ -248,7 +255,11 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             )
             return
         }
-        _multiplexerState.value = MultiplexerUiState(reconnectRecovery = reconnectRecovery)
+        _multiplexerState.value = MultiplexerUiState(
+            preflightLoading = true,
+            preflightHostLabel = spec.tabLabel,
+            reconnectRecovery = reconnectRecovery,
+        )
         viewModelScope.launch(Dispatchers.IO) {
             val result = runCatching {
                 sessionRepository.resolveMultiplexerSessionName(
@@ -266,6 +277,8 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                     },
                     onFailure = { error ->
                         _multiplexerState.value = _multiplexerState.value.copy(
+                            preflightLoading = false,
+                            preflightHostLabel = null,
                             preflightError = error.message ?: "Could not prepare multiplexer session",
                         )
                     },
@@ -787,6 +800,8 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
 
 data class MultiplexerUiState(
     val preflightError: String? = null,
+    val preflightLoading: Boolean = false,
+    val preflightHostLabel: String? = null,
     val duplicateLoading: Boolean = false,
     val sessions: List<RemoteMultiplexerSession> = emptyList(),
     val sessionsLoading: Boolean = false,

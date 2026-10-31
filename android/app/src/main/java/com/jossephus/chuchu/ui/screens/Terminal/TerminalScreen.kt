@@ -803,7 +803,9 @@ fun TerminalScreen(
             Toast.makeText(context, preflightError, Toast.LENGTH_LONG).show()
         }
     }
-    when (sessionState.status) {
+    val displaySessionStatus =
+        if (multiplexerState.preflightLoading) SessionStatus.Connecting else sessionState.status
+    when (displaySessionStatus) {
         SessionStatus.Disconnected,
         SessionStatus.Error -> {
             if (tabMode == TerminalTabMode.Strip) {
@@ -886,7 +888,9 @@ fun TerminalScreen(
         }
 
         SessionStatus.Connecting -> {
-            val hostLabel = if (tabMode == TerminalTabMode.Strip) {
+            val hostLabel = if (multiplexerState.preflightLoading) {
+                "${multiplexerState.preflightHostLabel ?: "server"}..."
+            } else if (tabMode == TerminalTabMode.Strip) {
                 activeTab?.spec?.tabLabel?.let { "$it..." } ?: "..."
             } else {
                 activeTabForHost?.spec?.host?.let { "$it..." } ?: "..."
