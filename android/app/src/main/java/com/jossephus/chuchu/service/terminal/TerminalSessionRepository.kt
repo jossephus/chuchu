@@ -11,11 +11,12 @@ import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerSession
 import com.jossephus.chuchu.service.ssh.HostKeyStore
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
 import java.util.UUID
+import kotlinx.coroutines.CompletableDeferred
+
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -34,6 +35,19 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class TerminalSessionRepository private constructor(application: Application) {
+    private sealed interface PreflightAttempt<out T> {
+        data class Completed<T>(val value: T) : PreflightAttempt<T>
+
+        data class HostKeyVerificationRequired(
+            val verification: PreflightHostKeyVerification,
+        ) : PreflightAttempt<Nothing>
+    }
+
+    private data class PreflightHostKeyVerification(
+        val prompt: HostKeyPrompt,
+        val keyBytes: ByteArray,
+    )
+
     private val appContext = application.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -71,7 +85,8 @@ class TerminalSessionRepository private constructor(application: Application) {
     private val _preflightHostKeyPrompt = MutableStateFlow<HostKeyPrompt?>(null)
     private val preflightMutex = Mutex()
     private var preflightEngine: TerminalSessionEngine? = null
-    private var preflightPromptJob: Job? = null
+    @Volatile private var preflightHostKeyDecision: CompletableDeferred<Boolean>? = null
+    @Volatile private var preflightGeneration = 0L
 
     private val activeHostKeyPrompt: StateFlow<HostKeyPrompt?> =
         activeTab
@@ -186,37 +201,88 @@ class TerminalSessionRepository private constructor(application: Application) {
     suspend fun listMultiplexerSessions(spec: TabSpec): List<RemoteMultiplexerSession> =
         withPreflightEngine { engine -> engine.listMultiplexerSessions(spec) }
 
-    private suspend fun <T> withPreflightEngine(block: suspend (TerminalSessionEngine) -> T): T =
-        preflightMutex.withLock {
-            val engine =
-                TerminalSessionEngine(
-                    {},
-                    scope,
-                    newLocalShellService(),
-                    hostKeyStore,
-                    tailscaleStatusChecker,
-                )
-            preflightEngine = engine
-            val promptJob = scope.launch {
-                engine.hostKeyPrompt.collect { prompt ->
-                    if (preflightEngine === engine) {
-                        _preflightHostKeyPrompt.value = prompt
+    private suspend fun <T> withPreflightEngine(block: suspend (TerminalSessionEngine) -> T): T {
+        val generation = preflightGeneration
+        return preflightMutex.withLock { runPreflightWithHostKeyRetries(generation, block) }
+    }
+
+    private suspend fun <T> runPreflightWithHostKeyRetries(
+        generation: Long,
+        block: suspend (TerminalSessionEngine) -> T,
+    ): T {
+        while (true) {
+            when (val attempt = runPreflightAttempt(block)) {
+                is PreflightAttempt.Completed -> return attempt.value
+                is PreflightAttempt.HostKeyVerificationRequired -> {
+                    if (!awaitPreflightHostKeyDecision(generation, attempt.verification)) {
+                        throw IllegalStateException("Host key rejected")
                     }
+                    ensurePreflightCurrent(generation)
+                    val prompt = attempt.verification.prompt
+                    hostKeyStore.saveKey(
+                        prompt.host,
+                        prompt.port,
+                        prompt.algorithm,
+                        attempt.verification.keyBytes,
+                    )
                 }
-            }
-            preflightPromptJob = promptJob
-            return@withLock try {
-                block(engine)
-            } finally {
-                promptJob.cancel()
-                if (preflightEngine === engine) {
-                    preflightEngine = null
-                    if (preflightPromptJob === promptJob) preflightPromptJob = null
-                    _preflightHostKeyPrompt.value = null
-                }
-                engine.dispose()
             }
         }
+    }
+
+    private fun ensurePreflightCurrent(generation: Long) {
+        check(preflightGeneration == generation) { "Disconnected while preparing the connection" }
+    }
+
+    private suspend fun <T> runPreflightAttempt(
+        block: suspend (TerminalSessionEngine) -> T,
+    ): PreflightAttempt<T> {
+        var verification: PreflightHostKeyVerification? = null
+        val engine =
+            TerminalSessionEngine(
+                {},
+                scope,
+                newLocalShellService(),
+                hostKeyStore,
+                tailscaleStatusChecker,
+                onHostKeyVerificationRequired = { prompt, keyBytes ->
+                    verification = PreflightHostKeyVerification(prompt, keyBytes)
+                },
+            )
+        preflightEngine = engine
+        return try {
+            PreflightAttempt.Completed(block(engine))
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            verification?.let { PreflightAttempt.HostKeyVerificationRequired(it) } ?: throw error
+        } finally {
+            // A preflight key check must not retain a live libssh2 session while the
+            // user is deciding whether to trust the key.
+            if (preflightEngine === engine) {
+                preflightEngine = null
+            }
+            engine.dispose()
+        }
+    }
+
+    private suspend fun awaitPreflightHostKeyDecision(
+        generation: Long,
+        verification: PreflightHostKeyVerification,
+    ): Boolean {
+        val decision = CompletableDeferred<Boolean>()
+        preflightHostKeyDecision = decision
+        return try {
+            ensurePreflightCurrent(generation)
+            _preflightHostKeyPrompt.value = verification.prompt
+            decision.await()
+        } finally {
+            if (preflightHostKeyDecision === decision) {
+                preflightHostKeyDecision = null
+            }
+            _preflightHostKeyPrompt.value = null
+        }
+    }
 
     fun openTab(spec: TabSpec): TabSession {
         val id = UUID.randomUUID().toString()
@@ -307,8 +373,9 @@ class TerminalSessionRepository private constructor(application: Application) {
     }
 
     fun disconnect() {
-        preflightPromptJob?.cancel()
-        preflightPromptJob = null
+        preflightGeneration += 1
+        preflightHostKeyDecision?.cancel()
+        preflightHostKeyDecision = null
         preflightEngine?.dispose()
         preflightEngine = null
         _preflightHostKeyPrompt.value = null
@@ -432,11 +499,11 @@ class TerminalSessionRepository private constructor(application: Application) {
     }
 
     fun respondToHostKey(accepted: Boolean) {
-        if (_preflightHostKeyPrompt.value != null) {
-            preflightEngine?.respondToHostKey(accepted)
-        } else {
-            activeEngine()?.respondToHostKey(accepted)
+        preflightHostKeyDecision?.let { decision ->
+            decision.complete(accepted)
+            return
         }
+        activeEngine()?.respondToHostKey(accepted)
     }
 
     suspend fun sftpListDirectory(path: String): List<String> =

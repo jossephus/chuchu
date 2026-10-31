@@ -915,13 +915,10 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeAuthentica
         if (rc != c.LIBSSH2_ERROR_EAGAIN) {
             const last_errno = c.libssh2_session_last_errno(ssh_session);
             logError("Public key memory auth failed rc={} last_errno={}", .{ rc, last_errno });
-            var errmsg_ptr: [*c]const u8 = null;
-            var errmsg_len: c_int = 0;
-            _ = c.libssh2_session_last_error(ssh_session, @ptrCast(&errmsg_ptr), &errmsg_len, 0);
-            if (errmsg_ptr != null and errmsg_len > 0) {
-                setError(session, "Public key memory auth failed (rc={} last_errno={}): {s}", .{ rc, last_errno, errmsg_ptr[0..@intCast(errmsg_len)] });
+            if (last_errno == rc) {
+                setLibssh2Error(session, "Public key memory auth failed", rc);
             } else {
-                setError(session, "Public key memory auth failed (rc={} last_errno={})", .{ rc, last_errno });
+                setError(session, "Public key memory auth failed (rc={})", .{rc});
             }
             return c.JNI_FALSE;
         }
