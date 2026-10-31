@@ -34,7 +34,7 @@ with pkgs;
       android-sdk
       gradle
       jdk21
-      zigpkgs."0.15.2"
+      zigpkgs."0.17.0"
       ktfmt
       ktlint
 

@@ -62,6 +62,8 @@ class SettingsRepository(context: Context) {
     private val _remoteClipboardWriteEnabled =
         MutableStateFlow(prefs.getBoolean(KEY_REMOTE_CLIPBOARD_WRITE_ENABLED, false))
     val remoteClipboardWriteEnabled: StateFlow<Boolean> = _remoteClipboardWriteEnabled.asStateFlow()
+    private val _disableAutocorrect = MutableStateFlow(prefs.getBoolean(KEY_DISABLE_AUTOCORRECT, false))
+    val disableAutocorrect: StateFlow<Boolean> = _disableAutocorrect.asStateFlow()
 
     private val _terminalTabMode = MutableStateFlow(
         parseTabMode(prefs.getString(KEY_TAB_MODE, TerminalTabMode.Classic.name)),
@@ -156,6 +158,11 @@ class SettingsRepository(context: Context) {
         _remoteClipboardWriteEnabled.value = enabled
     }
 
+    fun setDisableAutocorrect(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_DISABLE_AUTOCORRECT, enabled).apply()
+        _disableAutocorrect.value = enabled
+    }
+
     fun setThemeMode(mode: ThemeMode) {
         prefs.edit().putString(KEY_THEME_MODE, mode.name).apply()
         _themeMode.value = mode
@@ -221,6 +228,8 @@ class SettingsRepository(context: Context) {
         private const val KEY_KEEP_SCREEN_AWAKE = "keep_screen_awake"
         private const val KEY_HIDE_SCREEN_CONTENTS = "hide_screen_contents"
         private const val KEY_REMOTE_CLIPBOARD_WRITE_ENABLED = "remote_clipboard_write_enabled"
+
+        private const val KEY_DISABLE_AUTOCORRECT = "disable_autocorrect"
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_LIGHT_THEME = "light_theme_name"
         private const val KEY_TERMINAL_FONT_SIZE = "terminal_font_size_sp"

@@ -21,9 +21,17 @@ class NativeSshBridge {
 
     external fun nativeDestroySession(handle: Long)
 
-    external fun nativeConnect(handle: Long, host: String, port: Int, username: String): Boolean
+    external fun nativeConnect(
+        handle: Long,
+        host: String,
+        port: Int,
+        username: String,
+        ipv4Only: Boolean,
+    ): Boolean
 
     external fun nativeGetLastError(handle: Long): String?
+
+    external fun nativeGetPeerAddress(handle: Long): String?
 
     external fun nativeGetHostKey(handle: Long): ByteArray?
 
@@ -94,4 +102,6 @@ class NativeSshBridge {
     external fun nativeClose(handle: Long)
 
     external fun nativeGenerateEd25519Key(comment: String, passphrase: String?): Array<String>?
+
+    external fun nativeDerivePublicKey(privateKeyPem: String): Array<String>?
 }

@@ -11,27 +11,28 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface HostProfileDao {
-    @Query("SELECT * FROM host_profiles ORDER BY name")
-    fun observeAll(): Flow<List<HostProfile>>
+    @Query("SELECT * FROM host_profiles ORDER BY name") fun observeAll(): Flow<List<HostProfile>>
 
-    @Query("SELECT * FROM host_profiles WHERE id = :id")
-    suspend fun getById(id: Long): HostProfile?
+    @Query("SELECT * FROM host_profiles WHERE id = :id") suspend fun getById(id: Long): HostProfile?
 
-    @Query("SELECT * FROM host_profiles ORDER BY name")
-    suspend fun getAll(): List<HostProfile>
+    @Query("SELECT * FROM host_profiles ORDER BY name") suspend fun getAll(): List<HostProfile>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insert(profile: HostProfile): Long
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insert(profile: HostProfile): Long
 
-    @Insert
-    suspend fun insertForImport(profile: HostProfile): Long
+    @Insert suspend fun insertForImport(profile: HostProfile): Long
 
-    @Update
-    suspend fun update(profile: HostProfile)
+    @Update suspend fun update(profile: HostProfile)
 
-    @Delete
-    suspend fun delete(profile: HostProfile)
+    @Delete suspend fun delete(profile: HostProfile)
 
     @Query("UPDATE host_profiles SET keyId = NULL, keyPassphrase = '' WHERE keyId = :keyId")
     suspend fun clearKeyReference(keyId: Long)
+
+    @Query(
+        "SELECT keyId AS keyId, COUNT(*) AS count FROM host_profiles " +
+            "WHERE keyId IS NOT NULL GROUP BY keyId"
+    )
+    fun observeKeyUsage(): Flow<List<KeyUsageCount>>
 }
+
+data class KeyUsageCount(val keyId: Long, val count: Int)
