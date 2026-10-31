@@ -25,6 +25,8 @@ class NativeSshBridge {
 
     external fun nativeGetLastError(handle: Long): String?
 
+    external fun nativeGetPeerAddress(handle: Long): String?
+
     external fun nativeGetHostKey(handle: Long): ByteArray?
 
     external fun nativeGetHostKeyAlgorithm(handle: Long): String?

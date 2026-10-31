@@ -1221,6 +1221,28 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeIpcExchang
     return jniNewByteArrayOrNull(env, response.items);
 }
 
+export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeGetPeerAddress(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong) callconv(.c) c.jstring {
+    _ = thiz;
+    const session = sessionFromHandle(handle) orelse return null;
+    if (session.socket_fd < 0) {
+        setError(session, "SSH peer address unavailable: not connected", .{});
+        return null;
+    }
+    var addr: c.struct_sockaddr_storage = undefined;
+    var addr_len: c.socklen_t = @sizeOf(c.struct_sockaddr_storage);
+    if (c.getpeername(session.socket_fd, @ptrCast(&addr), &addr_len) != 0) {
+        setError(session, "SSH peer address unavailable: getpeername errno={}", .{c.__errno().*});
+        return null;
+    }
+    var host_buf: [64]u8 = undefined;
+    const rc = c.getnameinfo(@ptrCast(&addr), addr_len, &host_buf, host_buf.len, null, 0, c.NI_NUMERICHOST);
+    if (rc != 0) {
+        setError(session, "SSH peer address unavailable: getnameinfo rc={}", .{rc});
+        return null;
+    }
+    return jniNewStringOrNull(env, std.mem.sliceTo(&host_buf, 0));
+}
+
 export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeClose(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong) callconv(.c) void {
     _ = env;
     _ = thiz;

@@ -390,6 +390,14 @@ class NativeSshService(
         }
     }
 
+    fun peerAddress(): String {
+        check(handle != 0L) { "Not connected" }
+        return bridge.nativeGetPeerAddress(handle)
+            ?: throw IllegalStateException(
+                bridge.nativeGetLastError(handle) ?: "Native SSH peer address unavailable"
+            )
+    }
+
     override fun close() {
         if (handle == 0L) return
         bridge.nativeClose(handle)
