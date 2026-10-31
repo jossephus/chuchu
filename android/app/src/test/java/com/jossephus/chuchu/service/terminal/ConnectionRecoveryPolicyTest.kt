@@ -1,10 +1,9 @@
 package com.jossephus.chuchu.service.terminal
 
 import com.jossephus.chuchu.model.Transport
-import com.jossephus.chuchu.service.mosh.MoshRuntimeState
-import com.jossephus.chuchu.service.mosh.MoshState
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ConnectionRecoveryPolicyTest {
@@ -37,85 +36,63 @@ class ConnectionRecoveryPolicyTest {
     }
 
     @Test
-    fun moshStatesUseTheExistingSessionStatusIndicator() {
-        assertEquals(
-            SessionStatus.Disconnected,
-            sessionStatusForMoshState(MoshState.Idle.code),
-        )
-        assertEquals(
-            SessionStatus.Connecting,
-            sessionStatusForMoshState(MoshState.Connecting.code),
-        )
-        assertEquals(
-            SessionStatus.Connected,
-            sessionStatusForMoshState(MoshState.Connected.code),
-        )
-        assertEquals(
-            SessionStatus.Reconnecting,
-            sessionStatusForMoshState(MoshState.Reconnecting.code),
-        )
-        assertEquals(
-            SessionStatus.Disconnected,
-            sessionStatusForMoshState(MoshState.Disconnecting.code),
-        )
-        assertEquals(
-            SessionStatus.Error,
-            sessionStatusForMoshState(MoshState.Failed.code),
-        )
+    fun moshContactIsLostWhenInputStaysUnacknowledged() {
+        val tracker = MoshContactTracker()
+        assertFalse(tracker.isContactLost(pendingOutbound = 0, nowMs = 0))
+        assertFalse(tracker.isContactLost(pendingOutbound = 1, nowMs = 100))
+        assertFalse(tracker.isContactLost(pendingOutbound = 2, nowMs = 3_099))
+
+        assertTrue(tracker.isContactLost(pendingOutbound = 2, nowMs = 3_100))
     }
 
     @Test
-    fun moshStalenessReturnsConnectedWhenTheServerAcknowledgesNewState() {
-        val tracker = MoshConnectionStalenessTracker()
-        tracker.observe(moshRuntimeState(sent = 1, received = 1), nowMs = 0)
+    fun moshContactRecoversWhenTheServerAcknowledges() {
+        val tracker = MoshContactTracker()
+        tracker.isContactLost(pendingOutbound = 0, nowMs = 0)
+        tracker.isContactLost(pendingOutbound = 1, nowMs = 100)
+        assertTrue(tracker.isContactLost(pendingOutbound = 1, nowMs = 5_000))
 
-        assertEquals(
-            SessionStatus.Connected,
-            tracker.observe(moshRuntimeState(sent = 2, received = 2), nowMs = 1_000),
-        )
+        assertFalse(tracker.isContactLost(pendingOutbound = 0, nowMs = 5_001))
     }
 
     @Test
-    fun moshStalenessReturnsReconnectingWhenOutboundStateStopsBeingAcknowledged() {
-        val tracker = MoshConnectionStalenessTracker()
-        tracker.observe(moshRuntimeState(sent = 1, received = 1), nowMs = 0)
-        tracker.observe(moshRuntimeState(sent = 2, received = 1, pendingOutbound = 1), nowMs = 1)
+    fun moshPartialAcknowledgementRestartsTheWindow() {
+        val tracker = MoshContactTracker()
+        tracker.isContactLost(pendingOutbound = 0, nowMs = 0)
+        tracker.isContactLost(pendingOutbound = 3, nowMs = 100)
+        assertFalse(tracker.isContactLost(pendingOutbound = 2, nowMs = 3_000))
 
-        assertEquals(
-            SessionStatus.Reconnecting,
-            tracker.observe(
-                moshRuntimeState(sent = 2, received = 1, pendingOutbound = 1),
-                nowMs = 3_001,
-            ),
-        )
-        assertEquals(
-            SessionStatus.Connected,
-            tracker.observe(moshRuntimeState(sent = 2, received = 2), nowMs = 3_002),
-        )
+        assertFalse(tracker.isContactLost(pendingOutbound = 2, nowMs = 5_999))
+        assertTrue(tracker.isContactLost(pendingOutbound = 2, nowMs = 6_000))
     }
 
     @Test
-    fun moshStalenessLeavesAnIdleSessionUnchanged() {
-        val tracker = MoshConnectionStalenessTracker()
-        tracker.observe(moshRuntimeState(sent = 1, received = 1), nowMs = 0)
+    fun moshAcknowledgedInputWithoutScreenChangeKeepsContact() {
+        val tracker = MoshContactTracker()
+        tracker.isContactLost(pendingOutbound = 0, nowMs = 0)
+        tracker.isContactLost(pendingOutbound = 1, nowMs = 100)
+        tracker.isContactLost(pendingOutbound = 0, nowMs = 200)
 
-        assertNull(
-            tracker.observe(moshRuntimeState(sent = 1, received = 1), nowMs = 3_001),
-        )
+        assertFalse(tracker.isContactLost(pendingOutbound = 0, nowMs = 60_000))
     }
 
-    private fun moshRuntimeState(
-        sent: Long,
-        received: Long,
-        pendingOutbound: Int = 0,
-    ): MoshRuntimeState =
-        MoshRuntimeState(
-            state = MoshState.Connected.code,
-            lastFailureCode = 0,
-            lastStateNumSent = sent,
-            lastStateNumReceived = received,
-            pendingOutbound = pendingOutbound,
-            pendingHostOps = 0,
-            currentRtoMs = 0,
-        )
+    @Test
+    fun moshIdleSessionKeepsContact() {
+        val tracker = MoshContactTracker()
+
+        assertFalse(tracker.isContactLost(pendingOutbound = 0, nowMs = 0))
+        assertFalse(tracker.isContactLost(pendingOutbound = 0, nowMs = 60_000))
+    }
+
+    @Test
+    fun moshResetForgetsAnOutstandingWindow() {
+        val tracker = MoshContactTracker()
+        tracker.isContactLost(pendingOutbound = 0, nowMs = 0)
+        tracker.isContactLost(pendingOutbound = 1, nowMs = 100)
+        tracker.reset()
+
+        assertFalse(tracker.isContactLost(pendingOutbound = 1, nowMs = 10_000))
+        assertFalse(tracker.isContactLost(pendingOutbound = 1, nowMs = 12_999))
+        assertTrue(tracker.isContactLost(pendingOutbound = 1, nowMs = 13_000))
+    }
 }

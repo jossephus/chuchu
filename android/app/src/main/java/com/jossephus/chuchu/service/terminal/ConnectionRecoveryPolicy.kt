@@ -1,8 +1,6 @@
 package com.jossephus.chuchu.service.terminal
 
 import com.jossephus.chuchu.model.Transport
-import com.jossephus.chuchu.service.mosh.MoshRuntimeState
-import com.jossephus.chuchu.service.mosh.MoshState
 
 internal enum class ReadLoopExitAction {
     Disconnect,
@@ -17,69 +15,34 @@ internal fun readLoopExitAction(transport: Transport?): ReadLoopExitAction =
         else -> ReadLoopExitAction.AutomaticReconnect
     }
 
-internal fun sessionStatusForMoshState(state: Int): SessionStatus? =
-    when (state) {
-        MoshState.Idle.code,
-        MoshState.Disconnecting.code -> SessionStatus.Disconnected
-        MoshState.Connecting.code -> SessionStatus.Connecting
-        MoshState.Connected.code -> SessionStatus.Connected
-        MoshState.Reconnecting.code -> SessionStatus.Reconnecting
-        MoshState.Failed.code -> SessionStatus.Error
-        else -> null
-    }
-
-internal class MoshConnectionStalenessTracker {
+internal class MoshContactTracker {
     private companion object {
         // Mosh starts warning about lost contact after roughly three seconds; matching that keeps the
         // terminal responsive without waiting for its intentionally long failure timeout.
-        const val STALE_CONNECTION_THRESHOLD_MS = 3_000L
+        const val LOST_CONTACT_THRESHOLD_MS = 3_000L
     }
 
-    private var lastStateNumReceived: Long? = null
-    private var lastStateNumSent: Long? = null
-    private var lastReceivedAdvanceAtMs: Long? = null
-    private var sentSinceLastReceiveAdvance = false
+    private var lastPendingOutbound = 0
+    private var lastAckProgressAtMs: Long? = null
 
     fun reset() {
-        lastStateNumReceived = null
-        lastStateNumSent = null
-        lastReceivedAdvanceAtMs = null
-        sentSinceLastReceiveAdvance = false
+        lastPendingOutbound = 0
+        lastAckProgressAtMs = null
     }
 
-    fun observe(runtime: MoshRuntimeState, nowMs: Long): SessionStatus? {
-        val previousReceived = lastStateNumReceived
-        val previousSent = lastStateNumSent
-        if (previousReceived == null || runtime.lastStateNumReceived < previousReceived) {
-            lastStateNumReceived = runtime.lastStateNumReceived
-            lastStateNumSent = runtime.lastStateNumSent
-            lastReceivedAdvanceAtMs = nowMs
-            sentSinceLastReceiveAdvance = false
-            return null
-        }
-
-        val receivedAdvanced = runtime.lastStateNumReceived > previousReceived
-        val sentAdvanced = previousSent != null && runtime.lastStateNumSent > previousSent
-        lastStateNumReceived = runtime.lastStateNumReceived
-        lastStateNumSent = runtime.lastStateNumSent
-
-        if (receivedAdvanced) {
-            lastReceivedAdvanceAtMs = nowMs
-            sentSinceLastReceiveAdvance = false
-            return SessionStatus.Connected
-        }
-        if (sentAdvanced) {
-            sentSinceLastReceiveAdvance = true
-        }
-
-        val staleForMs = nowMs - (lastReceivedAdvanceAtMs ?: nowMs)
-        return if (
-            staleForMs >= STALE_CONNECTION_THRESHOLD_MS &&
-                (runtime.pendingOutbound > 0 || sentSinceLastReceiveAdvance)
+    fun isContactLost(pendingOutbound: Int, nowMs: Long): Boolean {
+        val previousPending = lastPendingOutbound
+        lastPendingOutbound = pendingOutbound
+        val lastProgress = lastAckProgressAtMs
+        if (
+            lastProgress == null ||
+                previousPending == 0 ||
+                pendingOutbound == 0 ||
+                pendingOutbound < previousPending
         ) {
-            SessionStatus.Reconnecting
-        } else {
-            null
+            lastAckProgressAtMs = nowMs
+            return false
         }
+        return nowMs - lastProgress >= LOST_CONTACT_THRESHOLD_MS
     }
 }
