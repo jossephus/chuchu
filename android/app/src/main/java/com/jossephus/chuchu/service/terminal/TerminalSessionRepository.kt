@@ -10,6 +10,7 @@ import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerSession
 import com.jossephus.chuchu.service.ssh.HostKeyStore
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -20,6 +21,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -27,6 +29,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class TerminalSessionRepository private constructor(application: Application) {
@@ -39,7 +42,7 @@ class TerminalSessionRepository private constructor(application: Application) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private val hostKeyStore =
-        HostKeyStore(appContext.getSharedPreferences("host_keys", Application.MODE_PRIVATE))
+        HostKeyStore(appContext.getSharedPreferences(HostKeyStore.PREFS_NAME, Application.MODE_PRIVATE))
     private val tailscaleStatusChecker = TailscaleStatusChecker(appContext)
     private val clipboard = appContext.getSystemService(ClipboardManager::class.java)
     private val osc52ClipboardPolicy = Osc52ClipboardPolicy.Deny
@@ -170,13 +173,17 @@ class TerminalSessionRepository private constructor(application: Application) {
         .filter { it.spec.multiplexer == multiplexer }
         .mapNotNull { it.spec.multiplexerSessionName }
 
-    suspend fun resolveMultiplexerSessionName(spec: TabSpec): String = withPreflightEngine { engine ->
+    suspend fun resolveMultiplexerSessionName(
+        spec: TabSpec,
+        reuseDetachedChuchuSession: Boolean = false,
+    ): String = withPreflightEngine { engine ->
         engine.resolveMultiplexerSessionName(
             spec = spec,
             localSessionNames = openMultiplexerSessionNamesForHost(
                 hostId = spec.hostId,
                 multiplexer = spec.multiplexer ?: MultiplexerRegistry.defaultType,
             ),
+            reuseDetachedChuchuSession = reuseDetachedChuchuSession,
         )
     }
 
@@ -330,8 +337,48 @@ class TerminalSessionRepository private constructor(application: Application) {
     private fun activeSftpEngine(): TerminalSessionEngine? =
         activeTab.value?.takeIf { it.spec.transport != Transport.LocalShell }?.engine
 
-    private fun sftpEngineForTab(tabId: String): TerminalSessionEngine? =
-        _tabs.value.firstOrNull { it.id == tabId && it.spec.transport != Transport.LocalShell }?.engine
+    private fun sftpTab(tabId: String): TabSession? =
+        _tabs.value.firstOrNull { it.id == tabId && it.spec.transport != Transport.LocalShell }
+
+    private fun sftpEngineForTab(tabId: String): TerminalSessionEngine? = sftpTab(tabId)?.engine
+
+    private suspend fun <T> withSftpSession(
+        tabId: String,
+        operation: suspend (TerminalSessionEngine) -> T,
+    ): T? {
+        val tab = sftpTab(tabId) ?: return null
+        awaitSessionReady(tab)
+        return try {
+            operation(tab.engine)
+        } catch (err: CancellationException) {
+            throw err
+        } catch (err: Exception) {
+            if (!awaitReconnectAfterFailure(tab)) throw err
+            operation(tab.engine)
+        }
+    }
+
+    private suspend fun awaitSessionReady(tab: TabSession) {
+        val settled =
+            withTimeoutOrNull(SFTP_RECONNECT_TIMEOUT_MS) {
+                tab.sessionState.first {
+                    it.status != SessionStatus.Connecting && it.status != SessionStatus.Reconnecting
+                }
+            } ?: throw IllegalStateException("Timed out waiting for the session to reconnect")
+        if (settled.status != SessionStatus.Connected) {
+            throw IllegalStateException(
+                settled.error?.let { "Session is not connected: $it" } ?: "Session is not connected"
+            )
+        }
+    }
+
+    private suspend fun awaitReconnectAfterFailure(tab: TabSession): Boolean {
+        withTimeoutOrNull(SFTP_DROP_DETECTION_MS) {
+            tab.sessionState.first { it.status != SessionStatus.Connected }
+        } ?: return false
+        awaitSessionReady(tab)
+        return true
+    }
 
     fun resize(
         cols: Int,
@@ -400,19 +447,19 @@ class TerminalSessionRepository private constructor(application: Application) {
         activeSftpEngine()?.sftpListDirectory(path) ?: emptyList()
 
     suspend fun sftpListDirectory(tabId: String, path: String): List<String> =
-        sftpEngineForTab(tabId)?.sftpListDirectory(path) ?: emptyList()
+        withSftpSession(tabId) { it.sftpListDirectory(path) } ?: emptyList()
 
     suspend fun sftpRealpath(path: String): String = activeSftpEngine()?.sftpRealpath(path) ?: "/"
 
     suspend fun sftpRealpath(tabId: String, path: String): String =
-        sftpEngineForTab(tabId)?.sftpRealpath(path) ?: "/"
+        withSftpSession(tabId) { it.sftpRealpath(path) } ?: "/"
 
     suspend fun sftpOpenWrite(path: String) {
         activeSftpEngine()?.sftpOpenWrite(path)
     }
 
     suspend fun sftpOpenWrite(tabId: String, path: String) {
-        sftpEngineForTab(tabId)?.sftpOpenWrite(path)
+        withSftpSession(tabId) { it.sftpOpenWrite(path) }
     }
 
     suspend fun sftpWriteChunk(data: ByteArray): Int = activeSftpEngine()?.sftpWriteChunk(data) ?: 0
@@ -429,13 +476,16 @@ class TerminalSessionRepository private constructor(application: Application) {
     }
 
     suspend fun sftpReadFile(tabId: String, path: String, maxBytes: Int): ByteArray =
-        sftpEngineForTab(tabId)?.sftpReadFile(path, maxBytes) ?: ByteArray(0)
+        withSftpSession(tabId) { it.sftpReadFile(path, maxBytes) } ?: ByteArray(0)
 
     suspend fun sftpDelete(tabId: String, path: String, isDirectory: Boolean) {
-        sftpEngineForTab(tabId)?.sftpDelete(path, isDirectory)
+        withSftpSession(tabId) { it.sftpDelete(path, isDirectory) }
     }
 
     companion object {
+        private const val SFTP_RECONNECT_TIMEOUT_MS = 20_000L
+        private const val SFTP_DROP_DETECTION_MS = 1_000L
+
         @Volatile private var instance: TerminalSessionRepository? = null
 
         fun getInstance(application: Application): TerminalSessionRepository {

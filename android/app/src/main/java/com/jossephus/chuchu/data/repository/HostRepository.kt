@@ -3,11 +3,13 @@ package com.jossephus.chuchu.data.repository
 import com.jossephus.chuchu.data.db.HostProfileDao
 import com.jossephus.chuchu.model.HostProfile
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
-class HostRepository(
-    private val dao: HostProfileDao,
-) {
+class HostRepository(private val dao: HostProfileDao) {
     fun observeAll(): Flow<List<HostProfile>> = dao.observeAll()
+
+    fun observeKeyUsageCounts(): Flow<Map<Long, Int>> =
+        dao.observeKeyUsage().map { rows -> rows.associate { it.keyId to it.count } }
 
     suspend fun getById(id: Long): HostProfile? = dao.getById(id)
 

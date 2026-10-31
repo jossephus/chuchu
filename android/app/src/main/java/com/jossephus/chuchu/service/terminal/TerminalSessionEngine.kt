@@ -14,7 +14,9 @@ import com.jossephus.chuchu.service.mosh.NativeMoshService
 import com.jossephus.chuchu.service.multiplexer.MultiplexerAvailability
 import com.jossephus.chuchu.service.multiplexer.MultiplexerCommandResult
 import com.jossephus.chuchu.service.multiplexer.MultiplexerRegistry
+import com.jossephus.chuchu.service.multiplexer.MultiplexerSessionAllocator
 import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerSession
+import com.jossephus.chuchu.service.ssh.HostKeyCheck
 import com.jossephus.chuchu.service.ssh.HostKeyStore
 import com.jossephus.chuchu.service.ssh.NativeSshService
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
@@ -538,6 +540,7 @@ class TerminalSessionEngine(
     suspend fun resolveMultiplexerSessionName(
         spec: TabSpec,
         localSessionNames: Collection<String>,
+        reuseDetachedChuchuSession: Boolean = false,
     ): String = withContext(dispatcher) {
         val type = spec.multiplexer ?: MultiplexerRegistry.defaultType
         val multiplexer = MultiplexerRegistry.forType(type)
@@ -564,6 +567,12 @@ class TerminalSessionEngine(
         if (existingName != null) {
             if (remoteSessions.any { it.name == existingName }) return@withContext existingName
             throw IllegalStateException("${type.label} session \"$existingName\" is no longer available")
+        }
+        if (reuseDetachedChuchuSession) {
+            MultiplexerSessionAllocator.reusableDetachedChuchuSessionName(
+                remoteSessions = remoteSessions,
+                localSessionNames = localSessionNames,
+            )?.let { return@withContext it }
         }
         multiplexer.defaultSessionName(remoteSessions, localSessionNames)
     }
@@ -622,11 +631,12 @@ class TerminalSessionEngine(
         algorithm: String,
         keyBytes: ByteArray,
     ): Boolean {
-        val existing = hostKeyStore.loadKey(host, port, algorithm)
-        if (existing != null && existing.contentEquals(keyBytes)) return true
-
-        val previousFingerprint = existing?.let { hostKeyStore.fingerprintSha256(it) }
-        val fingerprint = hostKeyStore.fingerprintSha256(keyBytes)
+        val (fingerprint, previousFingerprint) =
+            when (val result = hostKeyStore.check(host, port, algorithm, keyBytes)) {
+                is HostKeyCheck.Match -> return true
+                is HostKeyCheck.Unknown -> result.fingerprint to null
+                is HostKeyCheck.Changed -> result.fingerprint to result.previousFingerprint
+            }
         val deferred =
             hostKeyDecision
                 ?: CompletableDeferred<Boolean>().also {
@@ -1170,8 +1180,8 @@ class TerminalSessionEngine(
     }
 
     private suspend fun sendStartupCommand(params: ConnectionParams) {
-        val multiplexerCommand = params.multiplexerStartupCommand()?.trim().orEmpty()
-        if (multiplexerCommand.isNotEmpty() && params.transport != Transport.Mosh) return
+        // Multiplexer startup is dispatched through openExecPty before this runs. Later writes on
+        // that PTY follow the exec request, so the command is consumed by the attached session.
         sendPostConnectCommand(params.postConnectCommand)
     }
 

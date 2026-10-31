@@ -94,4 +94,6 @@ class NativeSshBridge {
     external fun nativeClose(handle: Long)
 
     external fun nativeGenerateEd25519Key(comment: String, passphrase: String?): Array<String>?
+
+    external fun nativeDerivePublicKey(privateKeyPem: String): Array<String>?
 }

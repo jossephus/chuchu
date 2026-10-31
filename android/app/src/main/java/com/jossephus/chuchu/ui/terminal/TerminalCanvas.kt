@@ -688,12 +688,14 @@ fun TerminalCanvas(
                     sb.setLength(0)
                     if (firstGlyph == null) sb.appendCodePoint(cp) else sb.append(firstGlyph)
                     val startCol = i - rowStart
-                    var j = i + 1
+                    val firstIsWide = i + 1 < rowEnd && snapshot.isSpacerContinuation(i + 1)
+                    var j = if (firstIsWide) i + 2 else i + 1
 
                     while (j < rowEnd) {
                         val c = snapshot.codepoints[j]
                         if (c == 0) break
                         if (c == 32 && !snapshot.isSpacerContinuation(j)) break
+                        if (j + 1 < rowEnd && snapshot.isSpacerContinuation(j + 1)) break
 
                         val jFlags = snapshot.flags[j].toInt()
                         val jSelected = hasSel && j in selStart..selEnd
@@ -779,16 +781,56 @@ fun TerminalCanvas(
                 val cursorLeft = snapshot.cursorX * cellWidth
                 val cursorTop = snapshot.cursorY * cellHeight
                 cursorPaint.color = cursorColorArgb
-                nCanvas.drawRect(
-                    cursorLeft,
-                    cursorTop,
-                    cursorLeft + cellWidth,
-                    cursorTop + cellHeight,
-                    cursorPaint,
-                )
+                when (snapshot.cursorStyle) {
+                    TerminalSnapshot.CURSOR_STYLE_BAR -> {
+                        val barWidth = (cellWidth * CURSOR_BAR_FRACTION).coerceAtLeast(1f)
+                        nCanvas.drawRect(
+                            cursorLeft,
+                            cursorTop,
+                            cursorLeft + barWidth,
+                            cursorTop + cellHeight,
+                            cursorPaint,
+                        )
+                    }
+                    TerminalSnapshot.CURSOR_STYLE_UNDERLINE -> {
+                        val underlineHeight = (cellHeight * CURSOR_UNDERLINE_FRACTION).coerceAtLeast(1f)
+                        nCanvas.drawRect(
+                            cursorLeft,
+                            cursorTop + cellHeight - underlineHeight,
+                            cursorLeft + cellWidth,
+                            cursorTop + cellHeight,
+                            cursorPaint,
+                        )
+                    }
+                    TerminalSnapshot.CURSOR_STYLE_BLOCK_HOLLOW -> {
+                        val stroke = (cellWidth * CURSOR_BAR_FRACTION).coerceAtLeast(1f)
+                        cursorPaint.style = Paint.Style.STROKE
+                        cursorPaint.strokeWidth = stroke
+                        val inset = stroke / 2f
+                        nCanvas.drawRect(
+                            cursorLeft + inset,
+                            cursorTop + inset,
+                            cursorLeft + cellWidth - inset,
+                            cursorTop + cellHeight - inset,
+                            cursorPaint,
+                        )
+                        cursorPaint.style = Paint.Style.FILL
+                    }
+                    else -> {
+                        nCanvas.drawRect(
+                            cursorLeft,
+                            cursorTop,
+                            cursorLeft + cellWidth,
+                            cursorTop + cellHeight,
+                            cursorPaint,
+                        )
+                    }
+                }
 
                 val cursorIndex = snapshot.cursorY * cols + snapshot.cursorX
-                if (cursorTextColorArgb != null && cursorIndex in snapshot.codepoints.indices) {
+                if (snapshot.cursorStyle == TerminalSnapshot.CURSOR_STYLE_BLOCK &&
+                    cursorTextColorArgb != null && cursorIndex in snapshot.codepoints.indices
+                ) {
                     val codepoint = snapshot.codepoints[cursorIndex]
                     if (codepoint != 0 && codepoint != 32) {
                         val extras = snapshot.graphemeExtras[cursorIndex]
@@ -915,6 +957,9 @@ internal fun TerminalSnapshot.glyphAt(cellIndex: Int): String {
 }
 
 private const val FAINT_TEXT_ALPHA: Int = 96
+
+private const val CURSOR_BAR_FRACTION: Float = 0.15f
+private const val CURSOR_UNDERLINE_FRACTION: Float = 0.15f
 
 private const val TEXT_STYLE_MASK: Int =
     TerminalSnapshot.CELL_FLAG_BOLD or
