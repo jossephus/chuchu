@@ -9,9 +9,14 @@ class NativeSshService(
     private val bridge: NativeSshBridge = NativeSshBridge(),
     private val hostKeyPolicy: HostKeyPolicy,
 ) : Closeable {
-    private companion object {
+    companion object {
         // Absolute in-memory ceiling; callers request 16/32 MiB, so this is the effective download limit.
         private const val MAX_SFTP_READ_BYTES = 4 * 1024 * 1024
+
+        // The terminal is a ghostty VT, so `xterm-ghostty` is the honest TERM; remotes that do
+        // not ship its terminfo entry get `xterm-256color` instead (see TerminalSessionEngine).
+        const val TERM_DEFAULT = "xterm-ghostty"
+        const val TERM_FALLBACK = "xterm-256color"
     }
 
     private fun passwordAuthErrorMessage(nativeError: String?): String {
@@ -198,9 +203,9 @@ class NativeSshService(
         }
     }
 
-    fun openShell(cols: Int, rows: Int, widthPx: Int, heightPx: Int) {
+    fun openShell(cols: Int, rows: Int, widthPx: Int, heightPx: Int, term: String = TERM_DEFAULT) {
         check(handle != 0L) { "Not connected" }
-        if (!bridge.nativeOpenShell(handle, cols, rows, widthPx, heightPx, "xterm-ghostty")) {
+        if (!bridge.nativeOpenShell(handle, cols, rows, widthPx, heightPx, term)) {
             throw IllegalStateException(
                 bridge.nativeGetLastError(handle) ?: "Native SSH shell open failed"
             )
@@ -212,9 +217,16 @@ class NativeSshService(
         return bridge.nativeOpenExec(handle, command)
     }
 
-    fun openExecPty(command: String, cols: Int, rows: Int, widthPx: Int, heightPx: Int) {
+    fun openExecPty(
+        command: String,
+        cols: Int,
+        rows: Int,
+        widthPx: Int,
+        heightPx: Int,
+        term: String = TERM_DEFAULT,
+    ) {
         check(handle != 0L) { "Not connected" }
-        if (!bridge.nativeOpenExecPty(handle, command, cols, rows, widthPx, heightPx, "xterm-ghostty")) {
+        if (!bridge.nativeOpenExecPty(handle, command, cols, rows, widthPx, heightPx, term)) {
             throw IllegalStateException(
                 bridge.nativeGetLastError(handle) ?: "Native SSH exec PTY open failed"
             )

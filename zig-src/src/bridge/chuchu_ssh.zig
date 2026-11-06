@@ -175,6 +175,22 @@ fn waitSocket(session: *NativeSshSession, timeout_ms: c_int) bool {
     return pollSocket(session, timeout_ms) == .ready;
 }
 
+/// Closes and frees a channel, retrying while libssh2 reports EAGAIN. A free that does not
+/// complete leaves the channel allocated, which still counts against the server's MaxSessions
+/// limit and would defeat closing the previous channel before opening a replacement.
+fn closeChannel(session: *NativeSshSession, channel: *c.LIBSSH2_CHANNEL) bool {
+    while (true) {
+        const rc = c.libssh2_channel_close(channel);
+        if (rc != c.LIBSSH2_ERROR_EAGAIN) break;
+        if (!waitSocket(session, setup_wait_timeout_ms)) return false;
+    }
+    while (true) {
+        const rc = c.libssh2_channel_free(channel);
+        if (rc != c.LIBSSH2_ERROR_EAGAIN) return true;
+        if (!waitSocket(session, setup_wait_timeout_ms)) return false;
+    }
+}
+
 fn trySetChannelEnv(session: *NativeSshSession, channel: *c.LIBSSH2_CHANNEL, name: []const u8, value: []const u8) void {
     while (true) {
         const rc = c.libssh2_channel_setenv_ex(
@@ -941,6 +957,16 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeOpenShell(
     };
     const term_slice = jniDupString(env, term) orelse allocator.dupe(u8, "xterm-ghostty") catch return c.JNI_FALSE;
     defer allocator.free(term_slice);
+    // Close any previous channel *before* opening this one. A server with MaxSessions 1 rejects
+    // the new channel while the old one is still open, and callers do open a throwaway exec
+    // channel (the TERM probe) before opening the shell.
+    if (session.channel) |old_ch| {
+        if (!closeChannel(session, old_ch)) {
+            setError(session, "Previous SSH channel did not close", .{});
+            return c.JNI_FALSE;
+        }
+        session.channel = null;
+    }
     var channel: ?*c.LIBSSH2_CHANNEL = null;
     while (channel == null) {
         channel = c.libssh2_channel_open_ex(ssh_session, "session", 7, c.LIBSSH2_CHANNEL_WINDOW_DEFAULT, c.LIBSSH2_CHANNEL_PACKET_DEFAULT, null, 0);
@@ -954,10 +980,6 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeOpenShell(
             setError(session, "Channel open timed out", .{});
             return c.JNI_FALSE;
         }
-    }
-    if (session.channel) |old_ch| {
-        _ = c.libssh2_channel_close(old_ch);
-        _ = c.libssh2_channel_free(old_ch);
     }
     session.channel = channel;
     c.libssh2_channel_set_blocking(channel.?, 0);
@@ -1021,6 +1043,16 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeOpenExec(e
     // `mosh-server new` should run without a TTY so the server can detach
     // cleanly, write its output to stdout, and close the channel (giving us
     // a real EOF signal instead of relying on a deadline).
+    // Close any previous channel *before* opening this one. A server with MaxSessions 1 rejects
+    // the new channel while the old one is still open, and callers do open a throwaway exec
+    // channel (the TERM probe) before opening the shell.
+    if (session.channel) |old_ch| {
+        if (!closeChannel(session, old_ch)) {
+            setError(session, "Previous SSH channel did not close", .{});
+            return c.JNI_FALSE;
+        }
+        session.channel = null;
+    }
     var channel: ?*c.LIBSSH2_CHANNEL = null;
     while (channel == null) {
         channel = c.libssh2_channel_open_ex(ssh_session, "session", 7, c.LIBSSH2_CHANNEL_WINDOW_DEFAULT, c.LIBSSH2_CHANNEL_PACKET_DEFAULT, null, 0);
@@ -1053,10 +1085,6 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeOpenExec(e
             return c.JNI_FALSE;
         }
     }
-    if (session.channel) |old_ch| {
-        _ = c.libssh2_channel_close(old_ch);
-        _ = c.libssh2_channel_free(old_ch);
-    }
     session.channel = channel;
     setSocketNonBlocking(session.socket_fd);
     c.libssh2_session_set_blocking(ssh_session, 0);
@@ -1082,6 +1110,16 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeOpenExecPt
     };
     defer allocator.free(term_slice);
 
+    // Close any previous channel *before* opening this one. A server with MaxSessions 1 rejects
+    // the new channel while the old one is still open, and callers do open a throwaway exec
+    // channel (the TERM probe) before opening the shell.
+    if (session.channel) |old_ch| {
+        if (!closeChannel(session, old_ch)) {
+            setError(session, "Previous SSH channel did not close", .{});
+            return c.JNI_FALSE;
+        }
+        session.channel = null;
+    }
     var channel: ?*c.LIBSSH2_CHANNEL = null;
     while (channel == null) {
         channel = c.libssh2_channel_open_ex(ssh_session, "session", 7, c.LIBSSH2_CHANNEL_WINDOW_DEFAULT, c.LIBSSH2_CHANNEL_PACKET_DEFAULT, null, 0);
@@ -1095,10 +1133,6 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeOpenExecPt
             setError(session, "Channel open timed out", .{});
             return c.JNI_FALSE;
         }
-    }
-    if (session.channel) |old_ch| {
-        _ = c.libssh2_channel_close(old_ch);
-        _ = c.libssh2_channel_free(old_ch);
     }
     session.channel = channel;
     c.libssh2_channel_set_blocking(channel.?, 0);
