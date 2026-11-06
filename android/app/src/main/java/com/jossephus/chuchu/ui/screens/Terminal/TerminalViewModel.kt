@@ -247,14 +247,19 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         val reconnectRecovery = preparedAction is PendingMultiplexerAction.Reconnect
         if (spec.transport == Transport.Mosh) {
             _multiplexerState.value = MultiplexerUiState(
-                preflightError = "$label is not supported for Mosh connections",
+                preflightError =
+                    app.getString(R.string.terminal_error_mosh_unsupported, label),
                 reconnectRecovery = reconnectRecovery,
             )
             return
         }
         if (spec.multiplexer != null && spec.multiplexer.runtimeSupported.not()) {
             _multiplexerState.value = MultiplexerUiState(
-                preflightError = "${spec.multiplexer.label} is not supported yet",
+                preflightError =
+                    app.getString(
+                        R.string.terminal_error_multiplexer_unsupported,
+                        spec.multiplexer.label,
+                    ),
                 reconnectRecovery = reconnectRecovery,
             )
             return
@@ -314,7 +319,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             is PendingMultiplexerAction.Reconnect -> {
                 if (!reconnectTabWithSpec(action.tabId, nextSpec)) {
                     _multiplexerState.value = MultiplexerUiState(
-                        preflightError = "Terminal session is no longer available",
+                        preflightError = app.getString(R.string.terminal_error_session_gone),
                         reconnectRecovery = true,
                     )
                 }
@@ -413,7 +418,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             _multiplexerState.value = state.copy(
                 sessions = emptyList(),
                 sessionsLoading = false,
-                sessionsError = "Session list is stale. Refresh sessions and try again.",
+                sessionsError = app.getString(R.string.terminal_error_session_list_stale),
                 sessionsSourceTabId = activeTab?.id,
                 sessionsSourceHostId = activeHostId,
             )

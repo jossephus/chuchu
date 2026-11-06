@@ -3,13 +3,17 @@ package com.jossephus.chuchu.ui.screens.Terminal
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.terminal.TabSession
 import kotlin.math.abs
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
+import com.jossephus.chuchu.R
 
 internal fun terminalTabDisplayLabel(tab: TabSession): String =
     if (tab.spec.transport == Transport.LocalShell) tab.spec.tabLabel else terminalTabAlias(tab)
 
+@Composable
 internal fun terminalTabEndpointLabel(tab: TabSession): String =
     if (tab.spec.transport == Transport.LocalShell) {
-        "this device · app sandbox"
+        stringResource(R.string.terminal_endpoint_local_shell)
     } else {
         "${tab.spec.username}@${tab.spec.host}:${tab.spec.port}"
     }
