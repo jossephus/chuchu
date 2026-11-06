@@ -15,6 +15,10 @@ import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 class ChuchuBackupCoreTest {
+    private companion object {
+        const val ENCODED_NULL_LONG_SIZE = 1
+    }
+
     @Test
     fun encryptedBackupRoundTripPreservesAllCurrentFields() {
         assumeNativeBackupAvailable()
@@ -209,14 +213,81 @@ class ChuchuBackupCoreTest {
 
     @Test
     fun payloadV1DefaultsMultiplexerToNull() {
-        val v2 = ChuchuBackupCodec.encodePayload(samplePayload())
-        writeIntAt(v2, offset = Int.SIZE_BYTES, value = 1)
-        val v1 = v2.copyOf(v2.size - encodedNullableStringSize(MultiplexerType.Tmux.id))
+        val v3 = ChuchuBackupCodec.encodePayload(samplePayload())
+        writeIntAt(v3, offset = Int.SIZE_BYTES, value = 1)
+        val v1 = v3.copyOf(
+            v3.size - ENCODED_NULL_LONG_SIZE - encodedNullableStringSize(MultiplexerType.Tmux.id),
+        )
 
         val decoded = ChuchuBackupCodec.decodePayload(v1)
 
         assertNull(decoded.hosts.single().multiplexer)
         assertEquals("echo hello", decoded.hosts.single().postConnectCommand)
+    }
+
+    @Test
+    fun payloadV3PreservesJumpHostId() {
+        val payload = jumpPayload()
+
+        val decoded = ChuchuBackupCodec.decodePayload(ChuchuBackupCodec.encodePayload(payload))
+
+        assertEquals(payload, decoded)
+        assertEquals(2L, decoded.hosts.single { it.id == 3L }.jumpHostId)
+    }
+
+    @Test
+    fun payloadV2DefaultsJumpHostToNull() {
+        val v3 = ChuchuBackupCodec.encodePayload(samplePayload())
+        writeIntAt(v3, offset = Int.SIZE_BYTES, value = 2)
+        val v2 = v3.copyOf(v3.size - ENCODED_NULL_LONG_SIZE)
+
+        val decoded = ChuchuBackupCodec.decodePayload(v2)
+
+        assertNull(decoded.hosts.single().jumpHostId)
+        assertEquals(MultiplexerType.Tmux, decoded.hosts.single().multiplexer)
+    }
+
+    @Test
+    fun importPlanCarriesExportedJumpHostReference() {
+        val plan = ChuchuBackupImportPlanner.planImport(
+            payload = jumpPayload(),
+            existingKeys = emptyList(),
+            existingHosts = emptyList(),
+        )
+
+        val target = plan.hostActions.single { it.exportedId == 3L }
+        assertEquals(2L, target.exportedJumpHostId)
+        assertNull(plan.hostActions.single { it.exportedId == 2L }.exportedJumpHostId)
+    }
+
+    @Test(expected = BackupFormatException::class)
+    fun importPlanRejectsMissingJumpHostReferences() {
+        val payload = BackupPayload(
+            keys = emptyList(),
+            hosts = listOf(
+                BackupHostProfile.fromEntity(
+                    sampleHost(id = 3L, keyId = null, authMethod = AuthMethod.Password)
+                        .copy(jumpHostId = 99L),
+                ),
+            ),
+        )
+
+        ChuchuBackupImportPlanner.planImport(payload, emptyList(), emptyList())
+    }
+
+    @Test(expected = BackupFormatException::class)
+    fun importPlanRejectsSelfJumpHost() {
+        val payload = BackupPayload(
+            keys = emptyList(),
+            hosts = listOf(
+                BackupHostProfile.fromEntity(
+                    sampleHost(id = 3L, keyId = null, authMethod = AuthMethod.Password)
+                        .copy(jumpHostId = 3L),
+                ),
+            ),
+        )
+
+        ChuchuBackupImportPlanner.planImport(payload, emptyList(), emptyList())
     }
 
     @Test(expected = BackupFormatException::class)
@@ -227,6 +298,16 @@ class ChuchuBackupCoreTest {
     private fun assumeNativeBackupAvailable() {
         assumeTrue("native backup bridge unavailable in this JVM", NativeBackupBridge().isLoaded())
     }
+
+    private fun jumpPayload(): BackupPayload = BackupPayload(
+        keys = listOf(BackupSshKey.fromEntity(sampleKey())),
+        hosts = listOf(
+            BackupHostProfile.fromEntity(sampleHost(id = 2L, name = "bastion", transport = Transport.SSH)),
+            BackupHostProfile.fromEntity(
+                sampleHost(id = 3L, name = "internal", transport = Transport.SSH).copy(jumpHostId = 2L),
+            ),
+        ),
+    )
 
     private fun samplePayload(): BackupPayload = BackupPayload(
         keys = listOf(BackupSshKey.fromEntity(sampleKey())),

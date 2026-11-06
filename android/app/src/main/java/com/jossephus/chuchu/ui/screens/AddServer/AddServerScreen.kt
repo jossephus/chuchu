@@ -35,7 +35,9 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jossephus.chuchu.model.AuthMethod
+import com.jossephus.chuchu.model.HostProfile
 import com.jossephus.chuchu.model.MultiplexerType
+import com.jossephus.chuchu.model.canServeAsJumpHostFor
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
@@ -51,6 +53,7 @@ fun AddServerScreen(vm: AddServerViewModel, onBack: () -> Unit, modifier: Modifi
     val form by vm.form.collectAsStateWithLifecycle()
     val testState by vm.testState.collectAsStateWithLifecycle()
     val keys by vm.keys.collectAsStateWithLifecycle()
+    val jumpHostCandidates by vm.jumpHostCandidates.collectAsStateWithLifecycle()
     val colors = ChuColors.current
     val typography = ChuTypography.current
 
@@ -287,6 +290,17 @@ fun AddServerScreen(vm: AddServerViewModel, onBack: () -> Unit, modifier: Modifi
             }
             SectionDivider()
             MultiplexerSection(selected = form.multiplexer, onSelect = vm::updateMultiplexer)
+            if (form.transport != Transport.Mosh) {
+                SectionDivider()
+                JumpHostSection(
+                    selectedId = form.jumpHostId,
+                    candidates =
+                        jumpHostCandidates.filter {
+                            it.canServeAsJumpHostFor(form.id) || it.id == form.jumpHostId
+                        },
+                    onSelect = vm::updateJumpHost,
+                )
+            }
             SectionDivider()
             PostConnectActionSection(
                 command = form.postConnectCommand,
@@ -445,6 +459,100 @@ private fun KeyAuthSection(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun JumpHostSection(
+    selectedId: Long?,
+    candidates: List<HostProfile>,
+    onSelect: (Long?) -> Unit,
+) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+    var pickerExpanded by remember { mutableStateOf(false) }
+    val selected = candidates.firstOrNull { it.id == selectedId }
+
+    SectionHeader("JUMP HOST")
+    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+        if (selected != null) {
+            ChuText("● ", style = typography.body, color = colors.accent)
+            ChuText(
+                "${selected.name}  ·  ${selected.username}@${selected.host}:${selected.port}",
+                style = typography.body,
+                color = colors.textPrimary,
+            )
+        } else if (selectedId != null) {
+            ChuText(
+                "saved jump host can no longer be used",
+                style = typography.body,
+                color = colors.error,
+            )
+        } else {
+            ChuText("direct connection", style = typography.body, color = colors.textMuted)
+        }
+    }
+    if (candidates.isEmpty()) {
+        ChuText(
+            "save the jump host as a server first, then pick it here.",
+            style = typography.bodySmall,
+            color = colors.textMuted,
+        )
+        return
+    }
+    ChuButton(
+        onClick = { pickerExpanded = !pickerExpanded },
+        variant = ChuButtonVariant.Ghost,
+        bracketed = true,
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+    ) {
+        ChuText(
+            text = if (selected != null) "change jump host" else "connect through a jump host",
+            style = typography.labelSmall,
+            color = colors.accent,
+        )
+    }
+    if (!pickerExpanded) return
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        JumpHostOption(
+            label = "none (direct)",
+            detail = "",
+            isSelected = selectedId == null,
+            onClick = {
+                onSelect(null)
+                pickerExpanded = false
+            },
+        )
+        candidates.forEach { host ->
+            JumpHostOption(
+                label = host.name,
+                detail = "${host.username}@${host.host}",
+                isSelected = host.id == selected?.id,
+                onClick = {
+                    onSelect(host.id)
+                    pickerExpanded = false
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun JumpHostOption(label: String, detail: String, isSelected: Boolean, onClick: () -> Unit) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+    ) {
+        ChuText(
+            text = (if (isSelected) "● " else "  ") + label,
+            style = typography.body,
+            color = if (isSelected) colors.accent else colors.textPrimary,
+        )
+        ChuText(detail, style = typography.bodySmall, color = colors.textMuted)
     }
 }
 
