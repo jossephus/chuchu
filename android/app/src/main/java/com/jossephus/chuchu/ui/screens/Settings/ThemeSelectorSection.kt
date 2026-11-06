@@ -30,6 +30,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -41,6 +42,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.jossephus.chuchu.R
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuSwitch
@@ -71,7 +73,7 @@ internal fun ThemeSelectorSection(
 
     Row(verticalAlignment = Alignment.CenterVertically) {
         ChuText("── ", style = typography.labelSmall, color = colors.textMuted)
-        ChuText("THEME", style = typography.labelSmall, color = colors.textMuted)
+        ChuText(stringResource(R.string.settings_theme_header), style = typography.labelSmall, color = colors.textMuted)
         ChuText(" ", style = typography.labelSmall, color = colors.textMuted)
         Box(modifier = Modifier.height(1.dp).background(colors.textMuted).fillMaxWidth())
     }
@@ -92,14 +94,14 @@ internal fun ThemeSelectorSection(
             themeByName = themeByName,
         )
         ThemeMode.System -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            ChuText("dark", style = typography.labelSmall, color = colors.textMuted)
+            ChuText(stringResource(R.string.settings_theme_dark), style = typography.labelSmall, color = colors.textMuted)
             SingleThemePicker(
                 currentTheme = darkThemeName,
                 onThemeSelected = onDarkThemeSelected,
                 themeByName = themeByName,
             )
             Spacer(modifier = Modifier.height(8.dp))
-            ChuText("light", style = typography.labelSmall, color = colors.textMuted)
+            ChuText(stringResource(R.string.settings_theme_light), style = typography.labelSmall, color = colors.textMuted)
             SingleThemePicker(
                 currentTheme = lightThemeName,
                 onThemeSelected = onLightThemeSelected,
@@ -136,7 +138,7 @@ private fun ThemeModePills(
                 contentAlignment = Alignment.Center,
             ) {
                 ChuText(
-                    mode.label,
+                    stringResource(mode.labelRes),
                     style = typography.label,
                     color = if (isSelected) colors.background else colors.textSecondary,
                 )
@@ -189,7 +191,11 @@ private fun SingleThemePicker(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                ChuText("show preview", style = typography.label, color = colors.textSecondary)
+                ChuText(
+                    stringResource(R.string.settings_theme_show_preview),
+                    style = typography.label,
+                    color = colors.textSecondary,
+                )
                 ChuSwitch(checked = showPreview, onCheckedChange = { showPreview = it })
             }
         }
@@ -256,8 +262,8 @@ private fun ThemePickerDropdown(
         ChuTextField(
             value = query,
             onValueChange = onQueryChange,
-            label = "Search themes",
-            placeholder = "Type to filter",
+            label = stringResource(R.string.settings_theme_search_label),
+            placeholder = stringResource(R.string.settings_theme_search_placeholder),
             singleLine = true,
             autoFocus = false,
         )
@@ -339,7 +345,11 @@ private fun ThemePreview(theme: GhosttyTheme, name: String) {
                 Box(
                     modifier = Modifier.width(6.dp).height(6.dp).background(colors.accent),
                 )
-                ChuText("preview", style = typography.labelSmall, color = colors.textSecondary)
+                ChuText(
+                    stringResource(R.string.settings_theme_preview),
+                    style = typography.labelSmall,
+                    color = colors.textSecondary,
+                )
             }
             ChuText(name, style = typography.labelSmall, color = colors.textMuted)
         }

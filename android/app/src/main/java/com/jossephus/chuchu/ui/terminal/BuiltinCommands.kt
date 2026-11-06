@@ -4,6 +4,8 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import androidx.annotation.StringRes
+import com.jossephus.chuchu.R
 
 /**
  * The fixed set of "chuchu command" builtins a user can bind a shortcut key to.
@@ -15,15 +17,15 @@ import kotlinx.serialization.json.Json
  */
 enum class BuiltinCommand(
     val id: String,
-    val label: String,
-    val description: String,
+    @StringRes val labelRes: Int,
+    @StringRes val descriptionRes: Int,
     val defaultKey: Char,
 ) {
-    Tabs("tabs", "tabs", "show tab manager", 't'),
-    NewTab("new_tab", "new tab", "open a new tab", 'n'),
-    Actions("actions", "actions", "toggle floating custom actions button", 'a'),
-    Settings("settings", "settings", "open settings", 's'),
-    Close("close", "close", "close the active tab", 'q');
+    Tabs("tabs", R.string.builtin_tabs_label, R.string.builtin_tabs_description, 't'),
+    NewTab("new_tab", R.string.builtin_new_tab_label, R.string.builtin_new_tab_description, 'n'),
+    Actions("actions", R.string.builtin_actions_label, R.string.builtin_actions_description, 'a'),
+    Settings("settings", R.string.builtin_settings_label, R.string.builtin_settings_description, 's'),
+    Close("close", R.string.builtin_close_label, R.string.builtin_close_description, 'q');
 
     companion object {
         fun fromId(id: String): BuiltinCommand? = entries.find { it.id == id }

@@ -52,6 +52,7 @@ class ChuchuKeyBindings(
          */
         fun build(
             builtinShortcuts: Map<String, String>,
+            builtinLabels: Map<BuiltinCommand, String>,
             builtinCommandHandlers: Map<BuiltinCommand, () -> Unit>,
             customGroups: List<TerminalCustomKeyGroup>,
             onDispatchAction: (TerminalCustomAction) -> Unit,
@@ -66,7 +67,7 @@ class ChuchuKeyBindings(
                 val keyChar = shortcut.first().lowercaseChar()
                 if (keyChar in builtinHandlers) return@forEach
                 builtinHandlers[keyChar] = handler
-                builtinHints += ChuchuHint(key = shortcut, description = command.label)
+                builtinHints += ChuchuHint(key = shortcut, description = builtinLabels.getValue(command))
             }
 
             val builtinKeys = builtinHandlers.keys.toSet()

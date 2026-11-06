@@ -1,15 +1,17 @@
 package com.jossephus.chuchu.ui.theme
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
+import com.jossephus.chuchu.R
 
 /**
  * Theme mode: always dark, always light, or follow the system setting.
  */
-enum class ThemeMode(val label: String) {
-    Dark("dark"),
-    Light("light"),
-    System("system"),
+enum class ThemeMode(@StringRes val labelRes: Int) {
+    Dark(R.string.settings_theme_dark),
+    Light(R.string.settings_theme_light),
+    System(R.string.settings_theme_system),
 }
 
 /**
