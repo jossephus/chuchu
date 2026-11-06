@@ -21,7 +21,7 @@ import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.ui.theme.GhosttyThemeRegistry
 
 class SessionForegroundService : Service() {
-    private var currentLabel: String = "Active session"
+    private var currentLabel: String? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -60,7 +60,9 @@ class SessionForegroundService : Service() {
                 ServiceCompat.startForeground(
                     this,
                     NOTIFICATION_ID,
-                    buildNotification(currentLabel),
+                    buildNotification(
+                        currentLabel ?: getString(R.string.notification_default_label)
+                    ),
                     type,
                 )
                 return START_STICKY
@@ -77,10 +79,10 @@ class SessionForegroundService : Service() {
         if (existing != null) return
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "SSH sessions",
+            getString(R.string.notification_channel_name),
             NotificationManager.IMPORTANCE_LOW,
         )
-        channel.description = "Keeps active terminal sessions alive"
+        channel.description = getString(R.string.notification_channel_description)
         manager.createNotificationChannel(channel)
     }
 
@@ -107,7 +109,7 @@ class SessionForegroundService : Service() {
 
         val notificationBuilder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Chuchu connected")
+            .setContentTitle(getString(R.string.notification_title))
             .setContentText(label)
             .setOngoing(true)
             .setAutoCancel(false)
@@ -116,7 +118,7 @@ class SessionForegroundService : Service() {
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setContentIntent(tapPending)
-            .addAction(0, "Disconnect", disconnectPending)
+            .addAction(0, getString(R.string.notification_action_disconnect), disconnectPending)
 
         resolveNotificationColor()?.let { argb ->
             notificationBuilder

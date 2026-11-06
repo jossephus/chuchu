@@ -930,7 +930,7 @@ fun TerminalScreen(
 
         SessionStatus.Connecting -> {
             val hostLabel = if (multiplexerState.preflightLoading) {
-                "${multiplexerState.preflightHostLabel ?: "server"}..."
+                "${multiplexerState.preflightHostLabel ?: stringResource(R.string.terminal_unknown_server)}..."
             } else if (tabMode == TerminalTabMode.Strip) {
                 activeTab?.spec?.tabLabel?.let { "$it..." } ?: "..."
             } else {
@@ -951,7 +951,7 @@ fun TerminalScreen(
                         contentAlignment = Alignment.Center,
                     ) {
                         ChuText(
-                            "Connecting to $hostLabel",
+                            stringResource(R.string.terminal_connecting_to, hostLabel),
                             style = typography.body,
                         )
                     }
@@ -962,7 +962,7 @@ fun TerminalScreen(
                     verticalArrangement = Arrangement.Center,
                 ) {
                     ChuText(
-                        "Connecting to $hostLabel",
+                        stringResource(R.string.terminal_connecting_to, hostLabel),
                         style = typography.body,
                     )
                 }
@@ -1517,7 +1517,14 @@ fun TerminalScreen(
                                     if (isReconnecting) {
                                         ChuText(
                                             text =
-                                                "Reconnecting${sessionState.reconnectAttempt.takeIf { it > 0 }?.let { " ($it)" } ?: ""}",
+                                                if (sessionState.reconnectAttempt > 0) {
+                                                    stringResource(
+                                                        R.string.terminal_reconnecting_attempt,
+                                                        sessionState.reconnectAttempt,
+                                                    )
+                                                } else {
+                                                    stringResource(R.string.terminal_reconnecting)
+                                                },
                                             style = typography.labelSmall,
                                             color = colors.error,
                                         )

@@ -284,6 +284,22 @@
     <string name="terminal_error_create_mux">Could not create multiplexer session</string>
     <string name="terminal_error_prepare_mux">Could not prepare multiplexer session</string>
     <string name="terminal_error_list_sessions">Failed to list sessions</string>
+    <string name="terminal_connecting_to">Connecting to %1$s</string>
+    <string name="terminal_unknown_server">server</string>
+    <string name="terminal_reconnecting">Reconnecting</string>
+    <string name="terminal_reconnecting_attempt">Reconnecting (%1$d)</string>
+    <string name="terminal_endpoint_local_shell">this device · app sandbox</string>
+    <string name="terminal_error_mosh_unsupported">%1$s is not supported for Mosh connections</string>
+    <string name="terminal_error_multiplexer_unsupported">%1$s is not supported yet</string>
+    <string name="terminal_error_session_gone">Terminal session is no longer available</string>
+    <string name="terminal_error_session_list_stale">Session list is stale. Refresh sessions and try again.</string>
+
+    <!-- Session foreground notification -->
+    <string name="notification_channel_name">SSH sessions</string>
+    <string name="notification_channel_description">Keeps active terminal sessions alive</string>
+    <string name="notification_title">Chuchu connected</string>
+    <string name="notification_default_label">Active session</string>
+    <string name="notification_action_disconnect">Disconnect</string>
 
     <!-- Backup / key errors surfaced from view models -->
     <string name="add_server_key_generation_failed">Key generation failed</string>
