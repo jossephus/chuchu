@@ -20,7 +20,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.jossephus.chuchu.R
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuText
@@ -40,7 +42,7 @@ internal fun FontSelectorSection(
 
     Row(verticalAlignment = Alignment.CenterVertically) {
         ChuText("── ", style = typography.labelSmall, color = colors.textMuted)
-        ChuText("FONT", style = typography.labelSmall, color = colors.textMuted)
+        ChuText(stringResource(R.string.settings_font_header), style = typography.labelSmall, color = colors.textMuted)
         ChuText(" ", style = typography.labelSmall, color = colors.textMuted)
         Box(modifier = Modifier.height(1.dp).background(colors.textMuted).fillMaxWidth())
     }

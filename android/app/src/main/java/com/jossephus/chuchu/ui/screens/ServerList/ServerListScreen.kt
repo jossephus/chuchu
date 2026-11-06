@@ -38,6 +38,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -48,6 +50,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
+import com.jossephus.chuchu.R
 import com.jossephus.chuchu.model.HostProfile
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.terminal.TerminalSessionRepository
@@ -154,7 +157,11 @@ fun ServerListScreen(
                             bracketed = true,
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                         ) {
-                            ChuText("filter", style = typography.label, color = colors.textSecondary)
+                            ChuText(
+                                stringResource(R.string.action_filter),
+                                style = typography.label,
+                                color = colors.textSecondary,
+                            )
                         }
                     }
                     ChuButton(
@@ -162,7 +169,11 @@ fun ServerListScreen(
                         variant = ChuButtonVariant.Outlined,
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                     ) {
-                        ChuText("settings", style = typography.label, color = colors.textSecondary)
+                        ChuText(
+                            stringResource(R.string.settings_title),
+                            style = typography.label,
+                            color = colors.textSecondary,
+                        )
                     }
                 }
             }
@@ -175,14 +186,14 @@ fun ServerListScreen(
                         if (value.isBlank()) isSearchVisible = false
                     },
                     label = "",
-                    placeholder = "filter hosts",
+                    placeholder = stringResource(R.string.server_list_filter_placeholder),
                     singleLine = true,
                     showLabel = false,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
 
-            SectionHeader("HOSTS")
+            SectionHeader(stringResource(R.string.server_list_header_hosts))
 
             LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (localShellEnabled) {
@@ -199,7 +210,7 @@ fun ServerListScreen(
                             EmptyState()
                         } else {
                             ChuText(
-                                "no hosts match",
+                                stringResource(R.string.server_list_no_hosts_match),
                                 style = typography.body,
                                 color = colors.textMuted,
                             )
@@ -208,6 +219,8 @@ fun ServerListScreen(
                 } else {
                     items(hosts, key = { it.id }) { host ->
                         val isConnected = host.id in connectedHostIds
+                        val disconnectBeforeDeleteMessage =
+                            stringResource(R.string.server_list_disconnect_before_delete)
                         HostCard(
                             host = host,
                             isConnected = isConnected,
@@ -219,7 +232,7 @@ fun ServerListScreen(
                                 if (is_selected_connected) {
                                     Toast.makeText(
                                         context,
-                                        "Disconnect before deleting this host",
+                                        disconnectBeforeDeleteMessage,
                                         Toast.LENGTH_SHORT,
                                     ).show()
                                 } else {
@@ -259,16 +272,16 @@ fun ServerListScreen(
                 .padding(16.dp)
                 .height(44.dp),
         ) {
-            ChuText("+ add server", style = typography.label, color = colors.onAccent)
+            ChuText(stringResource(R.string.server_list_add_server), style = typography.label, color = colors.onAccent)
         }
 
         val pendingDisconnectHost = hosts.firstOrNull { it.id == pendingDisconnectHostId }
         if (pendingDisconnectHost != null) {
             val sessionCount = openTabs.count { it.spec.hostId == pendingDisconnectHost.id }
             ChuDialog(
-                title = "Disconnect ${pendingDisconnectHost.name}?",
-                confirmLabel = "Disconnect",
-                dismissLabel = "Cancel",
+                title = stringResource(R.string.server_list_disconnect_title, pendingDisconnectHost.name),
+                confirmLabel = stringResource(R.string.dialog_confirm_disconnect),
+                dismissLabel = stringResource(R.string.dialog_dismiss),
                 onConfirm = {
                     selectedHostId = null
                     openTabs
@@ -281,9 +294,12 @@ fun ServerListScreen(
                 },
                 onDismiss = { pendingDisconnectHostId = null },
             ) {
-                val sessionLabel = if (sessionCount == 1) "session" else "sessions"
                 ChuText(
-                    "This closes $sessionCount $sessionLabel on this host.",
+                    pluralStringResource(
+                        R.plurals.server_list_disconnect_body,
+                        sessionCount,
+                        sessionCount,
+                    ),
                     style = typography.body,
                     color = colors.warning,
                 )
@@ -321,10 +337,14 @@ private fun EmptyState() {
     val typography = ChuTypography.current
     ChuCard(background = colors.surfaceVariant) {
         Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-            ChuText("# no hosts configured", style = typography.body, color = colors.textMuted)
+            ChuText(
+                stringResource(R.string.server_list_empty_title),
+                style = typography.body,
+                color = colors.textMuted,
+            )
             Spacer(modifier = Modifier.height(8.dp))
             ChuText(
-                "add your first host to connect quickly.",
+                stringResource(R.string.server_list_empty_hint),
                 style = typography.bodySmall,
                 color = colors.textSecondary,
             )
@@ -361,13 +381,13 @@ private fun LocalShellCard(
                         style = typography.title,
                         color = if (isOpen) colors.success else colors.textMuted,
                     )
-                    ChuText("local shell", style = typography.title)
+                    ChuText(stringResource(R.string.server_list_local_shell), style = typography.title)
                 }
-                TuiBadge(text = "android", color = colors.accentSecondary)
+                TuiBadge(text = stringResource(R.string.badge_android), color = colors.accentSecondary)
             }
             Spacer(modifier = Modifier.height(2.dp))
             ChuText(
-                "> this device · app sandbox",
+                stringResource(R.string.server_list_local_shell_subtitle),
                 style = typography.body,
                 color = colors.textSecondary,
                 maxLines = 1,
@@ -380,10 +400,14 @@ private fun LocalShellCard(
                     variant = ChuButtonVariant.Outlined,
                     bracketed = true,
                     borderColor = colors.accentSecondary,
-                    contentDescription = "Open local shell",
+                    contentDescription = stringResource(R.string.server_list_cd_open_local_shell),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 ) {
-                    ChuText("open", style = typography.label, color = colors.accentSecondary)
+                    ChuText(
+                        stringResource(R.string.action_open),
+                        style = typography.label,
+                        color = colors.accentSecondary,
+                    )
                 }
             }
         }
@@ -435,7 +459,11 @@ private fun HostCard(
                         bracketed = true,
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                     ) {
-                        ChuText("cancel", style = typography.label, color = colors.textSecondary)
+                        ChuText(
+                            stringResource(R.string.action_cancel),
+                            style = typography.label,
+                            color = colors.textSecondary,
+                        )
                     }
                     ChuButton(
                         onClick = onDeleteSelection,
@@ -443,7 +471,11 @@ private fun HostCard(
                         bracketed = true,
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                     ) {
-                        ChuText("delete", style = typography.label, color = colors.error)
+                        ChuText(
+                            stringResource(R.string.action_delete),
+                            style = typography.label,
+                            color = colors.error,
+                        )
                     }
                 }
             }
@@ -462,7 +494,7 @@ private fun HostCard(
                         .padding(end = 14.dp),
                 ) {
                     ChuText(
-                        "[disconnect]",
+                        stringResource(R.string.server_list_swipe_disconnect),
                         style = typography.label,
                         color = colors.background,
                         modifier = Modifier.align(Alignment.CenterEnd),
@@ -544,7 +576,7 @@ private fun HostCard(
                             )
                             if (host.transport == Transport.TailscaleSSH) {
                                 TuiBadge(
-                                    text = "tailscale",
+                                    text = stringResource(R.string.badge_tailscale),
                                     color = colors.accent,
                                 )
                             }
@@ -559,7 +591,11 @@ private fun HostCard(
                                 testTag = "host_edit_${host.id}",
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                             ) {
-                                ChuText("edit", style = typography.label, color = colors.textMuted)
+                                ChuText(
+                                    stringResource(R.string.action_edit),
+                                    style = typography.label,
+                                    color = colors.textMuted,
+                                )
                             }
                             ChuButton(
                                 onClick = {
@@ -569,11 +605,20 @@ private fun HostCard(
                                 bracketed = true,
                                 borderColor = if (isConnected) colors.warning else colors.accentSecondary,
                                 testTag = "host_connect_${host.id}",
-                                contentDescription = if (isConnected) "Disconnect from ${host.name}" else "Connect to ${host.name}",
+                                contentDescription =
+                                    if (isConnected) {
+                                        stringResource(R.string.server_list_cd_disconnect_from, host.name)
+                                    } else {
+                                        stringResource(R.string.server_list_cd_connect_to, host.name)
+                                    },
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                             ) {
                                 ChuText(
-                                    if (isConnected) "disconnect" else "connect",
+                                    if (isConnected) {
+                                        stringResource(R.string.action_disconnect)
+                                    } else {
+                                        stringResource(R.string.action_connect)
+                                    },
                                     style = typography.label,
                                     color = if (isConnected) colors.warning else colors.accentSecondary,
                                 )

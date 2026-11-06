@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.jossephus.chuchu.R
 import com.jossephus.chuchu.data.db.AppDatabase
 import com.jossephus.chuchu.data.repository.HostRepository
 import com.jossephus.chuchu.data.repository.SettingsRepository
@@ -52,6 +53,7 @@ import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class TerminalViewModel(application: Application) : AndroidViewModel(application) {
+    private val app = application
     private val tailscaleStatusChecker = TailscaleStatusChecker(application)
     private val sessionRepository = TerminalSessionRepository.getInstance(application)
     private val database = AppDatabase.getInstance(application)
@@ -198,7 +200,9 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                         },
                         onFailure = { error ->
                             _multiplexerState.value = _multiplexerState.value.copy(
-                                preflightError = error.message ?: "Could not create multiplexer session",
+                                preflightError =
+                                    error.message
+                                        ?: app.getString(R.string.terminal_error_create_mux),
                             )
                         },
                     )
@@ -279,7 +283,9 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                         _multiplexerState.value = _multiplexerState.value.copy(
                             preflightLoading = false,
                             preflightHostLabel = null,
-                            preflightError = error.message ?: "Could not prepare multiplexer session",
+                            preflightError =
+                                error.message
+                                    ?: app.getString(R.string.terminal_error_prepare_mux),
                         )
                     },
                 )
@@ -358,7 +364,9 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                         _multiplexerState.value = _multiplexerState.value.copy(
                             sessions = emptyList(),
                             sessionsLoading = false,
-                            sessionsError = error.message ?: "Failed to list sessions",
+                            sessionsError =
+                                error.message
+                                    ?: app.getString(R.string.terminal_error_list_sessions),
                             sessionsSourceTabId = sourceTabId,
                             sessionsSourceHostId = sourceHostId,
                         )
@@ -385,7 +393,9 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                     },
                     onFailure = { error ->
                         _multiplexerState.value = _multiplexerState.value.copy(
-                            sessionsError = error.message ?: "Could not create multiplexer session",
+                            sessionsError =
+                                error.message
+                                    ?: app.getString(R.string.terminal_error_create_mux),
                         )
                     },
                 )
@@ -610,7 +620,9 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                         updateFileBrowserState(tabId) {
                             it.copy(
                                 isLoading = false,
-                                error = err.message ?: "Failed to list directory",
+                                error =
+                                    err.message
+                                        ?: app.getString(R.string.files_error_list_directory),
                             )
                         }
                     }

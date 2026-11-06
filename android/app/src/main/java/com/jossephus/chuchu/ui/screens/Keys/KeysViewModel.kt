@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.room.withTransaction
+import com.jossephus.chuchu.R
 import com.jossephus.chuchu.data.db.AppDatabase
 import com.jossephus.chuchu.data.repository.HostRepository
 import com.jossephus.chuchu.data.repository.ImportResult
@@ -64,7 +65,12 @@ class KeysViewModel(application: Application) : AndroidViewModel(application) {
                 is KeyGenerationResult.Success ->
                     _events.emit(KeysEvent.Generated(result.key.name))
                 KeyGenerationResult.Failed ->
-                    _events.emit(KeysEvent.GenerateFailed("Key generation failed"))
+                    _events.emit(
+                        KeysEvent.GenerateFailed(
+                            getApplication<Application>()
+                                .getString(R.string.add_server_key_generation_failed)
+                        )
+                    )
             }
         }
     }
@@ -75,9 +81,16 @@ class KeysViewModel(application: Application) : AndroidViewModel(application) {
                 when (val result = sshKeyRepository.import(nameHint, privateKeyPem)) {
                     is ImportResult.Success ->
                         KeysEvent.Imported(result.key.name, result.publicKeyDerived)
-                    ImportResult.Blank -> KeysEvent.ImportFailed("Paste a private key first")
+                    ImportResult.Blank ->
+                        KeysEvent.ImportFailed(
+                            getApplication<Application>()
+                                .getString(R.string.keys_error_paste_first)
+                        )
                     ImportResult.NotAPrivateKey ->
-                        KeysEvent.ImportFailed("That doesn't look like a private key")
+                        KeysEvent.ImportFailed(
+                            getApplication<Application>()
+                                .getString(R.string.keys_error_not_a_private_key)
+                        )
                 }
             _events.emit(event)
         }
@@ -88,9 +101,16 @@ class KeysViewModel(application: Application) : AndroidViewModel(application) {
             val event =
                 when (sshKeyRepository.rename(id, newName)) {
                     RenameResult.Success -> KeysEvent.Renamed
-                    RenameResult.Blank -> KeysEvent.RenameFailed("Name can't be empty")
+                    RenameResult.Blank ->
+                        KeysEvent.RenameFailed(
+                            getApplication<Application>()
+                                .getString(R.string.keys_error_name_empty)
+                        )
                     RenameResult.NameTaken ->
-                        KeysEvent.RenameFailed("A key named \"${newName.trim()}\" already exists")
+                        KeysEvent.RenameFailed(
+                            getApplication<Application>()
+                                .getString(R.string.keys_error_name_taken, newName.trim())
+                        )
                 }
             _events.emit(event)
         }

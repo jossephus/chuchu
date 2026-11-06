@@ -12,9 +12,11 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.dp
+import com.jossephus.chuchu.R
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
 
@@ -25,7 +27,7 @@ fun ChuDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
-    dismissLabel: String = "Cancel",
+    dismissLabel: String? = null,
     properties: DialogProperties = DialogProperties(),
     content: @Composable () -> Unit,
 ) {
@@ -57,7 +59,11 @@ fun ChuDialog(
                     bracketed = true,
                     borderColor = colors.textMuted,
                 ) {
-                    ChuText(dismissLabel, style = typography.label, color = colors.textMuted)
+                    ChuText(
+                        dismissLabel ?: stringResource(R.string.dialog_dismiss),
+                        style = typography.label,
+                        color = colors.textMuted,
+                    )
                 }
                 ChuButton(
                     onClick = onConfirm,
