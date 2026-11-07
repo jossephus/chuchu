@@ -293,6 +293,7 @@ class TerminalSessionRepository private constructor(application: Application) {
                 newLocalShellService(),
                 hostKeyStore,
                 tailscaleStatusChecker,
+                holdRepaintFrames = { settingsRepository.holdRepaintFrames.value },
             )
         val tab = TabSession(id, spec, engine)
         _tabs.value = _tabs.value + tab

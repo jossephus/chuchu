@@ -385,6 +385,8 @@
     <string name="settings_hide_screen_contents_hint">禁止截屏，并在应用切换器里隐藏终端</string>
     <string name="settings_disable_autocorrect">关闭自动纠错</string>
     <string name="settings_disable_autocorrect_hint">适用于忽略标准提示的输入法；可能会关闭滑行输入</string>
+    <string name="settings_hold_repaint_frames">全屏重绘时保持画面</string>
+    <string name="settings_hold_repaint_frames_hint">程序重绘屏幕时暂缓显示，不出现中间帧；如果会话看起来卡住就关掉它</string>
     <string name="settings_accessory_preview">预览</string>
     <string name="settings_no_accessory_keys_selected">未选择任何辅助键。</string>
     <string name="settings_accessory_drag_hint">长按预览里的按键，然后拖到想要的位置。</string>
