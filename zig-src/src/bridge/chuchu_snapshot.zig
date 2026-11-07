@@ -142,6 +142,10 @@ const ChuchuTerminal = struct {
     snapshot_perf_calls: u64 = 0,
     snapshot_perf_total_ns: u64 = 0,
     snapshot_perf_last_log_ns: i64 = 0,
+    // DECSET 2026 (synchronized output) hold. The remote program asked us to
+    // stop updating the screen until it releases, so the host must not paint
+    // intermediate frames of a full repaint.
+    render_hold_active: bool = false,
 };
 
 const ChuchuStreamHandler = struct {
@@ -408,6 +412,10 @@ fn chuchuTitleChanged(handler: *ghostty.TerminalStream.Handler) void {
     updateMetadata(terminalFromHandler(handler));
 }
 
+fn chuchuRenderHold(handler: *ghostty.TerminalStream.Handler, active: bool) void {
+    terminalFromHandler(handler).render_hold_active = active;
+}
+
 fn chuchuColorScheme(handler: *ghostty.TerminalStream.Handler) ?ghostty.device_status.ColorScheme {
     const terminal = terminalFromHandler(handler);
     if (!terminal.color_scheme_set) return null;
@@ -516,6 +524,7 @@ export fn chuchu_create_terminal(cols: c.jint, rows: c.jint, max_scrollback: c.j
     handler.effects.device_attributes = chuchuDeviceAttributes;
     handler.effects.size = chuchuSize;
     handler.effects.title_changed = chuchuTitleChanged;
+    handler.effects.render_hold = chuchuRenderHold;
     handler.effects.xtversion = chuchuXtversion;
     terminal.stream_handler = .{
         .owner = terminal,
@@ -651,6 +660,13 @@ export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeDrainBe
     _ = env;
     _ = thiz;
     return chuchu_drain_bell_count(handle);
+}
+
+export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeRenderHoldActive(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong) callconv(.c) c.jboolean {
+    _ = env;
+    _ = thiz;
+    const terminal = chuchuFromHandle(handle) orelse return c.JNI_FALSE;
+    return if (terminal.render_hold_active) c.JNI_TRUE else c.JNI_FALSE;
 }
 
 export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeSetColorScheme(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, scheme: c.jint) callconv(.c) void {
@@ -1381,11 +1397,16 @@ export fn chuchu_resize(handle: c.jlong, cols: c.jint, rows: c.jint, cell_width:
     const new_rows: u16 = @intCast(clampI32(rows, 1, terminal.rows));
     const new_cell_width: u32 = @intCast(clampI32(cell_width, 1, 1));
     const new_cell_height: u32 = @intCast(clampI32(cell_height, 1, 1));
+    const was_held = terminal.terminal.modes.get(.synchronized_output);
     terminal.terminal.resize(allocator, .{
         .cols = new_cols,
         .rows = new_rows,
         .cell_size_px = .{ .width = new_cell_width, .height = new_cell_height },
     }) catch return;
+    // Terminal.resize clears synchronized_output without reporting a render hold
+    // end, so the host would keep skipping frames until the next hold cycle.
+    // Mirror what TerminalStream.Handler.resize does for the same situation.
+    if (was_held) terminal.render_hold_active = false;
     terminal.cols = new_cols;
     terminal.rows = new_rows;
     terminal.cell_width = new_cell_width;
