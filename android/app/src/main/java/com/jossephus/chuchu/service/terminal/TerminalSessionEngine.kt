@@ -76,6 +76,8 @@ class TerminalSessionEngine(
     private val hostKeyStore: HostKeyStore,
     private val tailscaleStatusChecker: TailscaleStatusChecker,
     private val onHostKeyVerificationRequired: ((HostKeyPrompt, ByteArray) -> Unit)? = null,
+    // Read live: turning the hold off must take effect in sessions that are already open.
+    private val holdRepaintFrames: () -> Boolean = { true },
 ) {
     private data class ConnectionParams(
         val host: String,
@@ -1276,6 +1278,12 @@ class TerminalSessionEngine(
 
     private fun requestDataSnapshot(force: Boolean = false) {
         if (handle == 0L) return
+        if (!holdRepaintFrames()) {
+            // Turning the hold off mid-repaint must not leave the screen frozen.
+            if (renderHold.isHeld) renderHold.release()
+            requestSnapshot(force)
+            return
+        }
         val hold = bridge.nativeRenderHoldActive(handle)
         when (renderHold.onChunk(hold, SystemClock.elapsedRealtime())) {
             RenderHoldAction.Skip -> {

@@ -102,6 +102,8 @@ internal fun TerminalSettings(
     onHideScreenContentsChanged: (Boolean) -> Unit = {},
     disableAutocorrect: Boolean = false,
     onDisableAutocorrectChanged: (Boolean) -> Unit = {},
+    holdRepaintFrames: Boolean = true,
+    onHoldRepaintFramesChanged: (Boolean) -> Unit = {},
     remoteClipboardWriteEnabled: Boolean = false,
     onRemoteClipboardWriteEnabledChanged: (Boolean) -> Unit = {},
 ) {
@@ -607,6 +609,34 @@ internal fun TerminalSettings(
             checked = disableAutocorrect,
             onCheckedChange = onDisableAutocorrectChanged,
         )
+
+        ChuCard(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .defaultMinSize(minHeight = 48.dp)
+                        .padding(12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    ChuText(stringResource(R.string.settings_hold_repaint_frames), style = typography.label)
+                    ChuText(
+                        stringResource(R.string.settings_hold_repaint_frames_hint),
+                        style = typography.bodySmall,
+                        color = colors.textMuted,
+                    )
+                }
+                ChuSwitch(
+                    checked = holdRepaintFrames,
+                    onCheckedChange = onHoldRepaintFramesChanged,
+                )
+            }
+        }
     }
 }
 
