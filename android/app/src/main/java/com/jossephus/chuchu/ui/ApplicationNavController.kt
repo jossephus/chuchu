@@ -138,6 +138,7 @@ fun ApplicationNavController() {
             val keepScreenAwake by settingsRepo.keepScreenAwake.collectAsStateWithLifecycle()
             val hideScreenContents by settingsRepo.hideScreenContents.collectAsStateWithLifecycle()
             val disableAutocorrect by settingsRepo.disableAutocorrect.collectAsStateWithLifecycle()
+            val stableImeResize by settingsRepo.stableImeResize.collectAsStateWithLifecycle()
             val remoteClipboardWriteEnabled by
                 settingsRepo.remoteClipboardWriteEnabled.collectAsStateWithLifecycle()
             val themeMode by settingsRepo.themeMode.collectAsStateWithLifecycle()
@@ -152,6 +153,7 @@ fun ApplicationNavController() {
                 keepScreenAwake = keepScreenAwake,
                 hideScreenContents = hideScreenContents,
                 disableAutocorrect = disableAutocorrect,
+                stableImeResize = stableImeResize,
                 remoteClipboardWriteEnabled = remoteClipboardWriteEnabled,
                 currentAccessoryLayoutIds = accessoryLayoutIds,
                 accessoryBarSingleRow = accessoryBarSingleRow,
@@ -174,6 +176,7 @@ fun ApplicationNavController() {
                 onKeepScreenAwakeChanged = settingsRepo::setKeepScreenAwake,
                 onHideScreenContentsChanged = settingsRepo::setHideScreenContents,
                 onDisableAutocorrectChanged = settingsRepo::setDisableAutocorrect,
+                onStableImeResizeChanged = settingsRepo::setStableImeResize,
                 onRemoteClipboardWriteEnabledChanged = settingsRepo::setRemoteClipboardWriteEnabled,
                 onAccessoryLayoutChanged = settingsRepo::setAccessoryLayoutIds,
                 onAccessoryBarSingleRowChanged = settingsRepo::setAccessoryBarSingleRow,

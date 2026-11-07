@@ -14,6 +14,8 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import android.os.Build
+import android.util.Log
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -29,16 +31,21 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imeAnimationTarget
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -408,9 +415,30 @@ fun TerminalScreen(
     val density = LocalDensity.current
     val colors = ChuColors.current
     val typography = ChuTypography.current
-    val screenInsetsModifier = modifier.windowInsetsPadding(WindowInsets.safeDrawing)
     var lastSessionStatus by remember { mutableStateOf<SessionStatus?>(null) }
     val settingsRepo = remember(context) { SettingsRepository.getInstance(context) }
+    // Opt-in: safeDrawing includes the live IME inset, so padding by it relayouts this screen on
+    // every frame of the IME animation: the terminal gets a new size ~13 times per keyboard
+    // toggle, and every size change resizes the pty, so the remote shell redraws its prompt each
+    // time. Pad by the animation's *target* IME inset instead: the layout takes its final size on
+    // the first frame of the animation, the keyboard then travels through the gap below it, and
+    // the pty is resized once per toggle. IME animations only exist on API 30+; below that the
+    // inset arrives in one step and the live value is the target.
+    val stableImeResize by settingsRepo.stableImeResize.collectAsStateWithLifecycle()
+    val imeInset =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            WindowInsets.imeAnimationTarget
+        } else {
+            WindowInsets.ime
+        }
+    val screenInsetsModifier =
+        if (stableImeResize) {
+            modifier.windowInsetsPadding(
+                WindowInsets.systemBars.union(WindowInsets.displayCutout).union(imeInset),
+            )
+        } else {
+            modifier.windowInsetsPadding(WindowInsets.safeDrawing)
+        }
     val currentTheme by settingsRepo.themeName.collectAsStateWithLifecycle()
     val themeMode by settingsRepo.themeMode.collectAsStateWithLifecycle()
     val lightThemeName by settingsRepo.lightThemeName.collectAsStateWithLifecycle()
@@ -1281,7 +1309,9 @@ fun TerminalScreen(
                                     if (showTabSheet || showGlobalTabManager) 10.dp
                                     else 0.dp
                                 )
-                                .imePadding()
+                                // The stable-IME path already pads for the keyboard through
+                                // screenInsetsModifier, so only the default path pads here.
+                                .then(if (stableImeResize) Modifier else Modifier.imePadding())
                     ) {
                         // Tab strip (strip mode only — always visible even with zero tabs)
                         if (tabMode == TerminalTabMode.Strip) {
