@@ -21,6 +21,7 @@ data class TabSpec(
     val multiplexer: MultiplexerType? = null,
     val multiplexerSessionName: String? = null,
     val multiplexerCreateIfMissing: Boolean = true,
+    val remotePath: String? = null,
 ) {
     val sessionKey: String
         get() =
@@ -70,6 +71,7 @@ data class TabSpec(
             keyPassphrase = keyPassphrase,
             transport = host.transport,
             postConnectCommand = host.postConnectCommand,
+            remotePath = host.remotePath,
             multiplexer = host.multiplexer?.takeIf {
                 it.runtimeSupported &&
                     host.transport != Transport.Mosh &&

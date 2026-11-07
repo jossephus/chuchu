@@ -90,6 +90,7 @@ class AddServerViewModel(application: Application, private val hostId: Long?) :
                         authMethod = profile.authMethod,
                         requireAuthOnConnect = profile.requireAuthOnConnect,
                         postConnectCommand = profile.postConnectCommand.orEmpty(),
+                        remotePath = profile.remotePath.orEmpty(),
                         multiplexer = profile.multiplexer,
                     )
             }
@@ -189,6 +190,10 @@ class AddServerViewModel(application: Application, private val hostId: Long?) :
 
     fun updatePostConnectCommand(command: String) {
         _form.value = _form.value.copy(postConnectCommand = command)
+    }
+
+    fun updateRemotePath(path: String) {
+        _form.value = _form.value.copy(remotePath = path)
     }
 
     fun updateMultiplexer(multiplexer: MultiplexerType?) {
@@ -302,6 +307,7 @@ class AddServerViewModel(application: Application, private val hostId: Long?) :
                     authMethod = current.authMethod,
                     requireAuthOnConnect = current.requireAuthOnConnect,
                     postConnectCommand = current.postConnectCommand.trim().ifBlank { null },
+                    remotePath = current.remotePath.trim().ifBlank { null },
                     multiplexer =
                         current.multiplexer.takeIf {
                             current.transport != Transport.Mosh && it?.runtimeSupported == true
@@ -329,6 +335,7 @@ data class AddServerForm(
     val requireAuthOnConnect: Boolean = false,
     val postConnectCommand: String = "",
     val multiplexer: MultiplexerType? = null,
+    val remotePath: String = "",
 )
 
 fun AddServerForm.canSave(): Boolean {

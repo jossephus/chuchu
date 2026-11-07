@@ -304,6 +304,24 @@ fun AddServerScreen(vm: AddServerViewModel, onBack: () -> Unit, modifier: Modifi
             }
             SectionDivider()
             MultiplexerSection(selected = form.multiplexer, onSelect = vm::updateMultiplexer)
+            // Nothing but a multiplexer runs through an exec channel, so the field is noise
+            // (and a lie) on a bare SSH host.
+            if (form.multiplexer != null) {
+                ChuTextField(
+                    value = form.remotePath,
+                    onValueChange = vm::updateRemotePath,
+                    label = stringResource(R.string.add_server_remote_path),
+                    placeholder = stringResource(R.string.add_server_remote_path_placeholder),
+                    singleLine = true,
+                    autoFocus = false,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                ChuText(
+                    stringResource(R.string.add_server_remote_path_hint),
+                    style = typography.bodySmall,
+                    color = colors.textMuted,
+                )
+            }
             SectionDivider()
             PostConnectActionSection(
                 command = form.postConnectCommand,

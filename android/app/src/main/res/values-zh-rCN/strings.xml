@@ -101,6 +101,9 @@
     <string name="add_server_change_key">更换密钥</string>
     <string name="add_server_use_existing_key">使用已有密钥</string>
     <string name="add_server_autorun">连接后自动运行</string>
+    <string name="add_server_remote_path">复用器路径</string>
+    <string name="add_server_remote_path_placeholder">/home/me/bin/zmx</string>
+    <string name="add_server_remote_path_hint">不在 PATH 里时才要填（mise、nix、homebrew）：粘贴 `which zmx` 的结果，须以 `/` 开头。</string>
     <string name="add_server_autorun_placeholder">例如 tmux attach -t main</string>
 
     <!-- SSH keys -->

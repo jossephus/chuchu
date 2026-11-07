@@ -104,6 +104,9 @@
     <string name="add_server_change_key">change key</string>
     <string name="add_server_use_existing_key">use existing key</string>
     <string name="add_server_autorun">auto-run on connect</string>
+    <string name="add_server_remote_path">multiplexer path</string>
+    <string name="add_server_remote_path_placeholder">/home/me/bin/zmx</string>
+    <string name="add_server_remote_path_hint">only if it is not on PATH (mise, nix, homebrew): paste `which zmx`. It must start with `/`.</string>
     <string name="add_server_autorun_placeholder">e.g. tmux attach -t main</string>
 
     <!-- SSH keys -->
