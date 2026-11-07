@@ -11,7 +11,7 @@ import com.jossephus.chuchu.model.Transport
 
 object ChuchuBackupCodec {
     const val FORMAT_VERSION: Int = 1
-    const val PAYLOAD_VERSION: Int = 2
+    const val PAYLOAD_VERSION: Int = 3
     const val KDF_ID_PBKDF2_HMAC_SHA1: Int = 1
     const val CIPHER_ID_AES_256_GCM: Int = 1
     const val KDF_ITERATIONS: Int = 210_000
@@ -102,6 +102,9 @@ object ChuchuBackupCodec {
             writer.writeBoolean(host.requireAuthOnConnect)
             writeNullableStringField(host.postConnectCommand, "post-connect command")
             writeNullableStringField(host.multiplexer?.id, "multiplexer")
+            if (PAYLOAD_VERSION >= 3) {
+                writeNullableStringField(host.remotePath, "remote path")
+            }
         }
 
         val encoded = writer.toByteArray()
@@ -173,6 +176,12 @@ object ChuchuBackupCodec {
                 } else {
                     null
                 }
+                // Version 3 only added this field, so older payloads read it as absent.
+                val remotePath = if (version >= 3) {
+                    readNullableStringField("remote path")
+                } else {
+                    null
+                }
                 if (transport != Transport.LocalShell) {
                     add(
                         BackupHostProfile(
@@ -189,6 +198,7 @@ object ChuchuBackupCodec {
                             requireAuthOnConnect = requireAuthOnConnect,
                             postConnectCommand = postConnectCommand,
                             multiplexer = multiplexer,
+                            remotePath = remotePath,
                         ),
                     )
                 }

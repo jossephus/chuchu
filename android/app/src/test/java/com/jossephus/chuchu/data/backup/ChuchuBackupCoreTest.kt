@@ -208,14 +208,43 @@ class ChuchuBackupCoreTest {
     }
 
     @Test
-    fun payloadV1DefaultsMultiplexerToNull() {
-        val v2 = ChuchuBackupCodec.encodePayload(samplePayload())
-        writeIntAt(v2, offset = Int.SIZE_BYTES, value = 1)
-        val v1 = v2.copyOf(v2.size - encodedNullableStringSize(MultiplexerType.Tmux.id))
+    fun payloadV3PreservesRemotePath() {
+        val path = "/home/salem/.local/share/mise/installs/zmx/latest/zmx"
+        val payload = BackupPayload(
+            keys = emptyList(),
+            hosts = listOf(BackupHostProfile.fromEntity(sampleHost(remotePath = path))),
+        )
+
+        val decoded = ChuchuBackupCodec.decodePayload(ChuchuBackupCodec.encodePayload(payload))
+
+        assertEquals(path, decoded.hosts.single().remotePath)
+    }
+
+    @Test
+    fun payloadV2DefaultsRemotePathToNull() {
+        val v3 = ChuchuBackupCodec.encodePayload(samplePayload())
+        writeIntAt(v3, offset = Int.SIZE_BYTES, value = 2)
+        // Version 3 appended one byte: the "absent" marker of the nullable remote path.
+        val v2 = v3.copyOf(v3.size - ABSENT_NULLABLE_BYTES)
+
+        val decoded = ChuchuBackupCodec.decodePayload(v2)
+
+        assertNull(decoded.hosts.single().remotePath)
+        assertEquals(MultiplexerType.Tmux, decoded.hosts.single().multiplexer)
+    }
+
+    @Test
+    fun payloadV1DefaultsMultiplexerAndRemotePathToNull() {
+        val v3 = ChuchuBackupCodec.encodePayload(samplePayload())
+        writeIntAt(v3, offset = Int.SIZE_BYTES, value = 1)
+        val v1 = v3.copyOf(
+            v3.size - encodedNullableStringSize(MultiplexerType.Tmux.id) - ABSENT_NULLABLE_BYTES,
+        )
 
         val decoded = ChuchuBackupCodec.decodePayload(v1)
 
         assertNull(decoded.hosts.single().multiplexer)
+        assertNull(decoded.hosts.single().remotePath)
         assertEquals("echo hello", decoded.hosts.single().postConnectCommand)
     }
 
@@ -252,6 +281,7 @@ class ChuchuBackupCoreTest {
         keyId: Long? = 1L,
         authMethod: AuthMethod = AuthMethod.KeyWithPassphrase,
         transport: Transport = Transport.Mosh,
+        remotePath: String? = null,
     ): HostProfile = HostProfile(
         id = id,
         name = name,
@@ -266,10 +296,16 @@ class ChuchuBackupCoreTest {
         requireAuthOnConnect = true,
         postConnectCommand = "echo hello",
         multiplexer = MultiplexerType.Tmux,
+        remotePath = remotePath,
     )
 
     private fun encodedNullableStringSize(value: String): Int =
         1 + Int.SIZE_BYTES + value.toByteArray(Charsets.UTF_8).size
+
+    private companion object {
+        /** A nullable string field stores one boolean first; a null one costs exactly that. */
+        const val ABSENT_NULLABLE_BYTES = 1
+    }
 
     private fun ciphertextSizeOffset(bytes: ByteArray): Int {
         var offset = Int.SIZE_BYTES * 5

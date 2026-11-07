@@ -64,6 +64,7 @@ data class BackupHostProfile(
     val requireAuthOnConnect: Boolean,
     val postConnectCommand: String?,
     val multiplexer: MultiplexerType?,
+    val remotePath: String? = null,
 ) {
     fun toEntity(
         idOverride: Long = id,
@@ -82,6 +83,7 @@ data class BackupHostProfile(
         requireAuthOnConnect = requireAuthOnConnect,
         postConnectCommand = postConnectCommand,
         multiplexer = multiplexer,
+        remotePath = remotePath,
     )
 
     companion object {
@@ -99,6 +101,7 @@ data class BackupHostProfile(
             requireAuthOnConnect = host.requireAuthOnConnect,
             postConnectCommand = host.postConnectCommand,
             multiplexer = host.multiplexer,
+            remotePath = host.remotePath,
         )
     }
 }
