@@ -65,6 +65,9 @@ class SettingsRepository(context: Context) {
     private val _disableAutocorrect = MutableStateFlow(prefs.getBoolean(KEY_DISABLE_AUTOCORRECT, false))
     val disableAutocorrect: StateFlow<Boolean> = _disableAutocorrect.asStateFlow()
 
+    private val _stableImeResize = MutableStateFlow(prefs.getBoolean(KEY_STABLE_IME_RESIZE, false))
+    val stableImeResize: StateFlow<Boolean> = _stableImeResize.asStateFlow()
+
     private val _terminalTabMode = MutableStateFlow(
         parseTabMode(prefs.getString(KEY_TAB_MODE, TerminalTabMode.Classic.name)),
     )
@@ -163,6 +166,11 @@ class SettingsRepository(context: Context) {
         _disableAutocorrect.value = enabled
     }
 
+    fun setStableImeResize(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_STABLE_IME_RESIZE, enabled).apply()
+        _stableImeResize.value = enabled
+    }
+
     fun setThemeMode(mode: ThemeMode) {
         prefs.edit().putString(KEY_THEME_MODE, mode.name).apply()
         _themeMode.value = mode
@@ -230,6 +238,7 @@ class SettingsRepository(context: Context) {
         private const val KEY_REMOTE_CLIPBOARD_WRITE_ENABLED = "remote_clipboard_write_enabled"
 
         private const val KEY_DISABLE_AUTOCORRECT = "disable_autocorrect"
+        private const val KEY_STABLE_IME_RESIZE = "stable_ime_resize"
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_LIGHT_THEME = "light_theme_name"
         private const val KEY_TERMINAL_FONT_SIZE = "terminal_font_size_sp"
