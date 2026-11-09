@@ -53,8 +53,7 @@ import kotlinx.coroutines.launch
 import com.jossephus.chuchu.R
 import com.jossephus.chuchu.model.HostProfile
 import com.jossephus.chuchu.model.Transport
-import com.jossephus.chuchu.model.connectionTarget
-import com.jossephus.chuchu.service.transport.TransportRegistry
+import com.jossephus.chuchu.plugin.PluginManager
 import com.jossephus.chuchu.service.terminal.TerminalSessionRepository
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
@@ -436,7 +435,7 @@ private fun HostCard(
     val maxSwipePx = with(density) { 132.dp.toPx() }
     val disconnectThresholdPx = with(density) { 72.dp.toPx() }
     val swipeOffsetX = remember(host.id) { Animatable(0f) }
-    val hostLabel = "> ${connectionTarget(host.transport, host.username, host.host, host.port)}"
+    val hostLabel = "> ${host.transport.endpoint(host.username, host.host, host.port)}"
 
     LaunchedEffect(isConnected) {
         if (!isConnected) {
@@ -582,9 +581,9 @@ private fun HostCard(
                                     color = colors.accent,
                                 )
                             }
-                            if (host.transport == Transport.Plugin) {
+                            host.transportId?.let { id ->
                                 TuiBadge(
-                                    text = (TransportRegistry.forId(host.transportId)?.displayName ?: host.transportId ?: "plugin").lowercase(),
+                                    text = (PluginManager.instance.transports[id]?.displayName ?: id).lowercase(),
                                     color = colors.accent,
                                 )
                             }

@@ -8,7 +8,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
@@ -24,7 +23,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.jossephus.chuchu.R
 import com.jossephus.chuchu.data.repository.SettingsRepository
-import com.jossephus.chuchu.model.Transport
+import com.jossephus.chuchu.plugin.PluginManager
 import com.jossephus.chuchu.service.terminal.TerminalSessionRepository
 import com.jossephus.chuchu.ui.screens.AddServer.AddServerScreen
 import com.jossephus.chuchu.ui.screens.AddServer.AddServerViewModel
@@ -107,7 +106,7 @@ fun ApplicationNavController() {
                     val hostRequiresAuth = host?.requireAuthOnConnect == true
                     val mustVerify = requireAuthOnConnect || hostRequiresAuth
                     val route =
-                        if (host != null && host.opensSessionBrowser(sessionPickerStyle)) "sessions/$id" else "terminal/$id"
+                        if (host != null && host.opensSessionBrowser(sessionPickerStyle, PluginManager.instance)) "sessions/$id" else "terminal/$id"
                     if (!mustVerify) {
                         navController.navigate(route)
                     } else {
@@ -267,14 +266,10 @@ fun ApplicationNavController() {
             val id = backStackEntry.arguments?.getLong("id")
             val vm: TerminalViewModel = viewModel(factory = TerminalViewModel.factory(application))
             val openTarget = backStackEntry.arguments?.getString("target")
-            var leaving by remember { mutableStateOf(false) }
             val back: () -> Unit = {
-                if (!leaving) {
-                    leaving = true
+                if (navController.currentBackStackEntry?.id == backStackEntry.id) {
                     navController.popBackStack()
-                    if (openTarget != null && id != null) {
-                        TerminalSessionRepository.getInstance(application).closeTransportTabs(id)
-                    }
+                    id?.let(TerminalSessionRepository.getInstance(application)::leaveHost)
                 }
             }
             BackHandler(enabled = openTarget != null, onBack = back)

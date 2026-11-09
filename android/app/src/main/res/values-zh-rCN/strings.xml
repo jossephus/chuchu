@@ -41,9 +41,8 @@
     <string name="section_transport">传输</string>
     <string name="section_authentication">认证</string>
     <string name="section_session_persistence">会话保持</string>
-    <string name="section_plugins">插件</string>
     <string name="add_server_pairing_invalid">该二维码不是 %1$s 配对码</string>
-    <string name="add_server_transport_unavailable">传输插件“%1$s”不可用。请在 设置 › 插件 中启用。</string>
+    <string name="add_server_transport_unavailable">传输插件“%1$s”不可用。</string>
     <string name="add_server_scan_pairing">扫描配对二维码</string>
     <string name="add_server_scan_again">重新扫描</string>
     <string name="add_server_connects_to">将连接到 %1$s</string>
@@ -297,7 +296,6 @@
     <string name="terminal_reconnecting_attempt">正在重连（第 %1$d 次）</string>
     <string name="terminal_endpoint_local_shell">本机 · 应用沙盒</string>
     <string name="terminal_error_mosh_unsupported">%1$s 不支持 Mosh 连接</string>
-    <string name="terminal_error_transport_unsupported">%1$s 不支持 %2$s 连接</string>
     <string name="terminal_error_multiplexer_unsupported">%1$s 尚未支持</string>
     <string name="terminal_error_session_gone">终端会话已失效</string>
     <string name="terminal_error_session_list_stale">会话列表已过期，请刷新后重试。</string>
@@ -349,10 +347,6 @@
     <string name="settings_category_general">通用</string>
     <string name="settings_category_terminal">终端</string>
     <string name="settings_category_keys">密钥</string>
-    <string name="settings_category_plugins">插件</string>
-    <string name="plugins_builtin">内置</string>
-    <string name="plugins_status_active">运行中</string>
-    <string name="plugins_status_failed">已停用：%1$s</string>
     <string name="settings_security_header">安全</string>
     <string name="settings_lock_app_on_open">打开时锁定应用</string>
     <string name="settings_verify_before_connect">连接主机前验证身份</string>

@@ -1,6 +1,5 @@
 package com.jossephus.chuchu.ui.screens.Terminal
 
-import com.jossephus.chuchu.plugin.PluginInputFocus
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
@@ -12,16 +11,13 @@ import com.jossephus.chuchu.data.repository.HostRepository
 import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.data.repository.SshKeyRepository
 import com.jossephus.chuchu.model.HostProfile
+import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.Transport
-import com.jossephus.chuchu.service.multiplexer.MultiplexerRegistry
-import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerSession
-import com.jossephus.chuchu.plugin.api.BrowserGroup
-import com.jossephus.chuchu.plugin.api.HostBrowserState
-import com.jossephus.chuchu.service.terminal.TransportTarget
+import com.jossephus.chuchu.plugin.PluginManager
+import com.jossephus.chuchu.plugin.api.RemoteMultiplexerSession
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
 import com.jossephus.chuchu.service.terminal.HostKeyPrompt
 import com.jossephus.chuchu.service.terminal.SessionState
-import com.jossephus.chuchu.service.terminal.SessionStatus
 import com.jossephus.chuchu.service.terminal.TabSession
 import com.jossephus.chuchu.service.terminal.TabSpec
 import com.jossephus.chuchu.service.terminal.TerminalMouseAction
@@ -48,9 +44,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -68,6 +61,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     private val hostRepository = HostRepository(database.hostProfileDao())
     private val sshKeyRepository = SshKeyRepository(database.sshKeyDao())
     private val settingsRepository = SettingsRepository.getInstance(application)
+    private val plugins = PluginManager.instance
 
     private sealed class PendingMultiplexerAction(open val spec: TabSpec) {
         data class Open(override val spec: TabSpec) : PendingMultiplexerAction(spec)
@@ -128,10 +122,8 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         return target
     }
 
-    fun selectMultiplexerTab(hostId: Long, sessionName: String): TabSession? {
-        val existing =
-            sessionRepository.tabsForHost(hostId).firstOrNull { it.spec.multiplexerSessionName == sessionName }
-                ?: return null
+    fun selectTabForTarget(hostId: Long, target: String): TabSession? {
+        val existing = sessionRepository.tabsForHost(hostId).firstOrNull { it.target == target } ?: return null
         sessionRepository.selectTab(existing.id)
         return existing
     }
@@ -167,21 +159,13 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         val key = host.keyId?.let { sshKeyRepository.getById(it) }
         val spec = TabSpec.fromHostProfile(
             host = host,
+            multiplexers = plugins.multiplexers,
             publicKeyOpenSsh = key?.publicKeyOpenSsh.orEmpty(),
             privateKeyPem = key?.privateKeyPem.orEmpty(),
         )
         val requiresVerification =
             settingsRepository.requireAuthOnConnect.value || host.requireAuthOnConnect
         return PreparedTabOpen(spec = spec, requiresVerification = requiresVerification)
-    }
-
-    fun selectTransportTab(hostId: Long, target: String): TabSession? {
-        val existing =
-            sessionRepository.tabs.value.firstOrNull { tab ->
-                tab.spec.hostId == hostId && tab.transportTarget == target
-            } ?: return null
-        sessionRepository.selectTab(existing.id)
-        return existing
     }
 
     fun duplicateActiveTab(): TabSession? {
@@ -199,12 +183,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             startMultiplexerDuplicate(tab.spec)
             return null
         }
-        val provider = tab.spec.transportProvider
-        if (provider != null) {
-            val target = provider.duplicateTarget(tab.engine.attachedTarget.value)
-            return openTab(tab.spec.copy(transportTarget = target?.let { TransportTarget(it, creates = true) }))
-        }
-        return openTab(tab.spec)
+        return openTab(sessionRepository.duplicateSpec(tab))
     }
 
     private fun startMultiplexerDuplicate(spec: TabSpec) {
@@ -216,7 +195,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 preflightError = null,
             )
         val duplicateSpec = spec.copy(
-            multiplexer = spec.multiplexer ?: MultiplexerRegistry.defaultType,
+            multiplexer = spec.multiplexer ?: MultiplexerType.Default,
             multiplexerSessionName = null,
             multiplexerCreateIfMissing = true,
         )
@@ -257,10 +236,10 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     private fun beginMultiplexerAction(action: PendingMultiplexerAction) {
         val preparedAction = when (action) {
             is PendingMultiplexerAction.Open -> action.copy(
-                spec = action.spec.copy(multiplexer = action.spec.multiplexer ?: MultiplexerRegistry.defaultType),
+                spec = action.spec.copy(multiplexer = action.spec.multiplexer ?: MultiplexerType.Default),
             )
             is PendingMultiplexerAction.Reconnect -> action.copy(
-                spec = action.spec.copy(multiplexer = action.spec.multiplexer ?: MultiplexerRegistry.defaultType),
+                spec = action.spec.copy(multiplexer = action.spec.multiplexer ?: MultiplexerType.Default),
             )
         }
         if (
@@ -273,25 +252,17 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         val actionGeneration = ++multiplexerActionGeneration
         pendingMultiplexerAction = preparedAction
         val spec = preparedAction.spec
-        val label = spec.multiplexer?.label ?: MultiplexerRegistry.defaultType.label
+        val label = spec.multiplexer?.label ?: MultiplexerType.Default.label
         val reconnectRecovery = preparedAction is PendingMultiplexerAction.Reconnect
-        if (spec.transport == Transport.Mosh || spec.transport == Transport.Plugin) {
+        if (spec.transport == Transport.Mosh) {
             _multiplexerState.value = MultiplexerUiState(
                 preflightError =
-                    if (spec.transport == Transport.Mosh) {
-                        app.getString(R.string.terminal_error_mosh_unsupported, label)
-                    } else {
-                        app.getString(
-                            R.string.terminal_error_transport_unsupported,
-                            label,
-                            spec.transportProvider?.displayName ?: spec.transportId.orEmpty(),
-                        )
-                    },
+                    app.getString(R.string.terminal_error_mosh_unsupported, label),
                 reconnectRecovery = reconnectRecovery,
             )
             return
         }
-        if (spec.multiplexer != null && spec.multiplexer.runtimeSupported.not()) {
+        if (spec.multiplexer != null && plugins.multiplexers[spec.multiplexer.id] == null) {
             _multiplexerState.value = MultiplexerUiState(
                 preflightError =
                     app.getString(
@@ -346,7 +317,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     ) {
         if (!isCurrentMultiplexerAction(actionGeneration, action)) return
         val nextSpec = action.spec.copy(
-            multiplexer = action.spec.multiplexer ?: MultiplexerRegistry.defaultType,
+            multiplexer = action.spec.multiplexer ?: MultiplexerType.Default,
             multiplexerSessionName = sessionName,
             multiplexerCreateIfMissing = action.spec.multiplexerCreateIfMissing,
         )
@@ -378,7 +349,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         val requestGeneration = ++multiplexerSessionListGeneration
         val sourceTabId = tab.id
         val sourceHostId = tab.spec.hostId
-        val spec = tab.spec.copy(multiplexer = tab.spec.multiplexer ?: MultiplexerRegistry.defaultType)
+        val spec = tab.spec.copy(multiplexer = tab.spec.multiplexer ?: MultiplexerType.Default)
         _multiplexerState.value = _multiplexerState.value.copy(
             sessions = emptyList(),
             sessionsLoading = true,
@@ -422,7 +393,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     fun createNextMultiplexerSession() {
         val tab = sessionRepository.activeTab.value ?: return
         val nextSpec = tab.spec.copy(
-            multiplexer = tab.spec.multiplexer ?: MultiplexerRegistry.defaultType,
+            multiplexer = tab.spec.multiplexer ?: MultiplexerType.Default,
             multiplexerSessionName = null,
             multiplexerCreateIfMissing = true,
         )
@@ -784,7 +755,6 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun onHardwareKey(key: Int, codepoint: Int, mods: Int, action: Int, charCode: Int = 0) {
-        PluginInputFocus.target?.let { return it.typeKey(key, codepoint, mods, action, charCode) }
         val hasNonTextModifier = mods and ((1 shl 1) or (1 shl 2) or (1 shl 3)) != 0
         val isRelease = action == GhosttyKeyAction.Release
         if (!isRelease) {
@@ -799,17 +769,11 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun onTextInput(text: String) {
-        PluginInputFocus.target?.let { return it.typeText(text) }
         sessionRepository.scrollToActive()
         sessionRepository.writeText(text)
     }
 
     fun onSpecialKeyInput(key: TerminalSpecialKey, mods: Int) {
-        PluginInputFocus.target?.let { target ->
-            target.typeKey(key.engineKey, 0, mods, GhosttyKeyAction.Press, 0)
-            target.typeKey(key.engineKey, 0, mods, GhosttyKeyAction.Release, 0)
-            return
-        }
         sessionRepository.scrollToActive()
         sessionRepository.writeKey(key.engineKey, 0, mods, GhosttyKeyAction.Press)
         sessionRepository.writeKey(key.engineKey, 0, mods, GhosttyKeyAction.Release)
@@ -817,7 +781,6 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
 
     fun onPasteText(text: String) {
         if (text.isEmpty()) return
-        PluginInputFocus.target?.let { return it.paste(text) }
         sessionRepository.scrollToActive()
         sessionRepository.writePaste(text)
     }
@@ -844,78 +807,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     }
 
     override fun onCleared() {
-        browserWatch?.second?.cancel()
         sessionRepository.detachClient()
-    }
-
-    private var browserWatch: Pair<Long, Job>? = null
-
-    fun watchHostBrowser(spec: TabSpec?) {
-        val hostId = spec?.hostId ?: return
-        val provider = spec.transportProvider ?: return
-        if (!provider.behavior.tabsFollowBrowserGroup) return
-        val factory = provider.hostBrowser ?: return
-        if (browserWatch?.first == hostId && browserWatch?.second?.isActive == true) return
-        browserWatch?.second?.cancel()
-        val job =
-            viewModelScope.launch {
-                val browser = runCatching { factory.open(spec.host) }.getOrNull() ?: return@launch
-                try {
-                    launch { runCatching { browser.start() } }
-                    val watcher = coroutineContext[Job]
-                    launch {
-                        sessionRepository.tabs.first { tabs -> tabs.none { it.spec.hostId == hostId } }
-                        watcher?.cancel()
-                    }
-                    val activeTarget =
-                        sessionRepository.activeTab.flatMapLatest { tab ->
-                            if (tab?.spec?.hostId == hostId) tab.engine.attachedTarget else flowOf(null)
-                        }
-                    combine(browser.state, activeTarget) { state, target -> state to target }
-                        .collect { (state, target) ->
-                            if (state !is HostBrowserState.Ready || target == null) return@collect
-                            state.groups.firstOrNull { group -> group.items.any { it.target == target } }
-                                ?.let { mirrorBrowserGroup(hostId, it) }
-                        }
-                } finally {
-                    browser.close()
-                }
-            }
-        browserWatch = hostId to job
-    }
-
-    private fun mirrorBrowserGroup(hostId: Long, group: BrowserGroup) {
-        val hostTabs =
-            sessionRepository.tabs.value.filter { it.spec.hostId == hostId && it.spec.transport == Transport.Plugin }
-        val template = hostTabs.firstOrNull()?.spec ?: return
-        val activeId = sessionRepository.activeTabId.value
-        val itemTargets = group.items.map { it.target }.toSet()
-        hostTabs
-            .filter { tab -> tab.id != activeId && tab.transportTarget.let { it != null && it !in itemTargets } }
-            .forEach { sessionRepository.closeTab(it.id) }
-        val opening =
-            hostTabs.any { tab ->
-                tab.transportTarget == null &&
-                    tab.sessionState.value.status.let { it == SessionStatus.Connecting || it == SessionStatus.Reconnecting }
-            }
-        val byTarget = hostTabs.filter { it.transportTarget != null }.associateBy { it.transportTarget }
-        val ordered =
-            group.items.mapNotNull { item ->
-                val tab =
-                    byTarget[item.target]
-                        ?: if (opening) {
-                            null
-                        } else {
-                            sessionRepository.openTab(
-                                template.copy(transportTarget = TransportTarget(item.target)),
-                                select = false,
-                                connect = false,
-                            )
-                        }
-                tab?.titleOverride?.value = item.title
-                tab
-            }
-        sessionRepository.arrangeHostTabs(hostId, ordered.map { it.id })
     }
 
     companion object {

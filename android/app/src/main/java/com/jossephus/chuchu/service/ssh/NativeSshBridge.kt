@@ -81,18 +81,6 @@ class NativeSshBridge {
 
     external fun nativeIpcExchange(handle: Long, request: ByteArray): ByteArray?
 
-    external fun nativeExecOpen(handle: Long, command: String): Int
-
-    external fun nativeExecRead(handle: Long, id: Int, stream: Int, maxBytes: Int): ByteArray?
-
-    external fun nativeExecWrite(handle: Long, id: Int, data: ByteArray): Int
-
-    external fun nativeExecEof(handle: Long, id: Int): Boolean
-
-    external fun nativeExecExitStatus(handle: Long, id: Int): Int
-
-    external fun nativeExecClose(handle: Long, id: Int)
-
     external fun nativeSftpInit(handle: Long): Boolean
 
     external fun nativeSftpListDirectory(handle: Long, path: String): Array<String>?

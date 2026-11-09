@@ -54,8 +54,10 @@ class TransportConnectRequest(
     val address: String,
     val target: String?,
     val size: PtySize,
-    val hostId: Long?,
 )
+
+/** Pixel sizes are optional (0 = unknown). */
+data class PtySize(val cols: Int, val rows: Int, val widthPx: Int = 0, val heightPx: Int = 0)
 
 interface TransportConnection : AutoCloseable {
     /** What this connection attached to; passed back as the target on reconnect. */

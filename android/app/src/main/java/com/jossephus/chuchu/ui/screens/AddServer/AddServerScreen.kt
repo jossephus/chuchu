@@ -38,11 +38,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jossephus.chuchu.R
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.MultiplexerType
-import com.jossephus.chuchu.service.multiplexer.MultiplexerRegistry
-import com.jossephus.chuchu.ui.screens.Settings.PluginHostSettings
 import com.jossephus.chuchu.model.Transport
+import com.jossephus.chuchu.plugin.api.MultiplexerProvider
 import com.jossephus.chuchu.plugin.api.TransportProvider
-import com.jossephus.chuchu.service.transport.TransportRegistry
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuSegmentedControl
@@ -57,8 +55,6 @@ fun AddServerScreen(vm: AddServerViewModel, onBack: () -> Unit, modifier: Modifi
     val form by vm.form.collectAsStateWithLifecycle()
     val testState by vm.testState.collectAsStateWithLifecycle()
     val keys by vm.keys.collectAsStateWithLifecycle()
-    val pluginHostSettings by vm.pluginHostSettings.collectAsStateWithLifecycle()
-    val pluginHostEdits by vm.pluginHostEdits.collectAsStateWithLifecycle()
     val colors = ChuColors.current
     val typography = ChuTypography.current
 
@@ -66,8 +62,9 @@ fun AddServerScreen(vm: AddServerViewModel, onBack: () -> Unit, modifier: Modifi
     val context = LocalContext.current
     var showAdditionalSettings by remember { mutableStateOf(false) }
     var showPairingScanner by remember { mutableStateOf(false) }
-    val transportProviders by TransportRegistry.providers.collectAsStateWithLifecycle()
-    val pluginTransport = form.transportProvider
+    val transportProviders by vm.transportProviders.collectAsStateWithLifecycle()
+    val multiplexerProviders by vm.multiplexerProviders.collectAsStateWithLifecycle()
+    val pluginTransport = vm.transportProvider(form)
     val isPluginTransport = form.transport == Transport.Plugin
 
     LaunchedEffect(vm) {
@@ -342,17 +339,10 @@ fun AddServerScreen(vm: AddServerViewModel, onBack: () -> Unit, modifier: Modifi
             }
             SectionDivider()
             if (!isPluginTransport) {
-                MultiplexerSection(selected = form.multiplexer, onSelect = vm::updateMultiplexer)
-                SectionDivider()
-            }
-            if (pluginHostSettings.isNotEmpty()) {
-                SectionHeader(stringResource(R.string.section_plugins))
-                PluginHostSettings(
-                    entries = pluginHostSettings,
-                    valueOf = { pluginId, field ->
-                        pluginHostEdits[pluginId]?.get(field) ?: vm.pluginHostValue(pluginId, field)
-                    },
-                    onChange = vm::updatePluginHostValue,
+                MultiplexerSection(
+                    providers = multiplexerProviders,
+                    selected = form.multiplexer,
+                    onSelect = vm::updateMultiplexer,
                 )
                 SectionDivider()
             }
@@ -395,7 +385,7 @@ fun AddServerScreen(vm: AddServerViewModel, onBack: () -> Unit, modifier: Modifi
         }
         ChuButton(
             onClick = { vm.save(onBack) },
-            enabled = form.canSave(),
+            enabled = form.canSave(pluginTransport),
             variant = ChuButtonVariant.Outlined,
             bracketed = true,
             borderColor = colors.accent,
@@ -587,15 +577,18 @@ private fun KeyAuthSection(
 private const val MULTIPLEXER_OFF = ""
 
 @Composable
-private fun MultiplexerSection(selected: MultiplexerType?, onSelect: (MultiplexerType?) -> Unit) {
+private fun MultiplexerSection(
+    providers: List<MultiplexerProvider>,
+    selected: MultiplexerType?,
+    onSelect: (MultiplexerType?) -> Unit,
+) {
     SectionHeader(stringResource(R.string.section_session_persistence))
-    val providers by MultiplexerRegistry.providers.collectAsStateWithLifecycle()
     // A saved id whose plugin isn't loaded stays visible, disabled, instead of reading as off.
     val missing = selected?.id?.takeIf { id -> providers.none { it.id == id } }
     val options = listOf(MULTIPLEXER_OFF) + providers.map { it.id } + listOfNotNull(missing)
     val labels =
         mapOf(MULTIPLEXER_OFF to stringResource(R.string.label_off)) +
-            providers.associate { it.id to it.displayName } +
+            providers.associate { it.id to it.id } +
             listOfNotNull(missing).associateWith { stringResource(R.string.add_server_multiplexer_missing, it) }
     ChuSegmentedControl(
         options = options,

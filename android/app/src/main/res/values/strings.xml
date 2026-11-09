@@ -43,9 +43,8 @@
     <string name="section_transport">TRANSPORT</string>
     <string name="section_authentication">AUTHENTICATION</string>
     <string name="section_session_persistence">SESSION PERSISTENCE</string>
-    <string name="section_plugins">PLUGINS</string>
     <string name="add_server_pairing_invalid">That QR code is not a %1$s pairing code</string>
-    <string name="add_server_transport_unavailable">The \'%1$s\' transport plugin isn\'t available. Enable it under Settings › plugins.</string>
+    <string name="add_server_transport_unavailable">The \'%1$s\' transport plugin isn\'t available.</string>
     <string name="add_server_scan_pairing">scan pairing qr code</string>
     <string name="add_server_scan_again">scan again</string>
     <string name="add_server_connects_to">connects to %1$s</string>
@@ -308,7 +307,6 @@
     <string name="terminal_reconnecting_attempt">Reconnecting (%1$d)</string>
     <string name="terminal_endpoint_local_shell">this device · app sandbox</string>
     <string name="terminal_error_mosh_unsupported">%1$s is not supported for Mosh connections</string>
-    <string name="terminal_error_transport_unsupported">%1$s is not supported for %2$s connections</string>
     <string name="terminal_error_multiplexer_unsupported">%1$s is not supported yet</string>
     <string name="terminal_error_session_gone">Terminal session is no longer available</string>
     <string name="terminal_error_session_list_stale">Session list is stale. Refresh sessions and try again.</string>
@@ -365,10 +363,6 @@
     <string name="settings_category_general">general</string>
     <string name="settings_category_terminal">terminal</string>
     <string name="settings_category_keys">keys</string>
-    <string name="settings_category_plugins">plugins</string>
-    <string name="plugins_builtin">built-in</string>
-    <string name="plugins_status_active">active</string>
-    <string name="plugins_status_failed">disabled: %1$s</string>
     <string name="settings_security_header">SECURITY</string>
     <string name="settings_lock_app_on_open">lock app on open</string>
     <string name="settings_verify_before_connect">verify before server connect</string>

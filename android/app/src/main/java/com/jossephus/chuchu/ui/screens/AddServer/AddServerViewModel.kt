@@ -16,10 +16,8 @@ import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.SshKey
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.plugin.PluginManager
-import com.jossephus.chuchu.plugin.PluginSettingsEntry
-import com.jossephus.chuchu.plugin.api.ToggleField
+import com.jossephus.chuchu.plugin.api.MultiplexerProvider
 import com.jossephus.chuchu.plugin.api.TransportProvider
-import com.jossephus.chuchu.service.transport.TransportRegistry
 import java.net.URI
 import com.jossephus.chuchu.service.ssh.HostKeyCheck
 import com.jossephus.chuchu.service.ssh.HostKeyPolicy
@@ -31,10 +29,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -56,6 +51,13 @@ class AddServerViewModel(application: Application, private val hostId: Long?) :
 
     private val db = AppDatabase.getInstance(application)
     private val hostRepository = HostRepository(db.hostProfileDao())
+    private val plugins = PluginManager.instance
+
+    val transportProviders: StateFlow<List<TransportProvider>> = plugins.transports.items
+
+    val multiplexerProviders: StateFlow<List<MultiplexerProvider>> = plugins.multiplexers.items
+
+    fun transportProvider(form: AddServerForm): TransportProvider? = plugins.transports[form.transportId]
     private val sshKeyRepository = SshKeyRepository(db.sshKeyDao())
     private val hostKeyStore =
         HostKeyStore(
@@ -177,8 +179,7 @@ class AddServerViewModel(application: Application, private val hostId: Long?) :
                 transport = transport,
                 transportId = null,
                 authMethod = nextAuthMethod,
-                // Keep an id whose plugin isn't loaded: reinstalling the plugin restores it.
-                multiplexer = current.multiplexer.takeIf { transport != Transport.Mosh },
+                multiplexer = current.multiplexer.takeIf { transport.hostsMultiplexer },
             )
         _testState.value = ConnectionTestState()
     }
@@ -191,7 +192,7 @@ class AddServerViewModel(application: Application, private val hostId: Long?) :
 
     fun applyPairingCode(code: String): Boolean {
         val current = _form.value
-        val address = current.transportProvider?.addressFromPairingCode(code) ?: return false
+        val address = transportProvider(current)?.addressFromPairingCode(code) ?: return false
         val hostName = runCatching { URI(address).host }.getOrNull()?.substringBefore('.').orEmpty()
         _form.value =
             current.copy(
@@ -225,9 +226,7 @@ class AddServerViewModel(application: Application, private val hostId: Long?) :
         _form.value =
             current.copy(
                 multiplexer =
-                    multiplexer?.takeIf {
-                        current.transport != Transport.Mosh && it.runtimeSupported
-                    }
+                    multiplexer?.takeIf { current.transport.hostsMultiplexer }
             )
     }
 
@@ -312,32 +311,8 @@ class AddServerViewModel(application: Application, private val hostId: Long?) :
         }
     }
 
-    private val pluginManager = PluginManager.getInstance(application)
-
-    val pluginHostSettings: StateFlow<List<PluginSettingsEntry>> =
-        pluginManager.settings
-            .map { entries -> entries.filter { it.host != null } }
-            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
-
-    // Held until save so cancel discards them and a new host can be configured before it has an id.
-    private val _pluginHostEdits = MutableStateFlow<Map<String, Map<ToggleField, String>>>(emptyMap())
-    val pluginHostEdits: StateFlow<Map<String, Map<ToggleField, String>>> = _pluginHostEdits.asStateFlow()
-
-    fun pluginHostValue(pluginId: String, field: ToggleField): String {
-        _pluginHostEdits.value[pluginId]?.get(field)?.let { return it }
-        val id = hostId ?: return defaultRaw(field)
-        return pluginManager.hostSettingValues(pluginId, id).raw(field)
-    }
-
-    fun updatePluginHostValue(pluginId: String, field: ToggleField, raw: String) {
-        val edits = _pluginHostEdits.value
-        _pluginHostEdits.value = edits + (pluginId to (edits[pluginId].orEmpty() + (field to raw)))
-    }
-
-    private fun defaultRaw(field: ToggleField): String = field.default.toString()
-
     private fun testPluginConnection(current: AddServerForm) {
-        val provider = current.transportProvider ?: return
+        val provider = transportProvider(current) ?: return
         val address = provider.normalizeAddress(current.host) ?: return
         _testState.value = ConnectionTestState(status = ConnectionTestStatus.Running)
         viewModelScope.launch {
@@ -365,7 +340,7 @@ class AddServerViewModel(application: Application, private val hostId: Long?) :
         }
         val host = current.host.filterNot { it.isWhitespace() }
         val port = current.port.toIntOrNull() ?: 22
-        if (!current.canSave() || host.isBlank()) return
+        if (!current.canSave(null) || host.isBlank()) return
         val username = current.username.trim()
         if (username.isBlank()) return
 
@@ -384,41 +359,32 @@ class AddServerViewModel(application: Application, private val hostId: Long?) :
                     authMethod = current.authMethod,
                     requireAuthOnConnect = current.requireAuthOnConnect,
                     postConnectCommand = current.postConnectCommand.trim().ifBlank { null },
-                    multiplexer = current.multiplexer.takeIf { current.transport != Transport.Mosh },
+                    multiplexer = current.multiplexer.takeIf { current.transport.hostsMultiplexer },
                 )
-            val savedId = hostRepository.upsert(profile)
-            savePluginHostEdits(savedId)
+            hostRepository.upsert(profile)
             onComplete()
         }
     }
 
     private fun savePluginHost(current: AddServerForm, onComplete: () -> Unit) {
-        if (!current.canSave()) return
-        val address = current.transportProvider?.normalizeAddress(current.host) ?: return
+        val provider = transportProvider(current)
+        if (!current.canSave(provider)) return
+        val address = provider?.normalizeAddress(current.host) ?: return
         viewModelScope.launch {
-            val savedId =
-                hostRepository.upsert(
-                    HostProfile(
-                        id = current.id ?: 0L,
-                        name = current.name.trim(),
-                        host = address,
-                        port = 0,
-                        username = "",
-                        transport = Transport.Plugin,
-                        authMethod = AuthMethod.None,
-                        requireAuthOnConnect = current.requireAuthOnConnect,
-                        transportId = current.transportId,
-                    )
-                )
-            savePluginHostEdits(savedId)
+            hostRepository.upsert(
+                HostProfile(
+                    id = current.id ?: 0L,
+                    name = current.name.trim(),
+                    host = address,
+                    port = 0,
+                    username = "",
+                    transport = Transport.Plugin,
+                    authMethod = AuthMethod.None,
+                    requireAuthOnConnect = current.requireAuthOnConnect,
+                    transportId = current.transportId,
+                ),
+            )
             onComplete()
-        }
-    }
-
-    private fun savePluginHostEdits(savedId: Long) {
-        _pluginHostEdits.value.forEach { (pluginId, edits) ->
-            val values = pluginManager.hostSettingValues(pluginId, savedId)
-            edits.forEach { (field, raw) -> values.set(field, raw) }
         }
     }
 }
@@ -440,12 +406,9 @@ data class AddServerForm(
     val postConnectCommand: String = "",
     val multiplexer: MultiplexerType? = null,
     val transportId: String? = null,
-) {
-    val transportProvider: TransportProvider?
-        get() = if (transport == Transport.Plugin) TransportRegistry.forId(transportId) else null
-}
+)
 
-fun AddServerForm.canSave(): Boolean {
+fun AddServerForm.canSave(transportProvider: TransportProvider?): Boolean {
     if (transport == Transport.Plugin) return name.isNotBlank() && transportProvider?.normalizeAddress(host) != null
     if (name.isBlank() || host.isBlank() || username.isBlank()) return false
     return when (authMethod) {

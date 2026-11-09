@@ -1,6 +1,6 @@
 package com.jossephus.chuchu.service.multiplexer
 
-import com.jossephus.chuchu.plugin.api.MultiplexerSessionNames
+import com.jossephus.chuchu.plugin.api.RemoteMultiplexerSession
 
 object MultiplexerSessionAllocator {
     private val chuchuSessionRegex = Regex("^chuchu-([1-9][0-9]*)$")
@@ -28,5 +28,10 @@ object MultiplexerSessionAllocator {
     fun nextChuchuSessionName(
         remoteSessions: Collection<RemoteMultiplexerSession>,
         localSessionNames: Collection<String>,
-    ): String = MultiplexerSessionNames.next(remoteSessions, localSessionNames)
+    ): String {
+        val used = remoteSessions.mapTo(HashSet()) { it.name } + localSessionNames
+        var index = 1
+        while ("chuchu-$index" in used) index += 1
+        return "chuchu-$index"
+    }
 }

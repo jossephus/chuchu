@@ -13,10 +13,7 @@
         android:name="android.hardware.camera"
         android:required="false" />
 
-    <!-- Package visibility (Android 11+): lets chuchu discover installed plugin APKs. -->
-
     <application
-        android:name="com.jossephus.chuchu.ChuchuApplication"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"

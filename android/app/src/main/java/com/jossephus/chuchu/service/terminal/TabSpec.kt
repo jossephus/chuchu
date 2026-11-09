@@ -4,9 +4,8 @@ import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.HostProfile
 import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.Transport
-import com.jossephus.chuchu.model.connectionTarget
-import com.jossephus.chuchu.plugin.api.TransportProvider
-import com.jossephus.chuchu.service.transport.TransportRegistry
+import com.jossephus.chuchu.plugin.Registry
+import com.jossephus.chuchu.plugin.api.MultiplexerProvider
 
 data class TabSpec(
     val hostId: Long? = null,
@@ -42,7 +41,7 @@ data class TabSpec(
             if (transport == Transport.LocalShell) {
                 return displayName.takeIf { it.isNotBlank() } ?: "local shell"
             }
-            val target = connectionTarget(transport, username, host, port)
+            val target = transport.endpoint(username, host, port)
             return if (displayName.isNotBlank()) "$displayName  ·  $target" else target
         }
 
@@ -50,29 +49,23 @@ data class TabSpec(
         get() =
             when (transport) {
                 Transport.LocalShell -> displayName.takeIf { it.isNotBlank() } ?: "local shell"
-                Transport.Plugin -> displayName.takeIf { it.isNotBlank() } ?: host
-                else -> displayName.takeIf { it.isNotBlank() } ?: "$username@$host"
+                else -> displayName.takeIf { it.isNotBlank() } ?: if (transport.needsUsername) "$username@$host" else host
             }
 
-    val transportProvider: TransportProvider?
-        get() = if (transport == Transport.Plugin) TransportRegistry.forId(transportId) else null
-
-    val connectsOnlyWhileActive: Boolean
-        get() = transportProvider?.behavior?.activeTabOnly == true
-
-    val supportsSftp: Boolean
-        get() = transport != Transport.LocalShell && transport != Transport.Plugin
-
     val usesRuntimeMultiplexer: Boolean
-        get() =
-            multiplexer?.runtimeSupported == true &&
-                transport != Transport.Mosh &&
-                transport != Transport.LocalShell &&
-                transport != Transport.Plugin
+        get() = multiplexer != null && transport.hostsMultiplexer
+
+    fun withTarget(target: String, creates: Boolean): TabSpec =
+        if (transportId != null) {
+            copy(transportTarget = TransportTarget(target, creates))
+        } else {
+            copy(multiplexerSessionName = target, multiplexerCreateIfMissing = creates)
+        }
 
     companion object {
         fun fromHostProfile(
             host: HostProfile,
+            multiplexers: Registry<MultiplexerProvider>,
             publicKeyOpenSsh: String = "",
             privateKeyPem: String = "",
             keyPassphrase: String = "",
@@ -90,12 +83,7 @@ data class TabSpec(
             transport = host.transport,
             postConnectCommand = host.postConnectCommand,
             transportId = host.transportId,
-            multiplexer = host.multiplexer?.takeIf {
-                it.runtimeSupported &&
-                    host.transport != Transport.Mosh &&
-                    host.transport != Transport.LocalShell &&
-                    host.transport != Transport.Plugin
-            },
+            multiplexer = host.multiplexer?.takeIf { host.transport.hostsMultiplexer && multiplexers[it.id] != null },
         )
     }
 }

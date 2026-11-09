@@ -1,7 +1,5 @@
 package com.jossephus.chuchu.ui.screens.Settings
 
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.horizontalScroll
 import androidx.activity.compose.BackHandler
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
@@ -46,7 +44,6 @@ enum class SettingsCategory(@StringRes val labelRes: Int) {
     General(R.string.settings_category_general),
     Terminal(R.string.settings_category_terminal),
     Keys(R.string.settings_category_keys),
-    Plugins(R.string.settings_category_plugins),
 }
 
 @Composable
@@ -148,7 +145,7 @@ fun SettingsScreen(
 
             item {
                 Row(
-                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     SettingsCategory.entries.forEach { category ->
@@ -159,12 +156,12 @@ fun SettingsScreen(
                             borderColor = if (isSelected) colors.accent else colors.border,
                             backgroundColor =
                                 if (isSelected) colors.accent.copy(alpha = 0.12f) else null,
+                            modifier = Modifier.weight(1f),
                         ) {
                             ChuText(
                                 stringResource(category.labelRes),
                                 style = typography.label,
                                 color = if (isSelected) colors.accent else colors.textSecondary,
-                                maxLines = 1,
                             )
                         }
                     }
@@ -219,7 +216,6 @@ fun SettingsScreen(
                             onRemoteClipboardWriteEnabledChanged = onRemoteClipboardWriteEnabledChanged,
                         )
                     SettingsCategory.Keys -> KeysContent(vm = keysViewModel)
-                    SettingsCategory.Plugins -> PluginsSettings()
                 }
             }
         }

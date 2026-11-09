@@ -3,8 +3,6 @@ package com.jossephus.chuchu.service.multiplexer
 import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.Transport
 
-typealias RemoteMultiplexerSession = com.jossephus.chuchu.plugin.api.RemoteMultiplexerSession
-
 sealed interface MultiplexerAvailability {
     data object Available : MultiplexerAvailability
     data class Missing(val multiplexer: MultiplexerType) : MultiplexerAvailability

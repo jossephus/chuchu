@@ -8,7 +8,6 @@ import androidx.lifecycle.viewModelScope
 import com.jossephus.chuchu.data.db.AppDatabase
 import com.jossephus.chuchu.data.repository.HostRepository
 import com.jossephus.chuchu.model.HostProfile
-import com.jossephus.chuchu.plugin.PluginManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -48,7 +47,6 @@ class ServerListViewModel(
         viewModelScope.launch {
             val host = hostRepository.getById(id) ?: return@launch
             hostRepository.delete(host)
-            PluginManager.getInstance(getApplication()).removeHostSettings(id)
         }
     }
 

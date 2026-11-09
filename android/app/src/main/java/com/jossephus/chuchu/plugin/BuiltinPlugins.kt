@@ -1,12 +1,13 @@
 package com.jossephus.chuchu.plugin
 
-import com.jossephus.chuchu.plugin.builtin.TmuxPlugin
-import com.jossephus.chuchu.plugin.builtin.ZmxPlugin
+import com.jossephus.chuchu.plugin.api.ChuchuPlugin
+import com.jossephus.chuchu.plugin.builtin.TmuxMultiplexer
+import com.jossephus.chuchu.plugin.builtin.ZmxMultiplexer
 
 object BuiltinPlugins {
-    fun entries(): List<PluginEntry> =
-        listOf(
-            PluginEntry(PluginDescriptor("tmux", "tmux")) { TmuxPlugin() },
-            PluginEntry(PluginDescriptor("zmx", "zmx")) { ZmxPlugin() },
+    val all: Map<String, ChuchuPlugin> =
+        mapOf(
+            "tmux" to ChuchuPlugin { it.registerMultiplexer(TmuxMultiplexer) },
+            "zmx" to ChuchuPlugin { it.registerMultiplexer(ZmxMultiplexer) },
         )
 }

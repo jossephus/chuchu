@@ -1,7 +1,6 @@
 package com.jossephus.chuchu.ui.screens.Terminal
 
 import android.app.Activity
-import android.app.Application
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -45,7 +44,6 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -88,14 +86,8 @@ import com.jossephus.chuchu.R
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.HostProfile
 import com.jossephus.chuchu.model.Transport
-import com.jossephus.chuchu.model.connectionTarget
-import com.jossephus.chuchu.plugin.PluginManager
-import com.jossephus.chuchu.plugin.RegisteredSessionView
-import com.jossephus.chuchu.plugin.api.LocalPluginTheme
-import com.jossephus.chuchu.plugin.rememberPluginTheme
 import com.jossephus.chuchu.service.terminal.SessionStatus
 import com.jossephus.chuchu.service.terminal.TabSpec
-import com.jossephus.chuchu.service.terminal.TransportTarget
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuDialog
@@ -237,7 +229,7 @@ private fun NewTabHostPicker(
                                     color = colors.textPrimary,
                                 )
                                 ChuText(
-                                    connectionTarget(host.transport, host.username, host.host, host.port),
+                                    host.transport.endpoint(host.username, host.host, host.port),
                                     style = typography.labelSmall,
                                     color = colors.textMuted,
                                 )
@@ -410,7 +402,7 @@ fun TerminalScreen(
             }
         }
     val selectedTab by vm.selectedTab.collectAsStateWithLifecycle()
-    val filesSupported = activeTab?.spec?.supportsSftp ?: true
+    val filesSupported = activeTab?.spec?.transport?.supportsSftp ?: true
     val fileBrowserState by vm.fileBrowserState.collectAsStateWithLifecycle()
     val hostKeyPrompt by vm.hostKeyPrompt.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -488,16 +480,6 @@ fun TerminalScreen(
     var fabFilteredActions by remember { mutableStateOf<List<TerminalCustomAction>?>(null) }
     val builtinCommandLabels =
         BuiltinCommand.entries.associateWith { stringResource(it.labelRes) }
-    val pluginManager =
-        remember(context) { PluginManager.getInstance(context.applicationContext as Application) }
-    val pluginSessionViews by pluginManager.sessionViews.collectAsStateWithLifecycle()
-    val pluginTheme = rememberPluginTheme()
-    val pluginSessions by pluginManager.sessionRegistry.sessions.collectAsStateWithLifecycle()
-    val activePluginSession = pluginSessions.firstOrNull { it.id == activeTabId }
-    val claimedSessionViews =
-        remember(activePluginSession, pluginSessionViews) {
-            activePluginSession?.let { pluginManager.sessionViewsFor(it, pluginSessionViews) }.orEmpty()
-        }
     val chuchuKeys =
         remember(
             vm,
@@ -686,7 +668,6 @@ fun TerminalScreen(
     }
 
     var openTargetHandled by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(activeTab?.id) { vm.watchHostBrowser(activeTab?.spec) }
     LaunchedEffect(hostId, openLocalShell) {
         showPassphrasePrompt = false
         passphraseInput = ""
@@ -696,17 +677,10 @@ fun TerminalScreen(
         if (openTarget != null) {
             if (openTargetHandled) return@LaunchedEffect
             openTargetHandled = true
+            if (!createTarget && vm.selectTabForTarget(hostId, openTarget) != null) return@LaunchedEffect
             val prepared = vm.prepareTabOpenForHost(hostId) ?: return@LaunchedEffect
-            val spec =
-                if (prepared.spec.transport == Transport.Plugin) {
-                    if (!createTarget && vm.selectTransportTab(hostId, openTarget) != null) return@LaunchedEffect
-                    prepared.spec.copy(transportTarget = TransportTarget(openTarget, creates = createTarget))
-                } else {
-                    if (!createTarget && vm.selectMultiplexerTab(hostId, openTarget) != null) return@LaunchedEffect
-                    prepared.spec.copy(multiplexerSessionName = openTarget, multiplexerCreateIfMissing = createTarget)
-                }
             vm.refreshTailscaleStatus()
-            openPreparedTab(spec, false, false)
+            openPreparedTab(prepared.spec.withTarget(openTarget, createTarget), false, false)
             return@LaunchedEffect
         }
         val existing = vm.selectTabForHost(hostId)
@@ -1475,8 +1449,7 @@ fun TerminalScreen(
                                 }
                             }
                         } else {
-                            val defaultTerminal: @Composable () -> Unit = {
-                                Box(modifier = Modifier.fillMaxSize()) {
+                            Box(modifier = Modifier.weight(1f)) {
                                 TerminalCanvas(
                                     snapshot = snapshot,
                                     fontSizeSp = terminalFontSizeSp,
@@ -1834,25 +1807,6 @@ fun TerminalScreen(
                                             }
                                         }
                                     }
-                                }
-                            }
-                            }
-                            Box(modifier = Modifier.weight(1f)) {
-                                val pluginSession = activePluginSession
-                                if (pluginSession != null && claimedSessionViews.isNotEmpty()) {
-                                    val chained =
-                                        claimedSessionViews.foldRight<RegisteredSessionView, @Composable () -> Unit>(
-                                            defaultTerminal,
-                                        ) { view, inner ->
-                                            {
-                                                CompositionLocalProvider(LocalPluginTheme provides pluginTheme) {
-                                                    view.provider.Content(pluginSession, Modifier.fillMaxSize(), inner)
-                                                }
-                                            }
-                                        }
-                                    chained()
-                                } else {
-                                    defaultTerminal()
                                 }
                             }
                         }

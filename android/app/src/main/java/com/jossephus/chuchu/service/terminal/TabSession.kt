@@ -12,8 +12,8 @@ class TabSession(
     val hostKeyPrompt: StateFlow<HostKeyPrompt?> get() = engine.hostKeyPrompt
     val titleOverride = MutableStateFlow<String?>(null)
 
-    val transportTarget: String?
-        get() = engine.attachedTarget.value ?: spec.attachedTargetHint
+    val target: String?
+        get() = engine.attachedTarget.value ?: spec.attachedTargetHint ?: spec.multiplexerSessionName
 }
 
 data class TabDescriptor(

@@ -1,7 +1,6 @@
 package com.jossephus.chuchu.ui.screens.Terminal
 
 import com.jossephus.chuchu.model.Transport
-import com.jossephus.chuchu.model.connectionTarget
 import com.jossephus.chuchu.service.terminal.TabSession
 import kotlin.math.abs
 import androidx.compose.runtime.Composable
@@ -9,18 +8,15 @@ import androidx.compose.ui.res.stringResource
 import com.jossephus.chuchu.R
 
 internal fun terminalTabDisplayLabel(tab: TabSession): String =
-    when (tab.spec.transport) {
-        Transport.LocalShell -> tab.spec.tabLabel
-        Transport.Plugin -> tab.titleOverride.value?.takeIf(String::isNotBlank) ?: terminalTabAlias(tab)
-        else -> terminalTabAlias(tab)
-    }
+    tab.titleOverride.value?.takeIf(String::isNotBlank)
+        ?: if (tab.spec.transport == Transport.LocalShell) tab.spec.tabLabel else terminalTabAlias(tab)
 
 @Composable
 internal fun terminalTabEndpointLabel(tab: TabSession): String =
     if (tab.spec.transport == Transport.LocalShell) {
         stringResource(R.string.terminal_endpoint_local_shell)
     } else {
-        connectionTarget(tab.spec.transport, tab.spec.username, tab.spec.host, tab.spec.port)
+        tab.spec.transport.endpoint(tab.spec.username, tab.spec.host, tab.spec.port)
     }
 
 internal fun terminalTabAlias(tab: TabSession): String {

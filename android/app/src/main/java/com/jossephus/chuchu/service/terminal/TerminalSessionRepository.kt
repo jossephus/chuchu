@@ -6,8 +6,10 @@ import android.content.ClipboardManager
 import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.Transport
-import com.jossephus.chuchu.service.multiplexer.MultiplexerRegistry
-import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerSession
+import com.jossephus.chuchu.plugin.PluginManager
+import com.jossephus.chuchu.plugin.api.BrowserGroup
+import com.jossephus.chuchu.plugin.api.HostBrowserState
+import com.jossephus.chuchu.plugin.api.RemoteMultiplexerSession
 import com.jossephus.chuchu.service.ssh.HostKeyStore
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
 import java.util.UUID
@@ -17,6 +19,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -28,6 +31,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -56,6 +60,7 @@ class TerminalSessionRepository private constructor(application: Application) {
     private val tailscaleStatusChecker = TailscaleStatusChecker(appContext)
     private val clipboard = appContext.getSystemService(ClipboardManager::class.java)
     private val settingsRepository = SettingsRepository.getInstance(appContext)
+    private val plugins = PluginManager.instance
 
     private fun publishTerminalClipboard(tabId: String, text: String) {
         if (!canPublishTerminalClipboard(tabId)) return
@@ -124,8 +129,10 @@ class TerminalSessionRepository private constructor(application: Application) {
     private var attachedClients = 0
     private var foregroundServiceRunning = false
     private var foregroundNotificationLabel: String? = null
+    private var browserWatch: Pair<Long, Job>? = null
 
     init {
+        scope.launch { activeTab.collect(::followBrowserGroup) }
         scope.launch {
             combine(_tabs, _activeTabId) { tabs, _ -> tabs }
                 .flatMapLatest { tabs ->
@@ -192,7 +199,7 @@ class TerminalSessionRepository private constructor(application: Application) {
             spec = spec,
             localSessionNames = openMultiplexerSessionNamesForHost(
                 hostId = spec.hostId,
-                multiplexer = spec.multiplexer ?: MultiplexerRegistry.defaultType,
+                multiplexer = spec.multiplexer ?: MultiplexerType.Default,
             ),
             reuseDetachedChuchuSession = reuseDetachedChuchuSession,
         )
@@ -245,6 +252,8 @@ class TerminalSessionRepository private constructor(application: Application) {
                 newLocalShellService(),
                 hostKeyStore,
                 tailscaleStatusChecker,
+                plugins.multiplexers,
+                plugins.transports,
                 onHostKeyVerificationRequired = { prompt, keyBytes ->
                     verification = PreflightHostKeyVerification(prompt, keyBytes)
                 },
@@ -293,6 +302,8 @@ class TerminalSessionRepository private constructor(application: Application) {
                 newLocalShellService(),
                 hostKeyStore,
                 tailscaleStatusChecker,
+                plugins.multiplexers,
+                plugins.transports,
             )
         val tab = TabSession(id, spec, engine)
         _tabs.value = _tabs.value + tab
@@ -309,18 +320,24 @@ class TerminalSessionRepository private constructor(application: Application) {
         if (_activeTabId.value == id) return
         releaseInactiveTab(_activeTabId.value, next = tab)
         _activeTabId.value = id
-        if (tab.spec.connectsOnlyWhileActive && tab.sessionState.value.status == SessionStatus.Disconnected) {
+        if (tab.connectsOnlyWhileActive() && tab.sessionState.value.status == SessionStatus.Disconnected) {
             reconnectTab(tab)
         }
     }
 
-    fun closeTransportTabs(hostId: Long) {
-        _tabs.value
-            .filter { it.spec.hostId == hostId && it.spec.transport == Transport.Plugin }
-            .forEach { closeTab(it.id) }
+    fun leaveHost(hostId: Long) {
+        val tabs = tabsForHost(hostId)
+        if (tabs.none { it.followsBrowserGroup() }) return
+        tabs.forEach { closeTab(it.id) }
     }
 
-    fun arrangeHostTabs(hostId: Long, orderedIds: List<String>) {
+    fun duplicateSpec(tab: TabSession): TabSpec {
+        val provider = plugins.transports[tab.spec.transportId] ?: return tab.spec
+        val target = provider.duplicateTarget(tab.engine.attachedTarget.value)
+        return tab.spec.copy(transportTarget = target?.let { TransportTarget(it, creates = true) })
+    }
+
+    private fun arrangeHostTabs(hostId: Long, orderedIds: List<String>) {
         val current = _tabs.value
         val rank = orderedIds.withIndex().associate { it.value to it.index }
         val hostTabs = current.filter { it.spec.hostId == hostId }.sortedBy { rank[it.id] ?: Int.MAX_VALUE }
@@ -331,9 +348,77 @@ class TerminalSessionRepository private constructor(application: Application) {
 
     private fun releaseInactiveTab(previousId: String?, next: TabSession) {
         val previous = _tabs.value.firstOrNull { it.id == previousId } ?: return
-        if (!previous.spec.connectsOnlyWhileActive || previous.spec.hostId != next.spec.hostId) return
-        if (previous.transportTarget == null) return
+        if (!previous.connectsOnlyWhileActive() || previous.spec.hostId != next.spec.hostId) return
+        if (previous.target == null) return
         previous.engine.disconnect()
+    }
+
+    private fun TabSession.connectsOnlyWhileActive(): Boolean =
+        plugins.transports[spec.transportId]?.behavior?.activeTabOnly == true
+
+    private fun TabSession.followsBrowserGroup(): Boolean =
+        plugins.transports[spec.transportId]?.behavior?.tabsFollowBrowserGroup == true
+
+    private fun followBrowserGroup(tab: TabSession?) {
+        val hostId = tab?.spec?.hostId ?: return
+        if (!tab.followsBrowserGroup()) return
+        val factory = plugins.transports[tab.spec.transportId]?.hostBrowser ?: return
+        if (browserWatch?.first == hostId && browserWatch?.second?.isActive == true) return
+        browserWatch?.second?.cancel()
+        val job =
+            scope.launch {
+                val browser = runCatching { factory.open(tab.spec.host) }.getOrNull() ?: return@launch
+                try {
+                    launch { runCatching { browser.start() } }
+                    val watcher = coroutineContext[Job]
+                    launch {
+                        _tabs.first { tabs -> tabs.none { it.spec.hostId == hostId } }
+                        watcher?.cancel()
+                    }
+                    val activeTarget =
+                        activeTab.flatMapLatest { active ->
+                            if (active?.spec?.hostId == hostId) active.engine.attachedTarget else flowOf(null)
+                        }
+                    combine(browser.state, activeTarget) { state, target -> state to target }
+                        .collect { (state, target) ->
+                            if (state !is HostBrowserState.Ready || target == null) return@collect
+                            state.groups.firstOrNull { group -> group.items.any { it.target == target } }
+                                ?.let { mirrorBrowserGroup(hostId, it) }
+                        }
+                } finally {
+                    browser.close()
+                }
+            }
+        browserWatch = hostId to job
+    }
+
+    private fun mirrorBrowserGroup(hostId: Long, group: BrowserGroup) {
+        val hostTabs = tabsForHost(hostId)
+        val template = hostTabs.firstOrNull()?.spec ?: return
+        val activeId = _activeTabId.value
+        val itemTargets = group.items.mapTo(HashSet()) { it.target }
+        hostTabs
+            .filter { tab -> tab.id != activeId && tab.target.let { it != null && it !in itemTargets } }
+            .forEach { closeTab(it.id) }
+        val opening =
+            hostTabs.any { tab ->
+                tab.target == null &&
+                    tab.sessionState.value.status.let { it == SessionStatus.Connecting || it == SessionStatus.Reconnecting }
+            }
+        val byTarget = hostTabs.filter { it.target != null }.associateBy { it.target }
+        val ordered =
+            group.items.mapNotNull { item ->
+                val tab =
+                    byTarget[item.target]
+                        ?: if (opening) {
+                            null
+                        } else {
+                            openTab(template.copy(transportTarget = TransportTarget(item.target)), select = false, connect = false)
+                        }
+                tab?.titleOverride?.value = item.title
+                tab
+            }
+        arrangeHostTabs(hostId, ordered.map { it.id })
     }
 
     fun closeTab(id: String) {
@@ -354,8 +439,8 @@ class TerminalSessionRepository private constructor(application: Application) {
 
     fun switchActiveMultiplexerSession(sessionName: String): Boolean {
         val tab = activeTab.value ?: return false
-        val type = tab.spec.multiplexer ?: MultiplexerRegistry.defaultType
-        MultiplexerRegistry.forType(type) ?: return false
+        val type = tab.spec.multiplexer ?: MultiplexerType.Default
+        plugins.multiplexers[type.id] ?: return false
         val updatedSpec = tab.spec.copy(
             multiplexer = type,
             multiplexerSessionName = sessionName,
@@ -383,7 +468,6 @@ class TerminalSessionRepository private constructor(application: Application) {
             multiplexer = spec.multiplexer,
             multiplexerSessionName = spec.multiplexerSessionName,
             multiplexerCreateIfMissing = spec.multiplexerCreateIfMissing,
-            hostId = spec.hostId,
             transportId = spec.transportId,
             transportTarget = spec.transportTarget?.value,
         )
@@ -415,10 +499,10 @@ class TerminalSessionRepository private constructor(application: Application) {
         NativeLocalShellService(appContext.filesDir, appContext.cacheDir)
 
     private fun activeSftpEngine(): TerminalSessionEngine? =
-        activeTab.value?.takeIf { it.spec.supportsSftp }?.engine
+        activeTab.value?.takeIf { it.spec.transport.supportsSftp }?.engine
 
     private fun sftpTab(tabId: String): TabSession? =
-        _tabs.value.firstOrNull { it.id == tabId && it.spec.supportsSftp }
+        _tabs.value.firstOrNull { it.id == tabId && it.spec.transport.supportsSftp }
 
     private fun sftpEngineForTab(tabId: String): TerminalSessionEngine? = sftpTab(tabId)?.engine
 

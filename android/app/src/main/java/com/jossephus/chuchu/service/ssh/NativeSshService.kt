@@ -286,38 +286,6 @@ class NativeSshService(
         }
     }
 
-    fun execOpen(command: String): Int {
-        check(handle != 0L) { "Not connected" }
-        val id = bridge.nativeExecOpen(handle, command)
-        if (id <= 0) {
-            throw IllegalStateException(bridge.nativeGetLastError(handle) ?: "Native SSH exec open failed")
-        }
-        return id
-    }
-
-    fun execRead(id: Int, stream: Int, maxBytes: Int): ByteArray {
-        check(handle != 0L) { "Not connected" }
-        return bridge.nativeExecRead(handle, id, stream, maxBytes)
-            ?: throw IllegalStateException(bridge.nativeGetLastError(handle) ?: "Native SSH exec read failed")
-    }
-
-    fun execWrite(id: Int, data: ByteArray): Int {
-        check(handle != 0L) { "Not connected" }
-        val written = bridge.nativeExecWrite(handle, id, data)
-        if (written < 0) {
-            throw IllegalStateException(bridge.nativeGetLastError(handle) ?: "Native SSH exec write failed")
-        }
-        return written
-    }
-
-    fun execEof(id: Int): Boolean = handle == 0L || bridge.nativeExecEof(handle, id)
-
-    fun execExitStatus(id: Int): Int = if (handle == 0L) -1 else bridge.nativeExecExitStatus(handle, id)
-
-    fun execClose(id: Int) {
-        if (handle != 0L) bridge.nativeExecClose(handle, id)
-    }
-
     fun sftpListDirectory(path: String): List<String> {
         check(handle != 0L) { "Not connected" }
         if (!bridge.nativeSftpInit(handle)) {
