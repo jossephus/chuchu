@@ -171,7 +171,7 @@ private class RexHostBrowser(endpoint: RexEndpoint) : HostBrowser {
                     BrowserItem(
                         target = RexTargets.pane(RexAttachment(pane.sessionId, pane.blockId)),
                         title = paneName(pane),
-                        detail = pane.cwd,
+                        detail = pane.cwd?.let(::folderName),
                     )
                 },
             newItemTarget = RexTargets.newWindow(session.sessionId),
@@ -188,6 +188,16 @@ internal fun paneName(pane: RexPane): String =
         ?: pane.label
         ?: pane.program
         ?: "terminal"
+
+/**
+ * The last folder of a pane's working directory. The row is too narrow for the whole
+ * path, and truncating it from the end hid the part that tells panes apart.
+ */
+internal fun folderName(path: String): String {
+    val trimmed = path.trimEnd('/')
+    if (trimmed.isEmpty()) return "/"
+    return trimmed.substringAfterLast('/')
+}
 
 private fun PtySize.toRexSize(): RexTerminalSize =
     RexTerminalSize(

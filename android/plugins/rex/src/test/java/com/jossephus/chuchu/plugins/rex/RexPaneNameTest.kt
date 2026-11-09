@@ -22,3 +22,17 @@ class RexPaneNameTest {
         assertEquals("Window 9976c71a", paneName(pane("Window 9976c71a", custom = false, title = null)))
     }
 }
+
+class RexFolderNameTest {
+    @Test
+    fun showsTheLastFolder() {
+        assertEquals("jebena-monorepo", folderName("~/workspace/projects/jebena/jebena-monorepo"))
+        assertEquals("chuchu-rex-plugin", folderName("/Users/jossephus/workspace/kotlin/src/chuchu-rex-plugin/"))
+    }
+
+    @Test
+    fun keepsHomeAndRoot() {
+        assertEquals("~", folderName("~"))
+        assertEquals("/", folderName("/"))
+    }
+}
