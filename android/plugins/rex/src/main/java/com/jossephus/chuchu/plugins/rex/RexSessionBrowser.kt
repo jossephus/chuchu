@@ -24,7 +24,6 @@ data class RexPane(
     val sessionId: String,
     val blockId: String,
     val label: String?,
-    val title: String?,
     val program: String?,
     val cwd: String?,
 )
@@ -52,7 +51,6 @@ class RexSessionBrowser(
     private val labels = mutableMapOf<String, String>()
     private val views = mutableMapOf<String, JSONObject>()
     private val processes = mutableMapOf<String, RexProcess>()
-    private val titles = mutableMapOf<String, RexTitle>()
     private var home: String? = null
     private val _state = MutableStateFlow<RexBrowserState>(RexBrowserState.Connecting)
 
@@ -122,7 +120,6 @@ class RexSessionBrowser(
                 val data = block.optJSONObject("payload") ?: return
                 when (block.optString("name")) {
                     "process_changed" -> processes[blockId] = RexProcess.from(data.optJSONObject("foreground") ?: return)
-                    "title_changed" -> titles[blockId] = RexTitle.from(data)
                     else -> return
                 }
                 publish()
@@ -158,16 +155,21 @@ class RexSessionBrowser(
         }
     }
 
+    /**
+     * Looks up the foreground process of panes that share a name, the only rows that
+     * show a working directory. Asking for every pane cost two calls per pane on each
+     * list open (about 100 for a 49-window session); process_changed events keep the
+     * answers current afterwards.
+     */
     private suspend fun loadProcesses(sessionId: String) {
         val view = views[sessionId] ?: return
-        for (blockId in RexPanePicker.terminalBlockIds(view)) {
+        for (blockId in RexPanePicker.sharedNameBlockIds(view)) {
             if (blockId in processes) continue
             val target = JSONObject().put("session_id", sessionId).put("block_id", blockId)
             try {
                 val result = control.call(PROCESS_METHOD, target)
                 result.stringOrNull("home")?.let { home = it }
                 processes[blockId] = result.optJSONObject("foreground")?.let(RexProcess::from) ?: RexProcess(null, null, null)
-                titles[blockId] = RexTitle.from(control.call(TITLE_METHOD, JSONObject(target.toString())))
                 publish()
             } catch (e: CancellationException) {
                 throw e
@@ -204,14 +206,14 @@ class RexSessionBrowser(
 
     private fun summary(sessionId: String): RexSessionSummary? {
         val view = views[sessionId] ?: return null
+        val shared = RexPanePicker.sharedNameBlockIds(view).toSet()
         val panes =
             RexPanePicker.terminalBlocks(view).map { (blockId, label) ->
-                val process = processes[blockId]
+                val process = processes[blockId]?.takeIf { blockId in shared }
                 RexPane(
                     sessionId = sessionId,
                     blockId = blockId,
                     label = label,
-                    title = titles[blockId]?.takeIf { it.isCurrent(process) }?.title,
                     program = process?.name,
                     cwd = process?.cwd?.let(::abbreviateHome),
                 )
@@ -245,29 +247,9 @@ class RexSessionBrowser(
         }
     }
 
-    private data class RexTitle(val title: String?, val ownerPid: Int?, val ownerName: String?) {
-        fun isCurrent(process: RexProcess?): Boolean {
-            if (title.isNullOrBlank()) return false
-            if (ownerPid == null || process?.pid == null) return true
-            return ownerPid == process.pid && (ownerName == null || ownerName == process.name)
-        }
-
-        companion object {
-            fun from(payload: JSONObject): RexTitle {
-                val owner = payload.optJSONObject("owner")
-                return RexTitle(
-                    payload.stringOrNull("title"),
-                    owner?.optInt("pid")?.takeIf { it > 0 },
-                    owner?.stringOrNull("name"),
-                )
-            }
-        }
-    }
-
     private companion object {
         const val TAG = "RexSessionBrowser"
         const val PROCESS_METHOD = "com.superlogical.terminal.process"
-        const val TITLE_METHOD = "com.superlogical.terminal.title"
         const val RELIST = "\u0000relist"
         const val REFRESH_DEBOUNCE_MS = 150L
     }

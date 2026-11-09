@@ -89,6 +89,19 @@ class RexPanePickerTest {
     }
 
     @Test
+    fun sharedNamesCoverSplitWindowsAndDuplicateLabels() {
+        val view =
+            view(
+                active = "window:a",
+                window("window:a", focused = "block:a1", label = "build", blocks = listOf(terminal("block:a1"), terminal("block:a2"))),
+                window("window:b", focused = "block:b1", label = "herdr", blocks = listOf(terminal("block:b1"))),
+                window("window:c", focused = "block:c1", label = "herdr", blocks = listOf(terminal("block:c1"))),
+                window("window:d", focused = "block:d1", label = "solo", blocks = listOf(terminal("block:d1"))),
+            )
+        assertEquals(listOf("block:a1", "block:a2", "block:b1", "block:c1"), RexPanePicker.sharedNameBlockIds(view))
+    }
+
+    @Test
     fun emptySessionHasNoPane() {
         assertNull(RexPanePicker.pick(JSONObject("""{"revision":1,"session_id":"session:x","windows":null}""")))
     }

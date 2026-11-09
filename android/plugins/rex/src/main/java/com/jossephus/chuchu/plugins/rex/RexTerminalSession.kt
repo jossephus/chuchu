@@ -12,6 +12,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import org.json.JSONArray
 import org.json.JSONObject
@@ -239,7 +240,8 @@ class RexTerminalSession(
     }
 
     private suspend fun pumpResizes(target: Target, ownership: RexBlockOwnership) {
-        for (size in resizes) {
+        for (first in resizes) {
+            val size = settledSize(first)
             try {
                 // Resize first: a non-owner's size is stored, and taking the block then
                 // applies it once instead of applying our previous size and then this one.
@@ -250,6 +252,19 @@ class RexTerminalSession(
             } catch (e: Exception) {
                 Log.w(TAG, "Rex resize failed", e)
             }
+        }
+    }
+
+    /**
+     * Waits for the size to stop changing. The keyboard animates the canvas through a
+     * size per frame; the official clients send one resize per open or close, and each
+     * extra one makes the shell redraw its prompt at a size that is about to change.
+     */
+    private suspend fun settledSize(first: RexTerminalSize): RexTerminalSize {
+        var latest = first
+        while (true) {
+            val next = withTimeoutOrNull(RESIZE_SETTLE_MS) { resizes.receiveCatching() } ?: return latest
+            latest = next.getOrNull() ?: return latest
         }
     }
 
@@ -265,6 +280,8 @@ class RexTerminalSession(
         private const val TERMINAL_WRITE = "com.superlogical.terminal.write"
         private const val TERMINAL_RESIZE = "com.superlogical.terminal.resize"
         private const val MAX_WRITE_BYTES = 32 * 1024
+        // Longer than the gap between animation frames, short enough not to feel late.
+        private const val RESIZE_SETTLE_MS = 150L
 
         private fun shellLayout(): JSONObject =
             JSONObject().put("block", JSONObject().put("flavor", SHELL_FLAVOR))
@@ -340,6 +357,13 @@ internal object RexPanePicker {
     fun contains(view: JSONObject, blockId: String): Boolean = blockId in terminalBlockIds(view)
 
     fun terminalBlockIds(view: JSONObject): List<String> = terminalBlocks(view).map { it.first }
+
+    /** Terminal blocks whose shown name another block also has, so the list needs more to tell them apart. */
+    fun sharedNameBlockIds(view: JSONObject): List<String> {
+        val blocks = terminalBlocks(view)
+        val counts = blocks.groupingBy { it.second }.eachCount()
+        return blocks.filter { (counts[it.second] ?: 0) > 1 }.map { it.first }
+    }
 
     fun terminalBlocks(view: JSONObject): List<Pair<String, String?>> {
         val windows = view.optJSONArray("windows") ?: return emptyList()

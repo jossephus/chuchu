@@ -159,7 +159,7 @@ private class RexHostBrowser(endpoint: RexEndpoint) : HostBrowser {
                 session.panes.map { pane ->
                     BrowserItem(
                         target = RexTargets.pane(RexAttachment(pane.sessionId, pane.blockId)),
-                        title = pane.label ?: pane.title ?: pane.program ?: "terminal",
+                        title = pane.label ?: pane.program ?: "terminal",
                         detail = pane.cwd,
                     )
                 },
