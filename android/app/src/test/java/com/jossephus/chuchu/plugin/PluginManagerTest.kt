@@ -5,6 +5,7 @@ import androidx.compose.ui.Modifier
 import com.jossephus.chuchu.plugin.api.ChuchuPlugin
 import com.jossephus.chuchu.plugin.api.ExecChannel
 import com.jossephus.chuchu.plugin.api.HostInfo
+import com.jossephus.chuchu.plugin.api.PluginApi
 import com.jossephus.chuchu.plugin.api.PluginHost
 import com.jossephus.chuchu.plugin.api.PluginSession
 import com.jossephus.chuchu.plugin.api.SessionEvent
@@ -64,7 +65,11 @@ class PluginManagerTest {
             terminalFactory = { error("no terminals in unit tests") },
         ) { _, _, _, _ -> }
 
-    private fun entry(id: String, create: () -> ChuchuPlugin) = PluginEntry(PluginDescriptor(id, id), create = create)
+    private fun entry(
+        id: String,
+        apiVersion: Int = PluginApi.VERSION,
+        create: () -> ChuchuPlugin,
+    ) = PluginEntry(PluginDescriptor(id, id, "1.0.0", apiVersion, PluginSource.Builtin), create = create)
 
     private fun status(id: String): PluginStatus? =
         manager.plugins.value.find { it.descriptor.id == id }?.status
@@ -110,6 +115,15 @@ class PluginManagerTest {
 
         assertTrue(result.isFailure)
         assertTrue(manager.sessionViews.value.isEmpty())
+    }
+
+    @Test
+    fun unsupportedApiVersionIsNeverInstantiated() {
+        var created = false
+        manager.load(listOf(entry("future", apiVersion = PluginApi.VERSION + 1) { created = true; RecordingPlugin() }))
+
+        assertEquals(PluginStatus.Incompatible, status("future"))
+        assertFalse(created)
     }
 
     @Test
