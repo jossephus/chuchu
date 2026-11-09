@@ -88,6 +88,7 @@ import com.jossephus.chuchu.model.HostProfile
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.terminal.SessionStatus
 import com.jossephus.chuchu.service.terminal.TabSpec
+import com.jossephus.chuchu.service.terminal.pwdLabel
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuDialog
@@ -1515,7 +1516,8 @@ fun TerminalScreen(
                                     }
                                     if (pwdText != null) {
                                         ChuText(
-                                            text = pwdText,
+                                            text = pwdLabel(pwdText),
+                                            maxLines = 1,
                                             style = typography.labelSmall,
                                             color = colors.textPrimary.copy(alpha = 0.7f),
                                         )
