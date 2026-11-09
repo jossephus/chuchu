@@ -570,6 +570,10 @@ class TerminalSessionRepository private constructor(application: Application) {
         activeEngine()?.scroll(delta, x, y)
     }
 
+    fun onUserInteraction() {
+        activeEngine()?.onUserInteraction()
+    }
+
     fun scrollToActive() {
         activeEngine()?.scrollToActive()
     }

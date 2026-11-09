@@ -51,6 +51,7 @@ class RexTerminalSession(
     private val resizeEchoes = RexResizeEchoFilter()
     @Volatile var attachment: RexAttachment? = null
         private set
+    @Volatile private var claimTarget: Pair<Target, RexBlockOwnership>? = null
 
     val stream: ReceiveChannel<RexStreamItem>
         get() = data.stream
@@ -68,6 +69,13 @@ class RexTerminalSession(
         scope.launch { pumpWrites(attached, ownership) }
         scope.launch { pumpResizes(attached, ownership) }
         attachment = RexAttachment(attached.sessionId, attached.blockId)
+        claimTarget = attached to ownership
+    }
+
+    /** The user touched this pane; take it back if another client has it, as iOS does on a tap. */
+    fun takeBackIfLost() {
+        val (target, ownership) = claimTarget ?: return
+        if (ownership.needsClaim) scope.launch { claimIfLost(target, ownership) }
     }
 
     fun write(bytes: ByteArray) {

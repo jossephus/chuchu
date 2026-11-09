@@ -456,6 +456,10 @@ class TerminalSessionEngine(
         }
     }
 
+    fun onUserInteraction() {
+        pluginConnection?.onUserInteraction()
+    }
+
     fun scroll(delta: Int, x: Float, y: Float) {
         scope.launch(dispatcher) {
             if (handle == 0L || delta == 0) {

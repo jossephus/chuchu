@@ -69,6 +69,13 @@ interface TransportConnection : AutoCloseable {
 
     fun resize(size: PtySize)
 
+    /**
+     * The user touched this connection's terminal. Multi-client transports use it to
+     * take the terminal back from another client (e.g. so their size applies again);
+     * the default does nothing.
+     */
+    fun onUserInteraction() {}
+
     override fun close()
 }
 

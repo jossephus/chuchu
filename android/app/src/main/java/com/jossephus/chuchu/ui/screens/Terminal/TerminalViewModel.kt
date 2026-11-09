@@ -717,6 +717,11 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         sessionRepository.resize(cols, rows, cellWidth, cellHeight, screenWidth, screenHeight)
     }
 
+    /** A tap on the terminal: lets a shared transport hand the terminal back to this device. */
+    fun onTerminalTap() {
+        sessionRepository.onUserInteraction()
+    }
+
     fun onScroll(delta: Int, x: Float, y: Float) {
         sessionRepository.scroll(delta, x, y)
     }

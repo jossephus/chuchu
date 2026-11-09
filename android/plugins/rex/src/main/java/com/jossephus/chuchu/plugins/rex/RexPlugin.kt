@@ -117,6 +117,8 @@ private class RexTransportConnection(private val session: RexTerminalSession) : 
 
     override fun resize(size: PtySize) = session.resize(size.toRexSize())
 
+    override fun onUserInteraction() = session.takeBackIfLost()
+
     override fun close() = session.close()
 }
 
