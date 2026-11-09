@@ -170,13 +170,24 @@ private class RexHostBrowser(endpoint: RexEndpoint) : HostBrowser {
                 session.panes.map { pane ->
                     BrowserItem(
                         target = RexTargets.pane(RexAttachment(pane.sessionId, pane.blockId)),
-                        title = pane.label ?: pane.program ?: "terminal",
+                        title = paneName(pane),
                         detail = pane.cwd,
                     )
                 },
             newItemTarget = RexTargets.newWindow(session.sessionId),
         )
 }
+
+/**
+ * Names a pane the way the official Rex clients do: a window name the user set, then
+ * the live terminal title (e.g. Claude's task summary), then Rex's "Window <id>".
+ */
+internal fun paneName(pane: RexPane): String =
+    pane.label?.takeIf { pane.labelIsCustom }
+        ?: pane.title
+        ?: pane.label
+        ?: pane.program
+        ?: "terminal"
 
 private fun PtySize.toRexSize(): RexTerminalSize =
     RexTerminalSize(

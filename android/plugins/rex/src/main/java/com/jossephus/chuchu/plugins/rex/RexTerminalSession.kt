@@ -357,6 +357,17 @@ internal object RexPanePicker {
 
     fun terminalBlockIds(view: JSONObject): List<String> = terminalBlocks(view).map { it.first }
 
+    /** Terminal blocks whose window has a name the user set, not Rex's default "Window <id>". */
+    fun customNamedBlockIds(view: JSONObject): List<String> {
+        val windows = view.optJSONArray("windows") ?: return emptyList()
+        return (0 until windows.length()).flatMap { i ->
+            val window = windows.optJSONObject(i) ?: return@flatMap emptyList()
+            val label = window.stringOrNull("label") ?: return@flatMap emptyList()
+            val defaultName = window.stringOrNull("window_id")?.let { "Window " + it.takeLast(WINDOW_ID_SUFFIX) }
+            if (label == defaultName) emptyList() else windowTerminals(window).map { it.first }
+        }
+    }
+
     /** Terminal blocks whose shown name another block also has, so the list needs more to tell them apart. */
     fun sharedNameBlockIds(view: JSONObject): List<String> {
         val blocks = terminalBlocks(view)

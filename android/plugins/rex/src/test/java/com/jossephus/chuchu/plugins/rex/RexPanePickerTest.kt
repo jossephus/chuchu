@@ -102,6 +102,17 @@ class RexPanePickerTest {
     }
 
     @Test
+    fun customNamesExcludeRexsDefaultWindowNames() {
+        val view =
+            view(
+                active = "window:0000-9976c71a",
+                window("window:a", focused = "block:a1", label = "build", blocks = listOf(terminal("block:a1"))),
+                window("window:0000-9976c71a", focused = "block:b1", label = "Window 9976c71a", blocks = listOf(terminal("block:b1"))),
+            )
+        assertEquals(listOf("block:a1"), RexPanePicker.customNamedBlockIds(view))
+    }
+
+    @Test
     fun emptySessionHasNoPane() {
         assertNull(RexPanePicker.pick(JSONObject("""{"revision":1,"session_id":"session:x","windows":null}""")))
     }

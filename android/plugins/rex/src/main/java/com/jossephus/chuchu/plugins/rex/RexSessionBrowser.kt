@@ -15,6 +15,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -22,7 +26,12 @@ import org.json.JSONObject
 data class RexPane(
     val sessionId: String,
     val blockId: String,
+    /** The window's name: one the user set, or Rex's "Window <id>". */
     val label: String?,
+    /** True when [label] was set by the user rather than defaulted by Rex. */
+    val labelIsCustom: Boolean,
+    /** The terminal title, only while the program that set it is still in front. */
+    val title: String?,
     val program: String?,
     val cwd: String?,
 )
@@ -50,6 +59,7 @@ class RexSessionBrowser(private val control: RexControlConnection) : Closeable {
     private val labels = mutableMapOf<String, String>()
     private val views = mutableMapOf<String, JSONObject>()
     private val processes = mutableMapOf<String, RexProcess>()
+    private val titles = mutableMapOf<String, RexTitle>()
     private var home: String? = null
     private val _state = MutableStateFlow<RexBrowserState>(RexBrowserState.Connecting)
 
@@ -127,6 +137,7 @@ class RexSessionBrowser(private val control: RexControlConnection) : Closeable {
                 val data = block.optJSONObject("payload") ?: return
                 when (block.optString("name")) {
                     "process_changed" -> processes[blockId] = RexProcess.from(data.optJSONObject("foreground") ?: return)
+                    "title_changed" -> titles[blockId] = RexTitle.from(data)
                     else -> return
                 }
                 publish()
@@ -163,26 +174,39 @@ class RexSessionBrowser(private val control: RexControlConnection) : Closeable {
     }
 
     /**
-     * Looks up the foreground process of panes that share a name, the only rows that
-     * show a working directory. Asking for every pane cost two calls per pane on each
-     * list open (about 100 for a 49-window session); process_changed events keep the
-     * answers current afterwards.
+     * Looks up each pane's terminal title and foreground process, which name the rows
+     * the way the official clients do (a program's title, like Claude's, over Rex's
+     * default "Window <id>"). Each pane is asked once per shared connection, a few at a
+     * time; title_changed and process_changed events keep the answers current, so
+     * reopening the list costs nothing.
      */
     private suspend fun loadProcesses(sessionId: String) {
         val view = views[sessionId] ?: return
-        for (blockId in RexPanePicker.sharedNameBlockIds(view)) {
-            if (blockId in processes) continue
-            val target = JSONObject().put("session_id", sessionId).put("block_id", blockId)
-            try {
+        val missing = RexPanePicker.terminalBlockIds(view).filter { it !in processes }
+        if (missing.isEmpty()) return
+        val limit = Semaphore(PANE_LOOKUP_CONCURRENCY)
+        coroutineScope {
+            for (blockId in missing) {
+                launch { limit.withPermit { loadPane(sessionId, blockId) } }
+            }
+        }
+    }
+
+    private suspend fun loadPane(sessionId: String, blockId: String) {
+        val target = JSONObject().put("session_id", sessionId).put("block_id", blockId)
+        try {
+            coroutineScope {
+                val title = async { control.call(TITLE_METHOD, JSONObject(target.toString())) }
                 val result = control.call(PROCESS_METHOD, target)
                 result.stringOrNull("home")?.let { home = it }
                 processes[blockId] = result.optJSONObject("foreground")?.let(RexProcess::from) ?: RexProcess(null, null, null)
-                publish()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: IOException) {
-                Log.w(TAG, "Rex process lookup for $blockId failed", e)
+                titles[blockId] = RexTitle.from(title.await())
             }
+            publish()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: IOException) {
+            Log.w(TAG, "Rex pane lookup for $blockId failed", e)
         }
     }
 
@@ -215,15 +239,19 @@ class RexSessionBrowser(private val control: RexControlConnection) : Closeable {
     private fun summary(sessionId: String): RexSessionSummary? {
         val view = views[sessionId] ?: return null
         val shared = RexPanePicker.sharedNameBlockIds(view).toSet()
+        val customNamed = RexPanePicker.customNamedBlockIds(view).toSet()
         val panes =
             RexPanePicker.terminalBlocks(view).map { (blockId, label) ->
-                val process = processes[blockId]?.takeIf { blockId in shared }
+                val process = processes[blockId]
+                val detail = process?.takeIf { blockId in shared }
                 RexPane(
                     sessionId = sessionId,
                     blockId = blockId,
                     label = label,
-                    program = process?.name,
-                    cwd = process?.cwd?.let(::abbreviateHome),
+                    labelIsCustom = blockId in customNamed,
+                    title = titles[blockId]?.takeIf { it.isCurrent(process) }?.title,
+                    program = detail?.name,
+                    cwd = detail?.cwd?.let(::abbreviateHome),
                 )
             }
         return RexSessionSummary(sessionId, labels[sessionId] ?: sessionId, panes)
@@ -255,9 +283,35 @@ class RexSessionBrowser(private val control: RexControlConnection) : Closeable {
         }
     }
 
+    /**
+     * A terminal title and the process that set it. A title outlives its program (a
+     * shell rarely resets it), so it only counts while that program is still in front.
+     */
+    private data class RexTitle(val title: String?, val ownerPid: Int?, val ownerName: String?) {
+        fun isCurrent(process: RexProcess?): Boolean {
+            if (title.isNullOrBlank()) return false
+            if (ownerPid == null || process?.pid == null) return true
+            return ownerPid == process.pid && (ownerName == null || ownerName == process.name)
+        }
+
+        companion object {
+            fun from(payload: JSONObject): RexTitle {
+                val owner = payload.optJSONObject("owner")
+                return RexTitle(
+                    payload.stringOrNull("title"),
+                    owner?.optInt("pid")?.takeIf { it > 0 },
+                    owner?.stringOrNull("name"),
+                )
+            }
+        }
+    }
+
     private companion object {
         const val TAG = "RexSessionBrowser"
         const val PROCESS_METHOD = "com.superlogical.terminal.process"
+        const val TITLE_METHOD = "com.superlogical.terminal.title"
+        // Enough to fill a list quickly without flooding the server with one request per pane.
+        const val PANE_LOOKUP_CONCURRENCY = 6
         const val RELIST = "\u0000relist"
         const val REFRESH_DEBOUNCE_MS = 150L
     }
