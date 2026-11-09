@@ -1,6 +1,9 @@
 package com.jossephus.chuchu.ui.screens.Terminal
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -25,6 +28,7 @@ import com.jossephus.chuchu.ui.terminal.TerminalSpecialKey
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun TerminalBottomBar(
     hostName: String?,
@@ -38,6 +42,7 @@ internal fun TerminalBottomBar(
     chuchuKeyActive: Boolean,
     onOpenFiles: () -> Unit,
     useSingleRow: Boolean,
+    onlyWithKeyboard: Boolean,
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
@@ -64,6 +69,9 @@ internal fun TerminalBottomBar(
                     .padding(horizontal = 10.dp, vertical = 4.dp)
                     .semantics { liveRegion = LiveRegionMode.Polite },
         )
+    }
+    if (onlyWithKeyboard && !WindowInsets.isImeVisible) {
+        return
     }
     KeyboardAccessoryBar(
         entries = accessoryLayout,

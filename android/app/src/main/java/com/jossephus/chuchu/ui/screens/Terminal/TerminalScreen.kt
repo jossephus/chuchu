@@ -11,8 +11,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
@@ -40,6 +42,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -196,7 +201,8 @@ fun TerminalScreen(
     openTarget: String? = null,
     createTarget: Boolean = false,
 ) {
-    val sessionState by vm.sessionState.collectAsStateWithLifecycle()
+    val sessionState by vm.sessionChrome.collectAsStateWithLifecycle()
+    val hasSnapshot by vm.hasSnapshot.collectAsStateWithLifecycle()
     val hosts by vm.hosts.collectAsStateWithLifecycle()
     val tabs by vm.tabs.collectAsStateWithLifecycle()
     val activeTabId by vm.activeTabId.collectAsStateWithLifecycle()
@@ -218,9 +224,16 @@ fun TerminalScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val colors = ChuColors.current
-    val screenInsetsModifier = modifier.windowInsetsPadding(WindowInsets.safeDrawing)
-    var lastSessionStatus by remember { mutableStateOf<SessionStatus?>(null) }
     val settingsRepo = remember(context) { SettingsRepository.getInstance(context) }
+    val hideStatusBar by settingsRepo.hideStatusBar.collectAsStateWithLifecycle()
+    val screenInsets =
+        if (hideStatusBar) {
+            WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
+        } else {
+            WindowInsets.safeDrawing
+        }
+    val screenInsetsModifier = modifier.windowInsetsPadding(screenInsets)
+    var lastSessionStatus by remember { mutableStateOf<SessionStatus?>(null) }
     val currentTheme by settingsRepo.themeName.collectAsStateWithLifecycle()
     val themeMode by settingsRepo.themeMode.collectAsStateWithLifecycle()
     val lightThemeName by settingsRepo.lightThemeName.collectAsStateWithLifecycle()
@@ -232,12 +245,28 @@ fun TerminalScreen(
     val tabMode by settingsRepo.terminalTabMode.collectAsStateWithLifecycle()
     val currentAccessoryLayoutIds by settingsRepo.accessoryLayoutIds.collectAsStateWithLifecycle()
     val useSingleRowAccessoryBar by settingsRepo.accessoryBarSingleRow.collectAsStateWithLifecycle()
+    val accessoryBarOnlyWithKeyboard by
+        settingsRepo.accessoryBarOnlyWithKeyboard.collectAsStateWithLifecycle()
     val currentTerminalCustomKeyGroups by
         settingsRepo.terminalCustomKeyGroups.collectAsStateWithLifecycle()
     val settingsFontSize by settingsRepo.terminalFontSize.collectAsStateWithLifecycle()
     val keepScreenAwake by settingsRepo.keepScreenAwake.collectAsStateWithLifecycle()
     val disableAutocorrect by settingsRepo.disableAutocorrect.collectAsStateWithLifecycle()
     val keepAwakeView = LocalView.current
+    DisposableEffect(hideStatusBar, keepAwakeView) {
+        val window = (keepAwakeView.context as? Activity)?.window
+        val controller = window?.let { WindowCompat.getInsetsController(it, keepAwakeView) }
+        if (hideStatusBar && controller != null) {
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.statusBars())
+        }
+        onDispose {
+            if (hideStatusBar) {
+                controller?.show(WindowInsetsCompat.Type.statusBars())
+            }
+        }
+    }
     DisposableEffect(keepScreenAwake, keepAwakeView) {
         val window = (keepAwakeView.context as? Activity)?.window
         if (keepScreenAwake) {
@@ -670,13 +699,11 @@ fun TerminalScreen(
         SessionStatus.Connected,
         SessionStatus.Reconnecting -> {
             val isReconnecting = sessionState.status == SessionStatus.Reconnecting
-            val snapshot = sessionState.snapshot
-            if (snapshot != null) {
+            if (hasSnapshot) {
                 TerminalConnectedContent(
                     vm = vm,
                     ui = ui,
                     sessionState = sessionState,
-                    snapshot = snapshot,
                     tabs = tabs,
                     tabsForHost = tabsForHost,
                     activeTabId = activeTabId,
@@ -690,6 +717,7 @@ fun TerminalScreen(
                     chuchuKeys = chuchuKeys,
                     accessoryLayout = accessoryLayout,
                     useSingleRowAccessoryBar = useSingleRowAccessoryBar,
+                    accessoryBarOnlyWithKeyboard = accessoryBarOnlyWithKeyboard,
                     customKeyGroups = currentTerminalCustomKeyGroups,
                     showCustomActionsFab = showCustomActionsFab,
                     disableAutocorrect = disableAutocorrect,

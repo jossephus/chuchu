@@ -87,6 +87,7 @@
     <!-- Add / edit server -->
     <string name="add_server_title_edit">编辑主机</string>
     <string name="add_server_title_new">添加主机</string>
+    <string name="add_server_copy_suffix">副本</string>
     <string name="add_server_name_placeholder">我的服务器</string>
     <string name="add_server_tailscale_hint">通过 Tailscale 网络连接。请填写主机的 Tailscale IP（100.x.x.x）或 MagicDNS 名称。</string>
     <string name="add_server_ssh_key_only_hint">该服务器不走 SSH 认证，而是使用 Tailscale SSH 策略（`tailscale up --ssh`）。请改用 Tailscale SSH 连接，而不是常规 sshd 凭据。</string>
@@ -378,6 +379,8 @@
     </plurals>
     <string name="settings_single_row_bar">单行辅助键栏</string>
     <string name="settings_single_row_bar_hint">关闭 = 两行（默认），开启 = 单行横向排列</string>
+    <string name="settings_bar_only_with_keyboard">仅在键盘打开时显示</string>
+    <string name="settings_bar_only_with_keyboard_hint">屏幕键盘收起时隐藏辅助键栏</string>
     <string name="settings_choose_keys_hint">选择要显示在终端辅助键栏里的按键。</string>
     <string name="settings_choose_keys_hint_short">选择要出现在栏里的按键。</string>
     <string name="settings_custom_actions">自定义操作</string>
@@ -402,6 +405,8 @@
     <string name="settings_allow_remote_clipboard_hint">允许远程主机设置本机剪贴板（OSC 52）。只有当前可见的标签页可以写入。</string>
     <string name="settings_keep_screen_awake">保持屏幕常亮</string>
     <string name="settings_keep_screen_awake_hint">终端打开时阻止屏幕休眠</string>
+    <string name="settings_hide_status_bar">隐藏状态栏</string>
+    <string name="settings_hide_status_bar_hint">全屏显示终端；从顶部向下滑动可临时查看状态栏</string>
     <string name="settings_hide_screen_contents">隐藏屏幕内容</string>
     <string name="settings_hide_screen_contents_hint">禁止截屏，并在应用切换器里隐藏终端</string>
     <string name="settings_disable_autocorrect">关闭自动纠错</string>

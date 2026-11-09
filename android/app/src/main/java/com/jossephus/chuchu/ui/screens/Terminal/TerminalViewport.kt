@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
@@ -189,7 +190,6 @@ internal fun TerminalViewport(
     vm: TerminalViewModel,
     ui: TerminalScreenUiState,
     sessionState: SessionState,
-    snapshot: TerminalSnapshot,
     ghosttyTheme: GhosttyTheme?,
     isReconnecting: Boolean,
     duplicateLoading: Boolean,
@@ -212,6 +212,9 @@ internal fun TerminalViewport(
     modifier: Modifier = Modifier,
 ) {
     val colors = ChuColors.current
+    // Read here rather than by the screen, so a new frame of output recomposes only the viewport.
+    val liveState by vm.sessionState.collectAsStateWithLifecycle()
+    val snapshot = liveState.snapshot ?: return
 
     Box(modifier = modifier) {
         TerminalCanvas(

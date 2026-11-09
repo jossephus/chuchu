@@ -101,6 +101,7 @@ fun ApplicationNavController() {
                         }
                     },
                 onEditServer = { id -> navController.navigate("servers/edit/$id") },
+                onCopyServer = { id -> navController.navigate("servers/copy/$id") },
                 onConnectServer = { id ->
                     val host = hosts.firstOrNull { it.id == id }
                     val hostRequiresAuth = host?.requireAuthOnConnect == true
@@ -139,6 +140,8 @@ fun ApplicationNavController() {
             val accessoryLayoutIds by settingsRepo.accessoryLayoutIds.collectAsStateWithLifecycle()
             val accessoryBarSingleRow by
                 settingsRepo.accessoryBarSingleRow.collectAsStateWithLifecycle()
+            val accessoryBarOnlyWithKeyboard by
+                settingsRepo.accessoryBarOnlyWithKeyboard.collectAsStateWithLifecycle()
             val customKeyGroups by
                 settingsRepo.terminalCustomKeyGroups.collectAsStateWithLifecycle()
             val showCustomActionsFab by
@@ -148,6 +151,7 @@ fun ApplicationNavController() {
             val sessionPickerStyle by settingsRepo.sessionPickerStyle.collectAsStateWithLifecycle()
             val localShellEnabled by settingsRepo.localShellEnabled.collectAsStateWithLifecycle()
             val keepScreenAwake by settingsRepo.keepScreenAwake.collectAsStateWithLifecycle()
+            val hideStatusBar by settingsRepo.hideStatusBar.collectAsStateWithLifecycle()
             val hideScreenContents by settingsRepo.hideScreenContents.collectAsStateWithLifecycle()
             val disableAutocorrect by settingsRepo.disableAutocorrect.collectAsStateWithLifecycle()
             val remoteClipboardWriteEnabled by
@@ -162,11 +166,13 @@ fun ApplicationNavController() {
                 requireAuthOnConnect = requireAuthOnConnect,
                 localShellEnabled = localShellEnabled,
                 keepScreenAwake = keepScreenAwake,
+                hideStatusBar = hideStatusBar,
                 hideScreenContents = hideScreenContents,
                 disableAutocorrect = disableAutocorrect,
                 remoteClipboardWriteEnabled = remoteClipboardWriteEnabled,
                 currentAccessoryLayoutIds = accessoryLayoutIds,
                 accessoryBarSingleRow = accessoryBarSingleRow,
+                accessoryBarOnlyWithKeyboard = accessoryBarOnlyWithKeyboard,
                 currentTerminalCustomKeyGroups = customKeyGroups,
                 showCustomActionsFab = showCustomActionsFab,
                 onShowCustomActionsFabChanged = settingsRepo::setShowCustomActionsFab,
@@ -186,11 +192,13 @@ fun ApplicationNavController() {
                 onRequireAuthOnConnectChanged = settingsRepo::setRequireAuthOnConnect,
                 onLocalShellEnabledChanged = settingsRepo::setLocalShellEnabled,
                 onKeepScreenAwakeChanged = settingsRepo::setKeepScreenAwake,
+                onHideStatusBarChanged = settingsRepo::setHideStatusBar,
                 onHideScreenContentsChanged = settingsRepo::setHideScreenContents,
                 onDisableAutocorrectChanged = settingsRepo::setDisableAutocorrect,
                 onRemoteClipboardWriteEnabledChanged = settingsRepo::setRemoteClipboardWriteEnabled,
                 onAccessoryLayoutChanged = settingsRepo::setAccessoryLayoutIds,
                 onAccessoryBarSingleRowChanged = settingsRepo::setAccessoryBarSingleRow,
+                onAccessoryBarOnlyWithKeyboardChanged = settingsRepo::setAccessoryBarOnlyWithKeyboard,
                 currentTerminalFontSize = terminalFontSize,
                 onTerminalFontSizeChanged = settingsRepo::setTerminalFontSize,
                 onTerminalCustomActionsChanged = settingsRepo::setTerminalCustomKeyGroups,
@@ -207,6 +215,15 @@ fun ApplicationNavController() {
         composable("servers/add") {
             val vm: AddServerViewModel =
                 viewModel(factory = AddServerViewModel.factory(application, null))
+            AddServerScreen(vm = vm, onBack = { navController.popBackStack() })
+        }
+        composable(
+            route = "servers/copy/{id}",
+            arguments = listOf(navArgument("id") { type = NavType.LongType }),
+        ) { backStackEntry ->
+            val id = backStackEntry.arguments?.getLong("id")
+            val vm: AddServerViewModel =
+                viewModel(factory = AddServerViewModel.factory(application, null, copyFromHostId = id))
             AddServerScreen(vm = vm, onBack = { navController.popBackStack() })
         }
         composable(

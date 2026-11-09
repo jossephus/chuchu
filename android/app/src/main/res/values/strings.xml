@@ -90,6 +90,7 @@
     <!-- Add / edit server -->
     <string name="add_server_title_edit">edit server</string>
     <string name="add_server_title_new">add server</string>
+    <string name="add_server_copy_suffix">copy</string>
     <string name="add_server_name_placeholder">My server</string>
     <string name="add_server_tailscale_hint">Connects through the Tailscale network. Use the host\'s Tailscale IP (100.x.x.x) or MagicDNS name.</string>
     <string name="add_server_ssh_key_only_hint">no SSH auth uses Tailscale SSH policy (`tailscale up --ssh`) on the server. connect through Tailscale SSH instead of regular sshd credentials.</string>
@@ -395,6 +396,8 @@
     </plurals>
     <string name="settings_single_row_bar">single-row accessory bar</string>
     <string name="settings_single_row_bar_hint">off = two rows (default), on = one horizontal row</string>
+    <string name="settings_bar_only_with_keyboard">show only with keyboard</string>
+    <string name="settings_bar_only_with_keyboard_hint">hide the accessory bar while the on-screen keyboard is closed</string>
     <string name="settings_choose_keys_hint">choose the accessory keys you want in the terminal bar.</string>
     <string name="settings_choose_keys_hint_short">choose which keys appear in the bar.</string>
     <string name="settings_custom_actions">custom actions</string>
@@ -421,6 +424,8 @@
     <string name="settings_allow_remote_clipboard_hint">lets the remote host set this device\'s clipboard (OSC 52). only the visible tab can write.</string>
     <string name="settings_keep_screen_awake">keep screen awake</string>
     <string name="settings_keep_screen_awake_hint">prevent the display from sleeping while a terminal is open</string>
+    <string name="settings_hide_status_bar">hide status bar</string>
+    <string name="settings_hide_status_bar_hint">full screen terminal; swipe down from the top to peek at it</string>
     <string name="settings_hide_screen_contents">hide screen contents</string>
     <string name="settings_hide_screen_contents_hint">blocks screenshots and hides the terminal in the app switcher</string>
     <string name="settings_disable_autocorrect">disable autocorrect</string>
