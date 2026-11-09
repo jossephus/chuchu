@@ -617,6 +617,8 @@ class TerminalSessionEngine(
                     status = SessionStatus.Disconnected,
                     nativeVersion = nativeVersion,
                     sessionKey = _state.value.sessionKey,
+                    snapshot = _state.value.snapshot,
+                    title = _state.value.title,
                 )
         }
     }

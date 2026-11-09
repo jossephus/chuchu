@@ -320,6 +320,10 @@ class TerminalSessionRepository private constructor(application: Application) {
         if (_activeTabId.value == id) return
         releaseInactiveTab(_activeTabId.value, next = tab)
         _activeTabId.value = id
+        reconnectIfReleased(tab)
+    }
+
+    private fun reconnectIfReleased(tab: TabSession) {
         if (tab.connectsOnlyWhileActive() && tab.sessionState.value.status == SessionStatus.Disconnected) {
             reconnectTab(tab)
         }
@@ -328,7 +332,7 @@ class TerminalSessionRepository private constructor(application: Application) {
     fun leaveHost(hostId: Long) {
         val tabs = tabsForHost(hostId)
         if (tabs.none { it.followsBrowserGroup() }) return
-        tabs.forEach { closeTab(it.id) }
+        closeTabs(tabs.mapTo(HashSet()) { it.id })
     }
 
     fun duplicateSpec(tab: TabSession): TabSpec {
@@ -397,9 +401,11 @@ class TerminalSessionRepository private constructor(application: Application) {
         val template = hostTabs.firstOrNull()?.spec ?: return
         val activeId = _activeTabId.value
         val itemTargets = group.items.mapTo(HashSet()) { it.target }
-        hostTabs
-            .filter { tab -> tab.id != activeId && tab.target.let { it != null && it !in itemTargets } }
-            .forEach { closeTab(it.id) }
+        closeTabs(
+            hostTabs
+                .filter { tab -> tab.id != activeId && tab.target.let { it != null && it !in itemTargets } }
+                .mapTo(HashSet()) { it.id },
+        )
         val opening =
             hostTabs.any { tab ->
                 tab.target == null &&
@@ -421,15 +427,20 @@ class TerminalSessionRepository private constructor(application: Application) {
         arrangeHostTabs(hostId, ordered.map { it.id })
     }
 
-    fun closeTab(id: String) {
-        val tab = _tabs.value.firstOrNull { it.id == id } ?: return
-        val remaining = _tabs.value.filterNot { it.id == id }
+    fun closeTab(id: String) = closeTabs(setOf(id))
+
+    private fun closeTabs(ids: Set<String>) {
+        val closing = _tabs.value.filter { it.id in ids }
+        if (closing.isEmpty()) return
+        val remaining = _tabs.value.filterNot { it.id in ids }
         _tabs.value = remaining
-        if (_activeTabId.value == id) {
-            val nextSameHost = remaining.firstOrNull { it.spec.hostId == tab.spec.hostId }
-            _activeTabId.value = nextSameHost?.id ?: remaining.firstOrNull()?.id
+        val active = closing.firstOrNull { it.id == _activeTabId.value }
+        if (active != null) {
+            val next = remaining.firstOrNull { it.spec.hostId == active.spec.hostId } ?: remaining.firstOrNull()
+            _activeTabId.value = next?.id
+            next?.let(::reconnectIfReleased)
         }
-        tab.engine.dispose()
+        closing.forEach { it.engine.dispose() }
     }
 
     fun reconnectActive() {

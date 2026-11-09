@@ -806,8 +806,13 @@ fun TerminalScreen(
             Toast.makeText(context, preflightError, Toast.LENGTH_LONG).show()
         }
     }
+    val isReattaching = sessionState.status == SessionStatus.Connecting && sessionState.snapshot != null
     val displaySessionStatus =
-        if (multiplexerState.preflightLoading) SessionStatus.Connecting else sessionState.status
+        when {
+            multiplexerState.preflightLoading -> SessionStatus.Connecting
+            isReattaching -> SessionStatus.Connected
+            else -> sessionState.status
+        }
     val dismissMultiplexerLabel =
         if (multiplexerState.reconnectRecovery) {
             stringResource(R.string.action_dismiss)
@@ -1482,6 +1487,13 @@ fun TerminalScreen(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
+                                    if (isReattaching) {
+                                        ChuText(
+                                            text = stringResource(R.string.session_status_connecting),
+                                            style = typography.labelSmall,
+                                            color = colors.textMuted,
+                                        )
+                                    }
                                     if (isReconnecting) {
                                         ChuText(
                                             text =
