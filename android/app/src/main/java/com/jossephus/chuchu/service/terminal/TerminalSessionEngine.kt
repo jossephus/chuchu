@@ -135,6 +135,7 @@ class TerminalSessionEngine(
     private var pendingDefaultColors: DefaultColors? = null
     private var lastConnectionParams: ConnectionParams? = null
     private var reconnectJob: Job? = null
+    private var remoteResizeJob: Job? = null
     private var disconnectRequested = false
 
 
@@ -416,31 +417,56 @@ class TerminalSessionEngine(
                         0,
                         0,
                     )
-                    resizeRemote(cols, rows, ptyWidthPx(), ptyHeightPx())
+                    scheduleRemoteResize()
                     requestSnapshot(force = true)
                 }
             } catch (e: Exception) {
-                Log.e("TerminalSession", "Resize failed", e)
-                val transport = lastConnectionParams?.transport
-                val shouldReconnect =
-                    !disconnectRequested &&
-                        lastConnectionParams != null &&
-                        readLoopExitAction(transport) == ReadLoopExitAction.AutomaticReconnect
-                if (shouldReconnect) {
-                    scheduleReconnect("Connection interrupted: ${e.message ?: "resize failed"}")
-                } else {
-                    if (transport == Transport.Mosh) {
-                        readJob?.cancel()
-                        readJob = null
-                        moshService.close()
-                    }
-                    _state.value =
-                        _state.value.copy(
-                            status = SessionStatus.Error,
-                            error = "Resize failed: ${e.message}",
-                        )
+                handleResizeFailure(e)
+            }
+        }
+    }
+
+    /**
+     * Resizes the remote pty once the size stops changing. The keyboard animation
+     * changes the grid on most of its frames; each remote resize sends SIGWINCH, so the
+     * shell redrew its prompt ~13 times per keyboard toggle (about 10 KB over SSH, and
+     * visible stutter on a slow link). The local grid still follows every frame.
+     */
+    private fun scheduleRemoteResize() {
+        remoteResizeJob?.cancel()
+        remoteResizeJob =
+            scope.launch(dispatcher) {
+                delay(REMOTE_RESIZE_SETTLE_MS)
+                try {
+                    resizeRemote(cols, rows, ptyWidthPx(), ptyHeightPx())
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    handleResizeFailure(e)
                 }
             }
+    }
+
+    private fun handleResizeFailure(e: Exception) {
+        Log.e("TerminalSession", "Resize failed", e)
+        val transport = lastConnectionParams?.transport
+        val shouldReconnect =
+            !disconnectRequested &&
+                lastConnectionParams != null &&
+                readLoopExitAction(transport) == ReadLoopExitAction.AutomaticReconnect
+        if (shouldReconnect) {
+            scheduleReconnect("Connection interrupted: ${e.message ?: "resize failed"}")
+        } else {
+            if (transport == Transport.Mosh) {
+                readJob?.cancel()
+                readJob = null
+                moshService.close()
+            }
+            _state.value =
+                _state.value.copy(
+                    status = SessionStatus.Error,
+                    error = "Resize failed: ${e.message}",
+                )
         }
     }
 
@@ -583,6 +609,9 @@ class TerminalSessionEngine(
         disconnectRequested = true
         reconnectJob?.cancel()
         reconnectJob = null
+        // A pending resize would hit the closed connection and report an error.
+        remoteResizeJob?.cancel()
+        remoteResizeJob = null
         lastConnectionParams = null
         cancelHostKeyPrompt()
         scope.launch(dispatcher) {
@@ -1248,6 +1277,9 @@ class TerminalSessionEngine(
     }
 
     private companion object {
+        // Longer than the gap between keyboard animation frames, short enough that the
+        // remote program reflows promptly once the keyboard has settled.
+        private const val REMOTE_RESIZE_SETTLE_MS = 150L
         // Idle thresholds and the poll delay for each tier.
         private const val ACTIVE_WINDOW_MS = 50L
         private const val NEAR_IDLE_WINDOW_MS = 500L
