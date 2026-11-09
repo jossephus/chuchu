@@ -16,7 +16,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -38,14 +37,14 @@ sealed interface RexBrowserState {
     data class Failed(val message: String) : RexBrowserState
 }
 
+/**
+ * Keeps the session list for one Rex server current. It runs on a [RexHub]'s shared
+ * control connection, which the hub opens before [start] and closes after [close].
+ */
 @OptIn(ExperimentalCoroutinesApi::class)
-class RexSessionBrowser(
-    private val endpoint: RexEndpoint,
-    http: OkHttpClient = RexTerminalSession.sharedHttp,
-) : Closeable {
+class RexSessionBrowser(private val control: RexControlConnection) : Closeable {
     private val confined = Dispatchers.IO.limitedParallelism(1)
     private val scope = CoroutineScope(SupervisorJob() + confined)
-    private val control = RexControlConnection(http)
     private val dirty = Channel<String>(Channel.UNLIMITED)
     private val order = mutableListOf<String>()
     private val labels = mutableMapOf<String, String>()
@@ -60,7 +59,6 @@ class RexSessionBrowser(
     suspend fun start() =
         withContext(confined) {
             try {
-                control.open(endpoint)
                 scope.launch(start = CoroutineStart.UNDISPATCHED) { control.events.collect { handleEvent(it) } }
                 replaceOrder(control.call("session.list").optJSONArray("sessions"))
                 val ids = JSONArray().apply { order.forEach { put(it) } }
@@ -84,10 +82,9 @@ class RexSessionBrowser(
             }
         }
 
+    /** Stops refreshing. The hub closes the connection afterwards, so no refresh is left waiting on it. */
     override fun close() {
-        // Cancel first so no refresh is still waiting when closing fails its calls.
         scope.cancel()
-        control.close()
     }
 
     private fun handleEvent(event: JSONObject) {

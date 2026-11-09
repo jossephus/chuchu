@@ -39,13 +39,19 @@ sealed interface RexOpenRequest {
     }
 }
 
+/**
+ * One Rex pane: its data stream plus the input, resizes and ownership it sends over
+ * the server's shared [RexHub] connection.
+ */
 class RexTerminalSession(
     private val endpoint: RexEndpoint,
     private val request: RexOpenRequest = RexOpenRequest.Focused,
     http: OkHttpClient = sharedHttp,
 ) : Closeable {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val control = RexControlConnection(http)
+    private val hub = RexHubs.acquire(endpoint, http)
+    private val control: RexControlConnection
+        get() = hub.control
     private val data = RexDataConnection(http)
     private val writes = Channel<ByteArray>(Channel.UNLIMITED)
     private val resizes = Channel<RexTerminalSize>(Channel.CONFLATED)
@@ -53,30 +59,47 @@ class RexTerminalSession(
     @Volatile var attachment: RexAttachment? = null
         private set
     @Volatile private var claimTarget: Pair<Target, RexBlockOwnership>? = null
+    // Only the pane on screen owns its block; preloaded neighbours just stream.
+    @Volatile private var active = false
 
     val stream: ReceiveChannel<RexStreamItem>
         get() = data.stream
 
     suspend fun connect(size: RexTerminalSize?) {
-        control.open(endpoint)
+        hub.awaitReady()
         val attached = attach()
         val ownership = RexBlockOwnership(attached.blockId)
         // Subscribe before claiming so a take by another client right after ours is not missed.
         scope.launch(start = CoroutineStart.UNDISPATCHED) { control.events.collect(ownership::onEvent) }
-        takeBlock(attached, ownership)
+        // Sent before claiming: Rex stores a non-owner's size and applies it on the take.
         if (size != null) sendResize(attached, size)
-        data.open(endpoint, attached.ticket ?: requestTicket(attached))
+        if (active) takeBlock(attached, ownership)
+        data.open(endpoint, requestTicket(attached))
         scope.launch { data.fail(control.awaitEnd()) }
         scope.launch { pumpWrites(attached, ownership) }
         scope.launch { pumpResizes(attached, ownership) }
         attachment = RexAttachment(attached.sessionId, attached.blockId)
         claimTarget = attached to ownership
+        // setActive may have arrived while connecting.
+        if (active) takeBackIfLost()
+    }
+
+    /** Claims the pane while it is on screen and gives it back when it is not. */
+    fun setActive(isActive: Boolean) {
+        active = isActive
+        val (target, ownership) = claimTarget ?: return
+        if (isActive) {
+            takeBackIfLost()
+        } else if (!ownership.needsClaim) {
+            ownership.onReleased()
+            hub.disown(target.sessionId, target.blockId)
+        }
     }
 
     /** The user touched this pane; take it back if another client has it, as iOS does on a tap. */
     fun takeBackIfLost() {
         val (target, ownership) = claimTarget ?: return
-        if (ownership.needsClaim) scope.launch { claimIfLost(target, ownership) }
+        if (active && ownership.needsClaim) scope.launch { claimIfLost(target, ownership) }
     }
 
     fun write(bytes: ByteArray) {
@@ -94,53 +117,47 @@ class RexTerminalSession(
         writes.close()
         resizes.close()
         data.close()
-        control.close()
         scope.cancel()
+        // The shared connection outlives this pane, so ownership has to be given up
+        // explicitly; closing our own connection used to do it.
+        claimTarget?.let { (target, ownership) -> if (!ownership.needsClaim) hub.disown(target.sessionId, target.blockId) }
+        RexHubs.release(hub)
     }
 
     private suspend fun attach(): Target {
-        if (request == RexOpenRequest.NewSession) return createSession()
-        val bootstrap =
-            JSONObject()
-                .put("event_scope", "session")
-                .put(
-                    "data_tickets",
-                    JSONArray()
-                        .put(
-                            JSONObject()
-                                .put("creator_name", RexPanePicker.TERMINAL_CREATOR)
-                                .put("data_ref_id", DATA_REF_TERMINAL)
-                                .put("subprotocol", DATA_PROTOCOL)
-                        ),
-                )
-        request.sessionId?.let { bootstrap.put("preferred_session_id", it) }
-        val result = control.call("session.bootstrap", bootstrap)
-        val selected = result.optJSONObject("selected_session") ?: return createSession()
-        val view = selected.getJSONObject("view")
         val sessionId =
-            view.stringOrNull("session_id")
-                ?: selected.getJSONObject("session").getString("session_id")
-        val tickets = result.optJSONArray("data_tickets")
-        when (request) {
-            is RexOpenRequest.NewWindow ->
-                return if (request.sessionId == sessionId) openWindow(sessionId) else createSession()
-            is RexOpenRequest.Block -> {
-                val pinned = request.attachment.blockId
-                if (request.sessionId == sessionId && RexPanePicker.contains(view, pinned)) {
-                    return Target(sessionId, pinned, ticketFor(tickets, pinned))
-                }
-            }
-            RexOpenRequest.Focused,
-            RexOpenRequest.NewSession -> Unit
+            when (request) {
+                RexOpenRequest.NewSession -> return createSession()
+                is RexOpenRequest.NewWindow -> return attachSession(request.sessionId)?.let { openWindow(it) } ?: createSession()
+                is RexOpenRequest.Block -> attachSession(request.sessionId)
+                RexOpenRequest.Focused -> attachSession(firstSessionId())
+            } ?: return createSession()
+        val view = control.call("session.view", JSONObject().put("session_id", sessionId)).let { it.optJSONObject("view") ?: it }
+        if (request is RexOpenRequest.Block && RexPanePicker.contains(view, request.attachment.blockId)) {
+            return Target(sessionId, request.attachment.blockId)
         }
         val blockId =
             RexPanePicker.pick(view)
                 ?: throw RexConnectionException(
                     "The Rex session \"${view.stringOrNull("label") ?: sessionId}\" has no terminal pane"
                 )
-        return Target(sessionId, blockId, ticketFor(tickets, blockId))
+        return Target(sessionId, blockId)
     }
 
+    /** Attaches the shared connection to [sessionId]; null when that session is gone. */
+    private suspend fun attachSession(sessionId: String?): String? {
+        if (sessionId == null) return null
+        return try {
+            control.call("session.attach", JSONObject().put("session_id", sessionId))
+            sessionId
+        } catch (e: RexCallException) {
+            Log.w(TAG, "Rex session $sessionId is gone", e)
+            null
+        }
+    }
+
+    private suspend fun firstSessionId(): String? =
+        control.call("session.list").optJSONArray("sessions")?.optJSONObject(0)?.stringOrNull("session_id")
 
     private suspend fun openWindow(sessionId: String): Target {
         val created =
@@ -151,7 +168,7 @@ class RexTerminalSession(
         val blockId =
             created.optJSONArray("block_ids")?.optString(0)?.takeIf { it.isNotBlank() }
                 ?: throw RexConnectionException("Rex created a window without a terminal pane")
-        return Target(sessionId, blockId, ticket = null)
+        return Target(sessionId, blockId)
     }
 
     private suspend fun createSession(): Target {
@@ -171,7 +188,7 @@ class RexTerminalSession(
                 ?.takeIf { it.isNotBlank() }
                 ?: throw RexConnectionException("Rex created a session without a terminal pane")
         control.call("session.attach", JSONObject().put("session_id", sessionId))
-        return Target(sessionId, blockId, ticket = null)
+        return Target(sessionId, blockId)
     }
 
     private suspend fun requestTicket(target: Target): String =
@@ -206,7 +223,7 @@ class RexTerminalSession(
 
     /** Re-takes the block if another client took it, like the official clients do on interaction. */
     private suspend fun claimIfLost(target: Target, ownership: RexBlockOwnership) {
-        if (!ownership.needsClaim) return
+        if (!active || !ownership.needsClaim) return
         try {
             takeBlock(target, ownership)
         } catch (e: CancellationException) {
@@ -268,7 +285,7 @@ class RexTerminalSession(
         }
     }
 
-    private data class Target(val sessionId: String, val blockId: String, val ticket: String?) {
+    private data class Target(val sessionId: String, val blockId: String) {
         fun payload(): JSONObject = JSONObject().put("session_id", sessionId).put("block_id", blockId)
     }
 
@@ -302,17 +319,6 @@ class RexTerminalSession(
             } finally {
                 control.close()
             }
-        }
-
-        private fun ticketFor(tickets: JSONArray?, blockId: String): String? {
-            if (tickets == null) return null
-            for (i in 0 until tickets.length()) {
-                val entry = tickets.optJSONObject(i) ?: continue
-                if (entry.stringOrNull("block_id") == blockId && entry.stringOrNull("data_ref_id") == DATA_REF_TERMINAL) {
-                    return entry.stringOrNull("ticket")
-                }
-            }
-            return null
         }
 
         internal fun splitUtf8(bytes: ByteArray, maxBytes: Int): List<ByteArray> {

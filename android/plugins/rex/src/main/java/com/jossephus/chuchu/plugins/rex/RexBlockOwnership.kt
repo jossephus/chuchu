@@ -30,6 +30,11 @@ internal class RexBlockOwnership(private val blockId: String) {
         }
     }
 
+    /** We gave the block up ourselves; the next interaction must claim it again. */
+    fun onReleased() {
+        owned = false
+    }
+
     /** Reads a control-connection event; only `block_owner_changed` for our block matters. */
     fun onEvent(event: JSONObject) {
         if (event.optString("type") != "session_event") return

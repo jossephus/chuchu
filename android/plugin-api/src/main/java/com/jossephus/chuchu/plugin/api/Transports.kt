@@ -76,6 +76,14 @@ interface TransportConnection : AutoCloseable {
      */
     fun onUserInteraction() {}
 
+    /**
+     * Whether this connection's terminal is the one on screen. A host may keep a few
+     * neighbouring tabs connected so switching to them is instant; a multi-client
+     * transport should only claim its terminal (and apply this device's size) while
+     * active, so preloading never takes a pane from another client. Starts inactive.
+     */
+    fun setActive(active: Boolean) {}
+
     override fun close()
 }
 

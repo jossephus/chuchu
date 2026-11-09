@@ -119,25 +119,33 @@ private class RexTransportConnection(private val session: RexTerminalSession) : 
 
     override fun onUserInteraction() = session.takeBackIfLost()
 
+    override fun setActive(active: Boolean) = session.setActive(active)
+
     override fun close() = session.close()
 }
 
+/** A view of the server's shared session list; every browser on one server reads the same hub. */
 private class RexHostBrowser(endpoint: RexEndpoint) : HostBrowser {
-    private val browser = RexSessionBrowser(endpoint)
+    private val hub = RexHubs.acquire(endpoint)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override val state: StateFlow<HostBrowserState> =
-        browser.state
+        hub.browser.state
             .map(::toBrowserState)
             .stateIn(scope, SharingStarted.Eagerly, HostBrowserState.Connecting)
 
     override suspend fun start() {
-        browser.start()
+        try {
+            hub.awaitReady()
+        } catch (e: Exception) {
+            // The browser state already says Failed; the screen shows it from there.
+            if (e is kotlinx.coroutines.CancellationException) throw e
+        }
     }
 
     override fun close() {
-        browser.close()
         scope.cancel()
+        RexHubs.release(hub)
     }
 
     private fun toBrowserState(state: RexBrowserState): HostBrowserState =

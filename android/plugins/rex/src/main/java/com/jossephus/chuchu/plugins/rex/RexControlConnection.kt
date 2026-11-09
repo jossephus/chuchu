@@ -46,6 +46,10 @@ class RexControlConnection(private val http: OkHttpClient) : Closeable {
 
     suspend fun awaitEnd(): Throwable = ended.await()
 
+    /** True once the connection closed or failed; a closed connection is never reused. */
+    val isEnded: Boolean
+        get() = ended.isCompleted
+
     suspend fun call(method: String, payload: JSONObject? = null): JSONObject {
         val ws = socket ?: throw RexConnectionException("Rex control connection is not open")
         val id = nextId.incrementAndGet().toString()
