@@ -5,6 +5,7 @@ import java.io.Closeable
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -57,18 +58,15 @@ class RexTerminalSession(
     suspend fun connect(size: RexTerminalSize?) {
         control.open(endpoint)
         val attached = attach()
-        control.call(
-            "session.own_block",
-            JSONObject()
-                .put("session_id", attached.sessionId)
-                .put("block_ids", JSONArray().put(attached.blockId))
-                .put("mode", "take"),
-        )
+        val ownership = RexBlockOwnership(attached.blockId)
+        // Subscribe before claiming so a take by another client right after ours is not missed.
+        scope.launch(start = CoroutineStart.UNDISPATCHED) { control.events.collect(ownership::onEvent) }
+        takeBlock(attached, ownership)
         if (size != null) sendResize(attached, size)
         data.open(endpoint, attached.ticket ?: requestTicket(attached))
         scope.launch { data.fail(control.awaitEnd()) }
-        scope.launch { pumpWrites(attached) }
-        scope.launch { pumpResizes(attached) }
+        scope.launch { pumpWrites(attached, ownership) }
+        scope.launch { pumpResizes(attached, ownership) }
         attachment = RexAttachment(attached.sessionId, attached.blockId)
     }
 
@@ -185,12 +183,38 @@ class RexTerminalSession(
         control.call(TERMINAL_RESIZE, target.payload().put("args", args))
     }
 
-    private suspend fun pumpWrites(target: Target) {
+    private suspend fun takeBlock(target: Target, ownership: RexBlockOwnership) {
+        val result =
+            control.call(
+                "session.own_block",
+                JSONObject()
+                    .put("session_id", target.sessionId)
+                    .put("block_ids", JSONArray().put(target.blockId))
+                    .put("mode", "take"),
+            )
+        ownership.onClaimed(result)
+    }
+
+    /** Re-takes the block if another client took it, like the official clients do on interaction. */
+    private suspend fun claimIfLost(target: Target, ownership: RexBlockOwnership) {
+        if (!ownership.needsClaim) return
+        try {
+            takeBlock(target, ownership)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Rex could not take the block back", e)
+        }
+    }
+
+    private suspend fun pumpWrites(target: Target, ownership: RexBlockOwnership) {
         for (first in writes) {
             var batch = first
             while (batch.size < MAX_WRITE_BYTES) {
                 batch += writes.tryReceive().getOrNull() ?: break
             }
+            // Before the input, so the program already sees our size when it reacts to it.
+            claimIfLost(target, ownership)
             for (chunk in splitUtf8(batch, MAX_WRITE_BYTES)) {
                 try {
                     control.call(
@@ -206,10 +230,13 @@ class RexTerminalSession(
         }
     }
 
-    private suspend fun pumpResizes(target: Target) {
+    private suspend fun pumpResizes(target: Target, ownership: RexBlockOwnership) {
         for (size in resizes) {
             try {
+                // Resize first: a non-owner's size is stored, and taking the block then
+                // applies it once instead of applying our previous size and then this one.
                 sendResize(target, size)
+                claimIfLost(target, ownership)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
