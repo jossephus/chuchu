@@ -1,11 +1,13 @@
 package com.jossephus.chuchu.service.terminal
 
 import android.content.ClipData
+import android.os.SystemClock
 import android.util.Log
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.mosh.MoshBootstrapParser
+import com.jossephus.chuchu.service.mosh.MoshEndpointAddress
 import com.jossephus.chuchu.service.mosh.MoshEventType
 import com.jossephus.chuchu.service.mosh.MoshReconnectPolicy
 import com.jossephus.chuchu.service.mosh.MoshState
@@ -83,6 +85,7 @@ class TerminalSessionEngine(
     private val localShellService: NativeLocalShellService,
     private val hostKeyStore: HostKeyStore,
     private val tailscaleStatusChecker: TailscaleStatusChecker,
+    private val onHostKeyVerificationRequired: ((HostKeyPrompt, ByteArray) -> Unit)? = null,
 ) {
     private data class ConnectionParams(
         val host: String,
@@ -126,6 +129,7 @@ class TerminalSessionEngine(
     @Volatile private var disposed = false
 
     private val bridge = GhosttyBridge()
+    private val moshContact = MoshContactTracker()
     private val nativeSsh = NativeSshService(hostKeyPolicy = ::verifyHostKey)
     private val execChannels = ExecChannels(NativeExecTransport(nativeSsh), dispatcher, scope)
     private val moshService = NativeMoshService()
@@ -680,18 +684,24 @@ class TerminalSessionEngine(
                 is HostKeyCheck.Unknown -> result.fingerprint to null
                 is HostKeyCheck.Changed -> result.fingerprint to result.previousFingerprint
             }
+        val prompt =
+            HostKeyPrompt(
+                host = host,
+                port = port,
+                algorithm = algorithm,
+                fingerprint = fingerprint,
+                previousFingerprint = previousFingerprint,
+            )
+        val verificationHandler = onHostKeyVerificationRequired
+        if (verificationHandler != null) {
+            verificationHandler(prompt, keyBytes.copyOf())
+            return false
+        }
         val deferred =
             hostKeyDecision
                 ?: CompletableDeferred<Boolean>().also {
                     hostKeyDecision = it
-                    _hostKeyPrompt.value =
-                        HostKeyPrompt(
-                            host = host,
-                            port = port,
-                            algorithm = algorithm,
-                            fingerprint = fingerprint,
-                            previousFingerprint = previousFingerprint,
-                        )
+                    _hostKeyPrompt.value = prompt
                 }
         val accepted = runBlocking { deferred.await() }
         if (accepted) {
@@ -906,6 +916,7 @@ class TerminalSessionEngine(
             // Check session health
             val runtime = moshService.pollState()
             if (runtime != null) {
+                updateMoshContactStatus(runtime.pendingOutbound)
                 if (runtime.state == MoshState.Failed.code) {
                     failureCode = runtime.lastFailureCode
                     Log.e("TerminalSession", "MOSH: session FAILED code=$failureCode")
@@ -919,6 +930,17 @@ class TerminalSessionEngine(
         }
         Log.d("TerminalSession", "MOSH: read loop exited after $loopCount iterations")
         return failureCode
+    }
+
+    private fun updateMoshContactStatus(pendingOutbound: Int) {
+        val contactLost = moshContact.isContactLost(pendingOutbound, SystemClock.elapsedRealtime())
+        val next =
+            when (_state.value.status) {
+                SessionStatus.Connected -> if (contactLost) SessionStatus.Reconnecting else return
+                SessionStatus.Reconnecting -> if (contactLost) return else SessionStatus.Connected
+                else -> return
+            }
+        _state.value = _state.value.copy(status = next)
     }
 
     private suspend fun establishConnection(params: ConnectionParams, username: String) {
@@ -997,6 +1019,7 @@ class TerminalSessionEngine(
 
     private suspend fun establishMoshConnection(params: ConnectionParams, username: String) {
         Log.d("TerminalSession", "MOSH: Phase 1 — SSH bootstrap start")
+        moshContact.reset()
         check(nativeSsh.isAvailable()) { "Native SSH unavailable for mosh bootstrap" }
         nativeSsh.connect(
             host = params.host,
@@ -1007,7 +1030,16 @@ class TerminalSessionEngine(
             publicKeyOpenSsh = params.publicKeyOpenSsh,
             privateKeyPem = params.privateKeyPem,
             keyPassphrase = params.keyPassphrase,
+            ipv4Only = true,
         )
+        val endpointHost =
+            try {
+                MoshEndpointAddress.fromSshPeer(params.host, nativeSsh.peerAddress())
+            } catch (err: Exception) {
+                nativeSsh.close()
+                throw err
+            }
+        Log.d("TerminalSession", "MOSH: endpoint host=$endpointHost from profile host=${params.host}")
         // Use exec channel to bypass shell init noise and MOTD.
         // Falls back to shell if the remote server doesn't support exec.
         val moshCommand = MoshReconnectPolicy.bootstrapCommand()
@@ -1034,7 +1066,7 @@ class TerminalSessionEngine(
                 if (chunk != null && chunk.isNotEmpty()) {
                     val text = String(chunk, Charsets.UTF_8)
                     outputBuffer.append(text)
-                    val result = MoshBootstrapParser.parse(params.host, outputBuffer.toString())
+                    val result = MoshBootstrapParser.parse(endpointHost, outputBuffer.toString())
                     if (result is MoshBootstrapParser.ParseResult.Success) {
                         Log.d(
                             "TerminalSession",

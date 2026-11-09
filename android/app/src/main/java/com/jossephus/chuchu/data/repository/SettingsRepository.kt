@@ -2,6 +2,7 @@ package com.jossephus.chuchu.data.repository
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.jossephus.chuchu.ui.screens.SessionBrowser.SessionPickerStyle
 import com.jossephus.chuchu.ui.screens.Terminal.TerminalTabMode
 import com.jossephus.chuchu.ui.terminal.BuiltinShortcutStore
 import com.jossephus.chuchu.ui.terminal.TerminalAccessoryLayoutStore
@@ -59,6 +60,9 @@ class SettingsRepository(context: Context) {
     private val _hideScreenContents = MutableStateFlow(prefs.getBoolean(KEY_HIDE_SCREEN_CONTENTS, false))
     val hideScreenContents: StateFlow<Boolean> = _hideScreenContents.asStateFlow()
 
+    private val _remoteClipboardWriteEnabled =
+        MutableStateFlow(prefs.getBoolean(KEY_REMOTE_CLIPBOARD_WRITE_ENABLED, false))
+    val remoteClipboardWriteEnabled: StateFlow<Boolean> = _remoteClipboardWriteEnabled.asStateFlow()
     private val _disableAutocorrect = MutableStateFlow(prefs.getBoolean(KEY_DISABLE_AUTOCORRECT, false))
     val disableAutocorrect: StateFlow<Boolean> = _disableAutocorrect.asStateFlow()
 
@@ -66,6 +70,11 @@ class SettingsRepository(context: Context) {
         parseTabMode(prefs.getString(KEY_TAB_MODE, TerminalTabMode.Classic.name)),
     )
     val terminalTabMode: StateFlow<TerminalTabMode> = _terminalTabMode.asStateFlow()
+
+    private val _sessionPickerStyle = MutableStateFlow(
+        parseSessionPickerStyle(prefs.getString(KEY_SESSION_PICKER_STYLE, null)),
+    )
+    val sessionPickerStyle: StateFlow<SessionPickerStyle> = _sessionPickerStyle.asStateFlow()
 
     private val _themeMode = MutableStateFlow(parseThemeMode(prefs.getString(KEY_THEME_MODE, DEFAULT_THEME_MODE.name)))
     val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
@@ -125,6 +134,11 @@ class SettingsRepository(context: Context) {
         _terminalTabMode.value = mode
     }
 
+    fun setSessionPickerStyle(style: SessionPickerStyle) {
+        prefs.edit().putString(KEY_SESSION_PICKER_STYLE, style.name).apply()
+        _sessionPickerStyle.value = style
+    }
+
     fun setAppLockEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_APP_LOCK_ENABLED, enabled).apply()
         _appLockEnabled.value = enabled
@@ -148,6 +162,11 @@ class SettingsRepository(context: Context) {
     fun setHideScreenContents(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_HIDE_SCREEN_CONTENTS, enabled).apply()
         _hideScreenContents.value = enabled
+    }
+
+    fun setRemoteClipboardWriteEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_REMOTE_CLIPBOARD_WRITE_ENABLED, enabled).apply()
+        _remoteClipboardWriteEnabled.value = enabled
     }
 
     fun setDisableAutocorrect(enabled: Boolean) {
@@ -214,11 +233,14 @@ class SettingsRepository(context: Context) {
         private const val KEY_BUILTIN_SHORTCUTS = "builtin_shortcuts"
         private const val KEY_ACCESSORY_BAR_SINGLE_ROW = "terminal_accessory_bar_single_row"
         private const val KEY_TAB_MODE = "terminal_tab_mode"
+        private const val KEY_SESSION_PICKER_STYLE = "session_picker_style"
         private const val KEY_APP_LOCK_ENABLED = "app_lock_enabled"
         private const val KEY_REQUIRE_AUTH_ON_CONNECT = "require_auth_on_connect"
         private const val KEY_LOCAL_SHELL_ENABLED = "local_shell_enabled"
         private const val KEY_KEEP_SCREEN_AWAKE = "keep_screen_awake"
         private const val KEY_HIDE_SCREEN_CONTENTS = "hide_screen_contents"
+        private const val KEY_REMOTE_CLIPBOARD_WRITE_ENABLED = "remote_clipboard_write_enabled"
+
         private const val KEY_DISABLE_AUTOCORRECT = "disable_autocorrect"
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_LIGHT_THEME = "light_theme_name"
@@ -244,6 +266,9 @@ class SettingsRepository(context: Context) {
 
         private fun parseThemeMode(value: String?): ThemeMode =
             ThemeMode.entries.find { it.name == value } ?: DEFAULT_THEME_MODE
+
+        private fun parseSessionPickerStyle(value: String?): SessionPickerStyle =
+            SessionPickerStyle.entries.find { it.name == value } ?: SessionPickerStyle.Panel
 
         private fun parseTabMode(value: String?): TerminalTabMode =
             try {

@@ -4,6 +4,9 @@ import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.model.connectionTarget
 import com.jossephus.chuchu.service.terminal.TabSession
 import kotlin.math.abs
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
+import com.jossephus.chuchu.R
 
 internal fun terminalTabDisplayLabel(tab: TabSession): String =
     when (tab.spec.transport) {
@@ -12,9 +15,10 @@ internal fun terminalTabDisplayLabel(tab: TabSession): String =
         else -> terminalTabAlias(tab)
     }
 
+@Composable
 internal fun terminalTabEndpointLabel(tab: TabSession): String =
     if (tab.spec.transport == Transport.LocalShell) {
-        "this device · app sandbox"
+        stringResource(R.string.terminal_endpoint_local_shell)
     } else {
         connectionTarget(tab.spec.transport, tab.spec.username, tab.spec.host, tab.spec.port)
     }

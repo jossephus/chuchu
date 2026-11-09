@@ -31,9 +31,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import com.jossephus.chuchu.R
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuText
@@ -97,7 +99,7 @@ fun FileBrowserScreen(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
                 label = "",
-                placeholder = "filter...",
+                placeholder = stringResource(R.string.files_filter_placeholder),
                 singleLine = true,
                 showLabel = false,
                 autoFocus = false,
@@ -117,13 +119,17 @@ fun FileBrowserScreen(
 
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             when {
-                state.isLoading -> ChuText("Loading...", style = typography.body)
+                state.isLoading -> ChuText(stringResource(R.string.files_loading), style = typography.body)
                 state.error != null ->
                     ChuText(state.error, style = typography.body, color = colors.error)
                 state.entries.isEmpty() ->
-                    ChuText("Empty directory", style = typography.body, color = colors.textMuted)
+                    ChuText(
+                        stringResource(R.string.files_empty_directory),
+                        style = typography.body,
+                        color = colors.textMuted,
+                    )
                 filteredEntries.isEmpty() ->
-                    ChuText("No matches", style = typography.body, color = colors.textMuted)
+                    ChuText(stringResource(R.string.files_no_matches), style = typography.body, color = colors.textMuted)
                 else ->
                     key(state.currentPath) {
                         val lazyState = rememberLazyListState()
@@ -222,7 +228,7 @@ fun FileBrowserScreen(
                                                             ),
                                                     ) {
                                                         ChuText(
-                                                            "open",
+                                                            stringResource(R.string.action_open),
                                                             style = typography.label,
                                                             color = colors.textMuted,
                                                         )
@@ -241,7 +247,7 @@ fun FileBrowserScreen(
                                                             ),
                                                     ) {
                                                         ChuText(
-                                                            "download",
+                                                            stringResource(R.string.action_download),
                                                             style = typography.label,
                                                             color = colors.textMuted,
                                                         )
@@ -261,7 +267,7 @@ fun FileBrowserScreen(
                                                         ),
                                                 ) {
                                                     ChuText(
-                                                        "delete",
+                                                        stringResource(R.string.action_delete),
                                                         style = typography.label,
                                                         color = colors.error,
                                                     )

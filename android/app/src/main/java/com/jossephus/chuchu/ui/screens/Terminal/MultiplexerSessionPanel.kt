@@ -18,7 +18,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.jossephus.chuchu.R
 import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerSession
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
@@ -44,7 +46,11 @@ fun MultiplexerSessionPanel(
     Column(modifier = modifier.fillMaxWidth()) {
         Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                ChuText("multiplexer sessions", style = typography.body, color = colors.textSecondary)
+                ChuText(
+                    stringResource(R.string.mux_sessions),
+                    style = typography.body,
+                    color = colors.textSecondary,
+                )
                 Spacer(modifier = Modifier.weight(1f))
                 if (loading) {
                     ChuText("…", style = typography.labelSmall, color = colors.textMuted)
@@ -85,7 +91,7 @@ fun MultiplexerSessionPanel(
                 borderColor = colors.textMuted,
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
             ) {
-                ChuText("refresh", style = typography.labelSmall, color = colors.textMuted)
+                ChuText(stringResource(R.string.mux_refresh), style = typography.labelSmall, color = colors.textMuted)
             }
             ChuButton(
                 onClick = {
@@ -97,7 +103,7 @@ fun MultiplexerSessionPanel(
                 borderColor = colors.textMuted,
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
             ) {
-                ChuText("new", style = typography.labelSmall, color = colors.textMuted)
+                ChuText(stringResource(R.string.mux_new), style = typography.labelSmall, color = colors.textMuted)
             }
         }
     }
@@ -135,7 +141,7 @@ private fun MultiplexerSessionRow(
             modifier = Modifier.weight(1f),
         )
         if (session.attached) {
-            ChuText("attached", style = typography.labelSmall, color = colors.textMuted)
+            ChuText(stringResource(R.string.mux_attached), style = typography.labelSmall, color = colors.textMuted)
         }
         ChuButton(
             onClick = onAttach,
@@ -145,7 +151,7 @@ private fun MultiplexerSessionRow(
             borderColor = colors.textMuted,
             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
         ) {
-            ChuText("attach", style = typography.labelSmall, color = colors.accent)
+            ChuText(stringResource(R.string.mux_attach), style = typography.labelSmall, color = colors.accent)
         }
     }
 }

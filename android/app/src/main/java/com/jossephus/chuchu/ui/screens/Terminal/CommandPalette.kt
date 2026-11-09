@@ -38,8 +38,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jossephus.chuchu.R
 import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerSession
 import com.jossephus.chuchu.service.terminal.TabSession
 import com.jossephus.chuchu.ui.components.ChuButton
@@ -118,7 +120,7 @@ fun CommandPalette(
       ) {
         Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
           ChuText(
-              "tabs",
+              stringResource(R.string.tabs_header),
               style = typography.body,
               color = colors.textSecondary,
               modifier = Modifier.align(Alignment.Center),
@@ -226,8 +228,8 @@ fun CommandPalette(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-          PaletteHint("↵", "open")
-          PaletteHint("esc", "dismiss")
+          PaletteHint("↵", stringResource(R.string.action_open))
+          PaletteHint("esc", stringResource(R.string.action_dismiss))
           Spacer(modifier = Modifier.weight(1f))
           ChuButton(
               onClick = onAddTab,
@@ -235,7 +237,7 @@ fun CommandPalette(
               bracketed = true,
               contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
           ) {
-            ChuText("+ new", style = typography.labelSmall, color = colors.accent)
+            ChuText(stringResource(R.string.tab_new), style = typography.labelSmall, color = colors.accent)
           }
         }
         if (multiplexerEnabled) {

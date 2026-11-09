@@ -1,0 +1,450 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Shared actions -->
+    <string name="action_manage">管理</string>
+    <string name="action_filter">筛选</string>
+    <string name="action_open">打开</string>
+    <string name="action_cancel">取消</string>
+    <string name="action_delete">删除</string>
+    <string name="action_edit">编辑</string>
+    <string name="action_connect">连接</string>
+    <string name="action_disconnect">断开</string>
+    <string name="action_save">保存</string>
+    <string name="action_clear">清除</string>
+    <string name="action_copy">复制</string>
+    <string name="action_download">下载</string>
+    <string name="action_customize">自定义</string>
+    <string name="action_reset">重置</string>
+    <string name="action_export">导出</string>
+    <string name="action_back">返回</string>
+    <string name="action_paste">粘贴</string>
+    <string name="action_accept">接受</string>
+    <string name="action_reject">拒绝</string>
+    <string name="action_retry">重试</string>
+    <string name="action_dismiss">关闭</string>
+    <string name="action_add">添加</string>
+    <string name="action_confirm_import">确认导入</string>
+    <string name="action_rename">重命名</string>
+    <string name="action_generate">生成</string>
+    <string name="action_import">导入</string>
+
+    <!-- Shared field labels -->
+    <string name="field_name">名称</string>
+    <string name="field_host">主机</string>
+    <string name="field_port">端口</string>
+    <string name="field_username">用户名</string>
+    <string name="field_password">密码</string>
+    <string name="field_passphrase">口令</string>
+
+    <!-- Shared section headers -->
+    <string name="section_connection">连接</string>
+    <string name="section_transport">传输</string>
+    <string name="section_authentication">认证</string>
+    <string name="section_session_persistence">会话保持</string>
+    <string name="section_plugins">插件</string>
+    <string name="add_server_pairing_invalid">该二维码不是 %1$s 配对码</string>
+    <string name="add_server_transport_unavailable">传输插件“%1$s”不可用。请在 设置 › 插件 中启用。</string>
+    <string name="add_server_scan_pairing">扫描配对二维码</string>
+    <string name="add_server_scan_again">重新扫描</string>
+    <string name="add_server_connects_to">将连接到 %1$s</string>
+    <string name="add_server_invalid_address">不是有效的 %1$s 地址</string>
+    <string name="add_server_multiplexer_missing">%1$s（缺失）</string>
+
+    <!-- Shared option labels -->
+    <string name="auth_password">密码</string>
+    <string name="auth_ssh_key">SSH 密钥</string>
+    <string name="auth_none">无</string>
+    <string name="label_off">关闭</string>
+
+    <!-- Shared dialogs -->
+    <string name="dialog_dismiss">取消</string>
+    <string name="dialog_confirm_connect">连接</string>
+    <string name="dialog_confirm_disconnect">断开</string>
+    <string name="dialog_confirm_delete">删除</string>
+
+    <!-- Badges -->
+    <string name="badge_android">安卓</string>
+    <string name="badge_tailscale">tailscale</string>
+
+    <!-- Server list -->
+    <string name="server_list_filter_placeholder">筛选主机</string>
+    <string name="server_list_header_hosts">主机</string>
+    <string name="server_list_no_hosts_match">没有匹配的主机</string>
+    <string name="server_list_disconnect_before_delete">请先断开连接，再删除此主机</string>
+    <string name="server_list_add_server">+ 添加主机</string>
+    <string name="server_list_disconnect_title">断开 %1$s？</string>
+    <plurals name="server_list_disconnect_body">
+        <item quantity="other">将关闭此主机上的 %1$d 个会话。</item>
+    </plurals>
+    <string name="server_list_empty_title"># 尚未配置主机</string>
+    <string name="server_list_empty_hint">添加第一个主机即可快速连接。</string>
+    <string name="server_list_local_shell">本地 Shell</string>
+    <string name="server_list_local_shell_subtitle">&gt; 本机 · 应用沙盒</string>
+    <string name="server_list_cd_open_local_shell">打开本地 Shell</string>
+    <string name="server_list_swipe_disconnect">[断开]</string>
+    <string name="server_list_cd_connect_to">连接到 %1$s</string>
+    <string name="server_list_cd_disconnect_from">断开与 %1$s 的连接</string>
+
+    <!-- Add / edit server -->
+    <string name="add_server_title_edit">编辑主机</string>
+    <string name="add_server_title_new">添加主机</string>
+    <string name="add_server_name_placeholder">我的服务器</string>
+    <string name="add_server_tailscale_hint">通过 Tailscale 网络连接。请填写主机的 Tailscale IP（100.x.x.x）或 MagicDNS 名称。</string>
+    <string name="add_server_ssh_key_only_hint">该服务器不走 SSH 认证，而是使用 Tailscale SSH 策略（`tailscale up --ssh`）。请改用 Tailscale SSH 连接，而不是常规 sshd 凭据。</string>
+    <string name="add_server_no_public_key">没有可用的公钥</string>
+    <string name="add_server_public_key_copied">公钥已复制</string>
+    <string name="add_server_clipboard_label">SSH 公钥</string>
+    <string name="add_server_set_passphrase">设置口令</string>
+    <string name="add_server_additional_settings">更多设置</string>
+    <string name="add_server_require_biometric">连接前需要生物识别</string>
+    <string name="add_server_test_idle">测试连接</string>
+    <string name="add_server_test_running">测试中…</string>
+    <string name="add_server_test_success">已连接</string>
+    <string name="add_server_test_connected_message">已连接</string>
+    <string name="add_server_test_error">测试失败</string>
+    <string name="add_server_copy_public_key">复制公钥</string>
+    <string name="add_server_new_key">新建密钥</string>
+    <string name="add_server_generate_key">生成密钥</string>
+    <string name="add_server_generate_key_hint">生成一把 Ed25519 密钥，再把公钥复制到远程主机的 ~/.ssh/authorized_keys。</string>
+    <string name="add_server_change_key">更换密钥</string>
+    <string name="add_server_use_existing_key">使用已有密钥</string>
+    <string name="add_server_autorun">连接后自动运行</string>
+    <string name="add_server_autorun_placeholder">例如 tmux attach -t main</string>
+
+    <!-- SSH keys -->
+    <string name="keys_generate">+ 生成密钥</string>
+    <string name="keys_generate_title">生成密钥</string>
+    <string name="keys_import">导入密钥</string>
+    <string name="keys_empty">还没有 SSH 密钥。可以在这里生成，也可以在主机配置的密钥认证部分生成。</string>
+    <string name="keys_private_key">私钥</string>
+    <string name="keys_choose_file">选择文件</string>
+    <string name="keys_import_hint">粘贴或选择 OpenSSH 私钥。如果该私钥已加密，需要先在服务器端设置口令。</string>
+    <string name="keys_import_read_failed">无法读取该文件</string>
+    <string name="keys_public_key_copied">公钥已复制</string>
+    <string name="keys_rename_title">重命名密钥</string>
+    <string name="keys_delete_title">删除密钥</string>
+    <string name="keys_delete_confirm">删除“%1$s”？此操作无法撤销。</string>
+    <plurals name="keys_delete_in_use">
+        <item quantity="other">有 %1$d 台主机正在使用此密钥，再次连接前需要更新认证。</item>
+    </plurals>
+    <string name="keys_event_generated">已生成 %1$s</string>
+    <string name="keys_event_imported">已导入 %1$s</string>
+    <string name="keys_event_imported_partial">已导入 %1$s（该格式无法提取公钥）</string>
+    <string name="keys_event_renamed">密钥已重命名</string>
+    <string name="keys_event_deleted">密钥已删除</string>
+
+    <!-- File browser -->
+    <string name="files_filter_placeholder">筛选…</string>
+    <string name="files_loading">加载中…</string>
+    <string name="files_empty_directory">目录为空</string>
+    <string name="files_no_matches">无匹配项</string>
+    <string name="files_error_list_directory">无法列出目录</string>
+
+    <!-- SSH backup -->
+    <string name="backup_subtitle_overview">备份你的 SSH 密钥和主机配置。</string>
+    <string name="backup_subtitle_export">创建一个加密的备份文件。</string>
+    <string name="backup_subtitle_import">从加密的备份文件恢复。</string>
+    <string name="backup_subtitle_preview">确认将要导入的内容。</string>
+    <string name="backup_working">处理中…</string>
+    <string name="backup_key_details_title">SSH 密钥详情</string>
+    <string name="backup_configured_keys">已配置的密钥：</string>
+    <string name="backup_no_keys">还没有配置 SSH 密钥。请在主机配置中添加。</string>
+    <string name="backup_include_warning">备份会把所有私钥、密码和口令一起存进加密文件。</string>
+    <string name="backup_view">查看</string>
+    <string name="backup_key_name">名称</string>
+    <string name="backup_public_key">公钥</string>
+    <string name="backup_copy_public">复制公钥</string>
+    <string name="backup_encryption_passphrase">加密口令</string>
+    <string name="backup_passphrase_min_placeholder">至少 %1$d 个字符</string>
+    <string name="backup_confirm_passphrase">确认口令</string>
+    <string name="backup_reenter_passphrase">再次输入口令</string>
+    <string name="backup_passphrase_too_short">口令长度至少为 %1$d 个字符。</string>
+    <string name="backup_passphrase_mismatch">两次输入的口令不一致。</string>
+    <string name="backup_export_hint">接下来会要求你选择保存位置并验证身份。</string>
+    <string name="backup_import_passphrase">备份口令</string>
+    <string name="backup_import_passphrase_placeholder">导出时使用的口令</string>
+    <string name="backup_import_hint">接下来会要求你选择备份文件并验证身份。</string>
+    <string name="backup_import_summary">导入摘要</string>
+    <string name="backup_summary_nothing">没有可导入的内容</string>
+    <plurals name="backup_summary_new_keys">
+        <item quantity="other">新增 %1$d 个密钥</item>
+    </plurals>
+    <plurals name="backup_summary_reused_keys">
+        <item quantity="other">复用 %1$d 个已有密钥</item>
+    </plurals>
+    <plurals name="backup_summary_renamed_keys">
+        <item quantity="other">重命名 %1$d 个密钥</item>
+    </plurals>
+    <plurals name="backup_summary_hosts">
+        <item quantity="other">%1$d 台主机</item>
+    </plurals>
+    <plurals name="backup_summary_renamed_hosts">
+        <item quantity="other">重命名 %1$d 台主机</item>
+    </plurals>
+    <string name="backup_reused_keys_header">复用的密钥：</string>
+    <string name="backup_new_keys_header">新增的密钥：</string>
+    <string name="backup_renamed_suffix">（已重命名）</string>
+    <string name="backup_hosts_to_add">要添加的主机：</string>
+    <string name="backup_renamed_hosts">重命名的主机：</string>
+    <string name="backup_host_conflict_resolved">%1$s（已处理冲突）</string>
+    <string name="backup_summary_note">现有数据不会被覆盖，重名项会自动重命名。</string>
+
+    <!-- Identity verification prompts -->
+    <string name="verification_export_title">导出 SSH 备份</string>
+    <string name="verification_export_subtitle">验证身份以创建加密备份</string>
+    <string name="verification_import_title">导入 SSH 备份</string>
+    <string name="verification_import_subtitle">验证身份以恢复加密备份</string>
+    <string name="verification_local_shell_title">验证以打开本地 Shell</string>
+    <string name="verification_local_shell_subtitle">验证身份以打开本机 Shell</string>
+    <string name="verification_connect_title">验证以连接</string>
+    <string name="verification_connect_subtitle">验证身份以打开此主机会话</string>
+    <string name="verification_unlock_title">解锁 Chuchu</string>
+    <string name="verification_unlock_subtitle">验证身份以继续</string>
+
+    <!-- Tabs -->
+    <string name="tabs_header">标签页</string>
+    <string name="tab_new">+ 新建</string>
+    <string name="tabs_all">全部标签页</string>
+    <string name="tabs_new_connection">新建连接</string>
+    <string name="tabs_new_connection_row">+ 新建连接</string>
+    <string name="tabs_empty">没有终端会话</string>
+    <string name="tabs_duplicate">复制</string>
+    <string name="tabs_state_active">当前</string>
+    <string name="tabs_state_inactive">非当前</string>
+    <string name="tabs_cd_close_manager">关闭标签页管理</string>
+    <string name="tabs_cd_duplicate">复制 %1$s</string>
+    <string name="tabs_cd_close">关闭 %1$s</string>
+    <plurals name="tabs_session_count">
+        <item quantity="other">%1$d 个会话</item>
+    </plurals>
+    <string name="action_close">关闭</string>
+    <string name="session_status_connected">已连接</string>
+    <string name="session_status_connecting">连接中</string>
+    <string name="session_status_reconnecting">重连中</string>
+    <string name="session_status_disconnected">已断开</string>
+    <string name="session_status_error">出错</string>
+
+    <!-- Builtin chuchu commands -->
+    <string name="builtin_tabs_label">标签页</string>
+    <string name="builtin_tabs_description">显示标签页管理</string>
+    <string name="builtin_new_tab_label">新建标签页</string>
+    <string name="builtin_new_tab_description">打开一个新标签页</string>
+    <string name="builtin_actions_label">快捷操作</string>
+    <string name="builtin_actions_description">切换浮动的自定义操作按钮</string>
+    <string name="builtin_settings_label">设置</string>
+    <string name="builtin_settings_description">打开设置</string>
+    <string name="builtin_close_label">关闭</string>
+    <string name="builtin_close_description">关闭当前标签页</string>
+
+    <!-- Multiplexer session panel -->
+    <string name="mux_sessions">多路复用会话</string>
+    <string name="mux_refresh">刷新</string>
+    <string name="mux_new">新建</string>
+    <string name="mux_attached">已挂载</string>
+    <string name="mux_attach">挂载</string>
+    <string name="session_browser_connecting">正在连接 %1$s…</string>
+    <string name="session_browser_empty">还没有会话。</string>
+    <string name="session_browser_new">新建会话</string>
+    <string name="session_browser_retry">重试</string>
+    <string name="session_browser_refresh">刷新</string>
+    <string name="session_browser_host_missing">该服务器已不存在</string>
+    <string name="session_browser_connect_failed">无法连接</string>
+    <string name="session_browser_new_item">在 %1$s 中新建窗格</string>
+    <string name="session_browser_expand">展开 %1$s</string>
+    <string name="session_browser_collapse">折叠 %1$s</string>
+
+    <!-- Terminal session -->
+    <string name="terminal_new_session_on">在 %1$s 上新建会话</string>
+    <string name="terminal_current_host">当前主机</string>
+    <string name="terminal_key_passphrase">密钥口令</string>
+    <string name="terminal_files_unsupported">本地 Shell 不支持文件管理</string>
+    <string name="terminal_connection_failed">连接失败</string>
+    <string name="terminal_hostkey_title">验证主机密钥</string>
+    <string name="terminal_hostkey_host">主机：%1$s:%2$s</string>
+    <string name="terminal_hostkey_algorithm">算法：%1$s</string>
+    <string name="terminal_hostkey_changed_warning">警告：主机密钥已变更！</string>
+    <string name="terminal_hostkey_old">旧：%1$s</string>
+    <string name="terminal_hostkey_new">新：%1$s</string>
+    <string name="terminal_clipboard_selection_label">终端选中内容</string>
+    <string name="terminal_clipboard_path_label">路径</string>
+    <string name="terminal_copied_selection">已复制选中内容</string>
+    <string name="terminal_copied_path">已复制路径</string>
+    <string name="terminal_open_with">打开方式</string>
+    <string name="terminal_open_failed">打开失败：%1$s</string>
+    <string name="terminal_download_failed">下载失败：%1$s</string>
+    <string name="terminal_downloaded">已下载 %1$s</string>
+    <plurals name="terminal_uploaded_files">
+        <item quantity="other">已上传 %1$d 个文件</item>
+    </plurals>
+    <string name="terminal_uploaded_some_failed_reason">已上传 %1$d 个，%2$d 个失败：%3$s</string>
+    <string name="terminal_uploaded_some_failed">已上传 %1$d 个，%2$d 个失败</string>
+    <string name="terminal_delete_file_title">删除 %1$s？</string>
+    <string name="terminal_deleted_file">已删除 %1$s</string>
+    <string name="terminal_delete_failed">删除失败：%1$s</string>
+    <string name="terminal_delete_warning">此操作无法撤销。</string>
+    <string name="terminal_preparing_mux">正在准备新的多路复用会话…</string>
+    <string name="terminal_reconnecting_to">正在重连到%1$s…</string>
+    <string name="terminal_preparing">正在准备终端…</string>
+    <string name="terminal_retry_multiplexer">重试多路复用</string>
+    <string name="terminal_connect_without_mux">不使用多路复用直接连接</string>
+    <string name="terminal_file_progress">第 %1$d / %2$d 个文件</string>
+    <string name="terminal_error_create_mux">无法创建多路复用会话</string>
+    <string name="terminal_error_prepare_mux">无法准备多路复用会话</string>
+    <string name="terminal_error_list_sessions">无法列出会话</string>
+    <string name="terminal_connecting_to">正在连接到 %1$s</string>
+    <string name="terminal_unknown_server">服务器</string>
+    <string name="terminal_reconnecting">正在重连</string>
+    <string name="terminal_reconnecting_attempt">正在重连（第 %1$d 次）</string>
+    <string name="terminal_endpoint_local_shell">本机 · 应用沙盒</string>
+    <string name="terminal_error_mosh_unsupported">%1$s 不支持 Mosh 连接</string>
+    <string name="terminal_error_transport_unsupported">%1$s 不支持 %2$s 连接</string>
+    <string name="terminal_error_multiplexer_unsupported">%1$s 尚未支持</string>
+    <string name="terminal_error_session_gone">终端会话已失效</string>
+    <string name="terminal_error_session_list_stale">会话列表已过期，请刷新后重试。</string>
+
+    <!-- Session foreground notification -->
+    <string name="notification_channel_name">SSH 会话</string>
+    <string name="notification_channel_description">保持活动中的终端会话不被回收</string>
+    <string name="notification_title">Chuchu 已连接</string>
+    <string name="notification_default_label">活动中的会话</string>
+    <string name="notification_action_disconnect">断开</string>
+
+    <!-- Backup / key errors surfaced from view models -->
+    <string name="add_server_key_generation_failed">密钥生成失败</string>
+    <string name="add_server_host_key_unverified">主机密钥尚未验证 —— 请先连接一次以验证此主机</string>
+    <string name="add_server_host_key_changed">主机密钥已变更（%1$s → %2$s）—— 请先连接一次以验证此主机</string>
+    <string name="add_server_native_ssh_unavailable">原生 SSH 不可用</string>
+    <string name="keys_error_paste_first">请先粘贴私钥</string>
+    <string name="keys_error_not_a_private_key">这看起来不是私钥</string>
+    <string name="keys_error_name_empty">名称不能为空</string>
+    <string name="keys_error_name_taken">已存在名为“%1$s”的密钥</string>
+    <string name="backup_error_open_destination">无法打开备份的保存位置</string>
+    <string name="backup_error_open_file">无法打开备份文件</string>
+    <string name="backup_error_file_too_large">备份文件过大</string>
+    <string name="backup_export_success">备份导出成功</string>
+    <string name="backup_export_failed">导出失败。请换一个位置重试。</string>
+    <string name="backup_wrong_passphrase">口令错误，无法解密备份。</string>
+    <string name="backup_invalid_file">导入失败。请选择有效的 Chuchu 备份文件。</string>
+    <string name="backup_read_failed">导入失败。无法读取所选的备份文件。</string>
+    <string name="backup_import_failed_nothing_changed">导入失败，未做任何改动。</string>
+    <string name="backup_import_complete">导入完成：%1$s</string>
+    <plurals name="backup_result_keys_imported">
+        <item quantity="other">%1$d 个密钥</item>
+    </plurals>
+    <plurals name="backup_result_keys_reused">
+        <item quantity="other">复用 %1$d 个</item>
+    </plurals>
+    <plurals name="backup_result_keys_renamed">
+        <item quantity="other">重命名 %1$d 个密钥</item>
+    </plurals>
+    <plurals name="backup_result_hosts_imported">
+        <item quantity="other">%1$d 台主机</item>
+    </plurals>
+    <plurals name="backup_result_hosts_renamed">
+        <item quantity="other">重命名 %1$d 台主机</item>
+    </plurals>
+
+    <!-- Settings -->
+    <string name="settings_title">设置</string>
+    <string name="settings_category_general">通用</string>
+    <string name="settings_category_terminal">终端</string>
+    <string name="settings_category_keys">密钥</string>
+    <string name="settings_category_plugins">插件</string>
+    <string name="plugins_builtin">内置</string>
+    <string name="plugins_installed">已安装</string>
+    <string name="plugins_none_installed">未安装插件应用</string>
+    <string name="plugins_unreadable_certificate">无法读取签名证书</string>
+    <string name="plugins_status_invalid">无法加载：%1$s</string>
+    <string name="plugins_status_quarantined">已停用：加载后 chuchu 很快停止运行；启用以重试</string>
+    <string name="plugins_status_certificate_changed">已停用：签名证书与你批准的不同；启用以信任它</string>
+    <string name="plugins_status_pending_restart">已启用；重启 chuchu 以加载</string>
+    <string name="plugins_status_active">运行中</string>
+    <string name="plugins_status_failed">已停用：%1$s</string>
+    <string name="plugins_status_incompatible">不兼容：%1$s</string>
+    <string name="plugins_consent_title">启用 %1$s？</string>
+    <string name="plugins_consent_confirm">启用</string>
+    <string name="plugins_consent_warning">插件在 chuchu 内运行，拥有完整访问权限，包括你的会话、主机和密钥。只启用你信任的插件。</string>
+    <string name="plugins_consent_package">包名：%1$s</string>
+    <string name="plugins_consent_certificate">签名证书（SHA-256）：\n%1$s</string>
+    <string name="plugins_consent_update_note">如果更新使用不同的证书签名，它会保持关闭，直到你再次批准。</string>
+    <string name="plugins_restart_banner">重启 chuchu 以应用插件更改；已打开的会话将关闭</string>
+    <string name="plugins_restart">重启</string>
+    <string name="settings_security_header">安全</string>
+    <string name="settings_lock_app_on_open">打开时锁定应用</string>
+    <string name="settings_verify_before_connect">连接主机前验证身份</string>
+    <string name="settings_verify_before_connect_hint">使用生物识别或设备 PIN／图案。</string>
+    <string name="settings_backup_title">SSH 主机与密钥备份</string>
+    <string name="settings_backup_hint">加密导出／导入。</string>
+    <string name="settings_theme_header">主题</string>
+    <string name="settings_theme_dark">深色</string>
+    <string name="settings_theme_light">浅色</string>
+    <string name="settings_theme_system">跟随系统</string>
+    <string name="settings_theme_show_preview">显示预览</string>
+    <string name="settings_theme_search_label">搜索主题</string>
+    <string name="settings_theme_search_placeholder">输入以筛选</string>
+    <string name="settings_theme_preview">预览</string>
+    <string name="settings_font_header">字体</string>
+    <string name="settings_terminal_header">终端</string>
+    <string name="settings_font_size">字号</string>
+    <string name="settings_tab_interface">标签页样式</string>
+    <string name="settings_tab_mode_palette">命令面板</string>
+    <string name="settings_tab_mode_strip">顶部标签条</string>
+    <string name="settings_session_picker">会话选择器</string>
+    <string name="settings_session_picker_hint">打开主机时选择 tmux 和 zmx 会话的方式</string>
+    <string name="settings_session_picker_panel">面板</string>
+    <string name="settings_session_picker_browser">浏览器</string>
+    <string name="settings_accessory_keys">辅助键</string>
+    <string name="settings_no_keys_enabled">未启用任何按键</string>
+    <plurals name="settings_keys_enabled">
+        <item quantity="other">已启用 %1$d 个按键</item>
+    </plurals>
+    <string name="settings_single_row_bar">单行辅助键栏</string>
+    <string name="settings_single_row_bar_hint">关闭 = 两行（默认），开启 = 单行横向排列</string>
+    <string name="settings_choose_keys_hint">选择要显示在终端辅助键栏里的按键。</string>
+    <string name="settings_choose_keys_hint_short">选择要出现在栏里的按键。</string>
+    <string name="settings_custom_actions">自定义操作</string>
+    <string name="settings_no_custom_actions">没有自定义操作</string>
+    <plurals name="settings_actions_count">
+        <item quantity="other">%1$d 个操作</item>
+    </plurals>
+    <string name="settings_create_quick_keys">创建快捷按键。</string>
+    <string name="settings_show_actions_button">显示操作按钮</string>
+    <string name="settings_show_actions_button_hint">切换终端里浮动按钮的显示状态</string>
+    <string name="settings_chuchu_commands">chuchu 命令</string>
+    <string name="settings_no_shortcuts">没有快捷键</string>
+    <plurals name="settings_shortcuts_count">
+        <item quantity="other">%1$d 个快捷键</item>
+    </plurals>
+    <string name="settings_assign_shortcuts_hint">为内置命令分配快捷键。</string>
+    <string name="settings_commands_editor_hint">留空则隐藏该命令。此设置优先于自定义操作的快捷键。</string>
+    <string name="settings_commands_key_placeholder">按键</string>
+    <string name="settings_enable_local_shell">启用本地 Shell</string>
+    <string name="settings_enable_local_shell_hint">在主机列表里显示 Android 本地 Shell 入口</string>
+    <string name="settings_allow_remote_clipboard">允许远程写入剪贴板</string>
+    <string name="settings_allow_remote_clipboard_hint">允许远程主机设置本机剪贴板（OSC 52）。只有当前可见的标签页可以写入。</string>
+    <string name="settings_keep_screen_awake">保持屏幕常亮</string>
+    <string name="settings_keep_screen_awake_hint">终端打开时阻止屏幕休眠</string>
+    <string name="settings_hide_screen_contents">隐藏屏幕内容</string>
+    <string name="settings_hide_screen_contents_hint">禁止截屏，并在应用切换器里隐藏终端</string>
+    <string name="settings_disable_autocorrect">关闭自动纠错</string>
+    <string name="settings_disable_autocorrect_hint">适用于忽略标准提示的输入法；可能会关闭滑行输入</string>
+    <string name="settings_accessory_preview">预览</string>
+    <string name="settings_no_accessory_keys_selected">未选择任何辅助键。</string>
+    <string name="settings_accessory_drag_hint">长按预览里的按键，然后拖到想要的位置。</string>
+    <string name="settings_accessory_group_desc">分组 · %1$d 个键</string>
+    <string name="settings_accessory_group">分组</string>
+    <string name="settings_accessory_key">按键</string>
+
+    <!-- Custom actions editor -->
+    <string name="custom_actions_add">+ 添加</string>
+    <string name="custom_actions_key">按键</string>
+    <string name="custom_actions_key_placeholder">a</string>
+    <string name="custom_actions_shortcut">快捷键</string>
+    <string name="custom_actions_shortcut_placeholder">触发 chuchu 命令的单键</string>
+    <string name="custom_actions_no_modifiers">无修饰键</string>
+    <string name="custom_actions_modifiers">修饰键：%1$s</string>
+    <string name="custom_actions_value">内容</string>
+    <string name="custom_actions_preview">预览：%1$s</string>
+    <string name="custom_actions_preview_empty">预览：（空）</string>
+    <string name="custom_actions_delete">[ 删除 ]</string>
+</resources>

@@ -47,9 +47,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextOverflow
+import com.jossephus.chuchu.R
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuCard
@@ -214,7 +216,7 @@ internal fun TerminalCustomActionsEditorSheet(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    ChuText("custom actions", style = typography.headline)
+                    ChuText(stringResource(R.string.settings_custom_actions), style = typography.headline)
                     ChuButton(
                         onClick = onDismiss,
                         variant = ChuButtonVariant.Ghost,
@@ -318,7 +320,7 @@ internal fun TerminalCustomActionsEditorSheet(
                             bracketed = true,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            ChuText("+ add", style = typography.label)
+                            ChuText(stringResource(R.string.custom_actions_add), style = typography.label)
                         }
                     } else {
                         ChuCard(modifier = Modifier.fillMaxWidth()) {
@@ -329,8 +331,8 @@ internal fun TerminalCustomActionsEditorSheet(
                             ChuTextField(
                                 value = keyInput,
                                 onValueChange = { keyInput = it },
-                                label = "Key",
-                                placeholder = "a",
+                                label = stringResource(R.string.custom_actions_key),
+                                placeholder = stringResource(R.string.custom_actions_key_placeholder),
                                 singleLine = true,
                                 autoFocus = false,
                             )
@@ -339,8 +341,8 @@ internal fun TerminalCustomActionsEditorSheet(
                                 onValueChange = { updated ->
                                     shortcutInput = updated.takeLast(1)
                                 },
-                                label = "Shortcut",
-                                placeholder = "single key for chuchu command",
+                                label = stringResource(R.string.custom_actions_shortcut),
+                                placeholder = stringResource(R.string.custom_actions_shortcut_placeholder),
                                 singleLine = true,
                                 autoFocus = false,
                             )
@@ -349,14 +351,18 @@ internal fun TerminalCustomActionsEditorSheet(
                                 variant = ChuButtonVariant.Outlined,
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
-                                val enabledLabel = if (enabledModifiers.isEmpty()) {
-                                    "No modifiers"
-                                } else {
-                                    CustomActionModifier.entries
-                                        .filter { it in enabledModifiers }
-                                        .joinToString(separator = "+") { it.label }
-                                }
-                                ChuText("Modifiers: $enabledLabel", style = typography.label)
+                                val enabledLabel =
+                                    if (enabledModifiers.isEmpty()) {
+                                        stringResource(R.string.custom_actions_no_modifiers)
+                                    } else {
+                                        CustomActionModifier.entries
+                                            .filter { it in enabledModifiers }
+                                            .joinToString(separator = "+") { it.label }
+                                    }
+                                ChuText(
+                                    stringResource(R.string.custom_actions_modifiers, enabledLabel),
+                                    style = typography.label,
+                                )
                             }
 
                             AnimatedVisibility(visible = showModifierDropdown) {
@@ -399,7 +405,7 @@ internal fun TerminalCustomActionsEditorSheet(
                                         valueInput = updated
                                     }
                                 },
-                                label = "Value",
+                                label = stringResource(R.string.custom_actions_value),
                                 placeholder = ":q",
                                 singleLine = false,
                                 autoFocus = false,
@@ -407,7 +413,12 @@ internal fun TerminalCustomActionsEditorSheet(
                             )
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                                 ChuText(
-                                    text = if (valuePreview.isBlank()) "Preview: (empty)" else "Preview: $valuePreview",
+                                    text =
+                                        if (valuePreview.isBlank()) {
+                                            stringResource(R.string.custom_actions_preview_empty)
+                                        } else {
+                                            stringResource(R.string.custom_actions_preview, valuePreview)
+                                        },
                                     style = typography.labelSmall,
                                     color = colors.textMuted,
                                 )
@@ -420,7 +431,14 @@ internal fun TerminalCustomActionsEditorSheet(
                                     bracketed = true,
                                     modifier = Modifier.weight(1f),
                                 ) {
-                                    ChuText(if (editingIndex != null) "save" else "add", style = typography.label)
+                                    ChuText(
+                                        if (editingIndex != null) {
+                                            stringResource(R.string.action_save)
+                                        } else {
+                                            stringResource(R.string.action_add)
+                                        },
+                                        style = typography.label,
+                                    )
                                 }
                                 ChuButton(
                                     onClick = { cancelEdit() },
@@ -429,7 +447,11 @@ internal fun TerminalCustomActionsEditorSheet(
                                     borderColor = colors.textMuted,
                                     modifier = Modifier.weight(1f),
                                 ) {
-                                    ChuText("cancel", style = typography.label, color = colors.textMuted)
+                                    ChuText(
+                                        stringResource(R.string.action_cancel),
+                                        style = typography.label,
+                                        color = colors.textMuted,
+                                    )
                                 }
                             }
                         }
@@ -477,7 +499,11 @@ private fun CustomActionSwipeRow(
                 .padding(end = 12.dp),
             contentAlignment = Alignment.CenterEnd,
         ) {
-            ChuText("[ delete ]", style = typography.label, color = colors.background)
+            ChuText(
+                stringResource(R.string.custom_actions_delete),
+                style = typography.label,
+                color = colors.background,
+            )
         }
 
         Row(

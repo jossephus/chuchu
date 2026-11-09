@@ -22,18 +22,19 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.jossephus.chuchu.R
 import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.model.Transport
-import com.jossephus.chuchu.service.terminal.TransportTarget
-import com.jossephus.chuchu.service.transport.TransportRegistry
 import com.jossephus.chuchu.service.terminal.TerminalSessionRepository
 import com.jossephus.chuchu.ui.screens.AddServer.AddServerScreen
 import com.jossephus.chuchu.ui.screens.AddServer.AddServerViewModel
 import com.jossephus.chuchu.ui.screens.Keys.KeysViewModel
-import com.jossephus.chuchu.ui.screens.HostBrowser.HostBrowserScreen
-import com.jossephus.chuchu.ui.screens.HostBrowser.HostBrowserViewModel
 import com.jossephus.chuchu.ui.screens.ServerList.ServerListScreen
 import com.jossephus.chuchu.ui.screens.ServerList.ServerListViewModel
+import com.jossephus.chuchu.ui.screens.SessionBrowser.SessionBrowserScreen
+import com.jossephus.chuchu.ui.screens.SessionBrowser.SessionBrowserViewModel
+import com.jossephus.chuchu.ui.screens.SessionBrowser.SessionPickerStyle
+import com.jossephus.chuchu.ui.screens.SessionBrowser.opensSessionBrowser
 import com.jossephus.chuchu.ui.screens.Settings.SettingsBackupViewModel
 import com.jossephus.chuchu.ui.screens.Settings.SettingsScreen
 import com.jossephus.chuchu.ui.screens.Terminal.TerminalScreen
@@ -75,6 +76,7 @@ fun ApplicationNavController() {
             val requireAuthOnConnect by
                 settingsRepo.requireAuthOnConnect.collectAsStateWithLifecycle()
             val localShellEnabled by settingsRepo.localShellEnabled.collectAsStateWithLifecycle()
+            val sessionPickerStyle by settingsRepo.sessionPickerStyle.collectAsStateWithLifecycle()
             val hosts by vm.hosts.collectAsStateWithLifecycle()
             val searchQuery by vm.search.collectAsStateWithLifecycle()
             ServerListScreen(
@@ -90,8 +92,8 @@ fun ApplicationNavController() {
                         } else {
                             requireUserVerification(
                                 context = context,
-                                title = "Verify to open local shell",
-                                subtitle = "Authenticate to open this device shell",
+                                title = context.getString(R.string.verification_local_shell_title),
+                                subtitle = context.getString(R.string.verification_local_shell_subtitle),
                             ) { result ->
                                 if (result == VerificationResult.Success) {
                                     navController.navigate("terminal/local")
@@ -102,19 +104,17 @@ fun ApplicationNavController() {
                 onEditServer = { id -> navController.navigate("servers/edit/$id") },
                 onConnectServer = { id ->
                     val host = hosts.firstOrNull { it.id == id }
-                    val browsable =
-                        host?.transport == Transport.Plugin &&
-                            TransportRegistry.forId(host.transportId)?.hostBrowser != null
-                    val route = if (browsable) "browse/$id" else "terminal/$id"
                     val hostRequiresAuth = host?.requireAuthOnConnect == true
                     val mustVerify = requireAuthOnConnect || hostRequiresAuth
+                    val route =
+                        if (host != null && host.opensSessionBrowser(sessionPickerStyle)) "sessions/$id" else "terminal/$id"
                     if (!mustVerify) {
                         navController.navigate(route)
                     } else {
                         requireUserVerification(
                             context = context,
-                            title = "Verify to connect",
-                            subtitle = "Authenticate to open this server session",
+                            title = context.getString(R.string.verification_connect_title),
+                            subtitle = context.getString(R.string.verification_connect_subtitle),
                         ) { result ->
                             if (result == VerificationResult.Success) {
                                 navController.navigate(route)
@@ -146,10 +146,13 @@ fun ApplicationNavController() {
                 settingsRepo.showCustomActionsFab.collectAsStateWithLifecycle()
             val builtinShortcuts by settingsRepo.builtinShortcuts.collectAsStateWithLifecycle()
             val tabMode by settingsRepo.terminalTabMode.collectAsStateWithLifecycle()
+            val sessionPickerStyle by settingsRepo.sessionPickerStyle.collectAsStateWithLifecycle()
             val localShellEnabled by settingsRepo.localShellEnabled.collectAsStateWithLifecycle()
             val keepScreenAwake by settingsRepo.keepScreenAwake.collectAsStateWithLifecycle()
             val hideScreenContents by settingsRepo.hideScreenContents.collectAsStateWithLifecycle()
             val disableAutocorrect by settingsRepo.disableAutocorrect.collectAsStateWithLifecycle()
+            val remoteClipboardWriteEnabled by
+                settingsRepo.remoteClipboardWriteEnabled.collectAsStateWithLifecycle()
             val themeMode by settingsRepo.themeMode.collectAsStateWithLifecycle()
             val terminalFontSize by settingsRepo.terminalFontSize.collectAsStateWithLifecycle()
             val lightThemeName by settingsRepo.lightThemeName.collectAsStateWithLifecycle()
@@ -162,6 +165,7 @@ fun ApplicationNavController() {
                 keepScreenAwake = keepScreenAwake,
                 hideScreenContents = hideScreenContents,
                 disableAutocorrect = disableAutocorrect,
+                remoteClipboardWriteEnabled = remoteClipboardWriteEnabled,
                 currentAccessoryLayoutIds = accessoryLayoutIds,
                 accessoryBarSingleRow = accessoryBarSingleRow,
                 currentTerminalCustomKeyGroups = customKeyGroups,
@@ -171,6 +175,8 @@ fun ApplicationNavController() {
                 onBuiltinShortcutsChanged = settingsRepo::setBuiltinShortcuts,
                 currentTabMode = tabMode,
                 onTabModeChanged = settingsRepo::setTerminalTabMode,
+                currentSessionPickerStyle = sessionPickerStyle,
+                onSessionPickerStyleChanged = settingsRepo::setSessionPickerStyle,
                 themeMode = themeMode,
                 lightThemeName = lightThemeName,
                 onThemeSelected = settingsRepo::setTheme,
@@ -183,6 +189,7 @@ fun ApplicationNavController() {
                 onKeepScreenAwakeChanged = settingsRepo::setKeepScreenAwake,
                 onHideScreenContentsChanged = settingsRepo::setHideScreenContents,
                 onDisableAutocorrectChanged = settingsRepo::setDisableAutocorrect,
+                onRemoteClipboardWriteEnabledChanged = settingsRepo::setRemoteClipboardWriteEnabled,
                 onAccessoryLayoutChanged = settingsRepo::setAccessoryLayoutIds,
                 onAccessoryBarSingleRowChanged = settingsRepo::setAccessoryBarSingleRow,
                 currentTerminalFontSize = terminalFontSize,
@@ -235,54 +242,47 @@ fun ApplicationNavController() {
             }
         }
         composable(
-            route = "browse/{id}",
+            route = "sessions/{id}",
             arguments = listOf(navArgument("id") { type = NavType.LongType }),
         ) { backStackEntry ->
             val id = backStackEntry.arguments?.getLong("id") ?: return@composable
-            val vm: HostBrowserViewModel = viewModel(factory = HostBrowserViewModel.factory(application, id))
-            val sessionRepo = TerminalSessionRepository.getInstance(application)
-            val tabs by sessionRepo.tabs.collectAsStateWithLifecycle()
-            val openTargets =
-                tabs.filter { it.spec.hostId == id }
-                    .mapNotNull { it.transportTarget }
-                    .toSet()
-            HostBrowserScreen(
+            val vm: SessionBrowserViewModel = viewModel(factory = SessionBrowserViewModel.factory(application, id))
+            SessionBrowserScreen(
                 vm = vm,
-                openTargets = openTargets,
-                onOpen = { target -> navController.navigate(transportTerminalRoute(id, target)) },
+                onOpen = { target, create ->
+                    navController.navigate("terminal/$id?target=${Uri.encode(target)}&create=$create")
+                },
                 onBack = { navController.popBackStack() },
             )
         }
         composable(
-            route = "terminal/{id}?target={target}&creates={creates}",
+            route = "terminal/{id}?target={target}&create={create}",
             arguments =
                 listOf(
                     navArgument("id") { type = NavType.LongType },
                     navArgument("target") { type = NavType.StringType; nullable = true; defaultValue = null },
-                    navArgument("creates") { type = NavType.BoolType; defaultValue = false },
+                    navArgument("create") { type = NavType.BoolType; defaultValue = false },
                 ),
         ) { backStackEntry ->
             val id = backStackEntry.arguments?.getLong("id")
             val vm: TerminalViewModel = viewModel(factory = TerminalViewModel.factory(application))
-            val transportTarget =
-                backStackEntry.arguments?.getString("target")?.let { value ->
-                    TransportTarget(value, creates = backStackEntry.arguments?.getBoolean("creates") == true)
-                }
+            val openTarget = backStackEntry.arguments?.getString("target")
             var leaving by remember { mutableStateOf(false) }
             val back: () -> Unit = {
                 if (!leaving) {
                     leaving = true
                     navController.popBackStack()
-                    if (transportTarget != null && id != null) {
-                        TerminalSessionRepository.getInstance(application).closeHostTabs(id)
+                    if (openTarget != null && id != null) {
+                        TerminalSessionRepository.getInstance(application).closeTransportTabs(id)
                     }
                 }
             }
-            BackHandler(enabled = transportTarget != null, onBack = back)
+            BackHandler(enabled = openTarget != null, onBack = back)
             TerminalScreen(
                 vm = vm,
                 hostId = id,
-                transportTarget = transportTarget,
+                openTarget = openTarget,
+                createTarget = backStackEntry.arguments?.getBoolean("create") == true,
                 onOpenSettings = { navController.navigate("settings") },
                 onBack = back,
             )
@@ -303,8 +303,8 @@ fun ApplicationNavController() {
             unlockPromptRequested = true
             requireUserVerification(
                 context = context,
-                title = "Unlock Chuchu",
-                subtitle = "Authenticate to continue",
+                title = context.getString(R.string.verification_unlock_title),
+                subtitle = context.getString(R.string.verification_unlock_subtitle),
             ) { result ->
                 appUnlocked = result == VerificationResult.Success
                 if (result != VerificationResult.Success) {
@@ -315,6 +315,3 @@ fun ApplicationNavController() {
         }
     }
 }
-
-private fun transportTerminalRoute(hostId: Long, target: TransportTarget): String =
-    "terminal/$hostId?target=${Uri.encode(target.value)}&creates=${target.creates}"

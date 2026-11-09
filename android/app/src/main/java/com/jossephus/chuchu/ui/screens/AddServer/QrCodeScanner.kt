@@ -35,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -46,6 +47,7 @@ import com.google.zxing.MultiFormatReader
 import com.google.zxing.PlanarYUVLuminanceSource
 import com.google.zxing.ReaderException
 import com.google.zxing.common.HybridBinarizer
+import com.jossephus.chuchu.R
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuText
@@ -122,7 +124,7 @@ fun QrCodeScanner(
                     .windowInsetsPadding(WindowInsets.safeDrawing)
                     .padding(24.dp),
         ) {
-            ChuText("cancel", style = typography.label)
+            ChuText(stringResource(R.string.action_cancel), style = typography.label)
         }
     }
 }

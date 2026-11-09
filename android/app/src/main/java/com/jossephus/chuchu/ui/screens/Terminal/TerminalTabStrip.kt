@@ -22,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -30,6 +31,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.jossephus.chuchu.R
 import com.jossephus.chuchu.service.terminal.SessionStatus
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
@@ -47,14 +49,14 @@ private const val TAB_TITLE_COLLISION_PREFIX_LENGTH = 14
 /**
  * Human-readable status text for accessibility.
  */
+@Composable
 internal fun statusLabel(status: SessionStatus): String = when (status) {
-    SessionStatus.Connected -> "connected"
-    SessionStatus.Connecting -> "connecting"
-    SessionStatus.Reconnecting -> "reconnecting"
-    SessionStatus.Disconnected -> "disconnected"
-    SessionStatus.Error -> "error"
+    SessionStatus.Connected -> stringResource(R.string.session_status_connected)
+    SessionStatus.Connecting -> stringResource(R.string.session_status_connecting)
+    SessionStatus.Reconnecting -> stringResource(R.string.session_status_reconnecting)
+    SessionStatus.Disconnected -> stringResource(R.string.session_status_disconnected)
+    SessionStatus.Error -> stringResource(R.string.session_status_error)
 }
-
 /**
  * Always-visible global top tab strip for strip mode.
  *
@@ -173,7 +175,7 @@ fun TerminalTabStrip(
                     modifier = Modifier.defaultMinSize(minHeight = 32.dp, minWidth = 32.dp),
                     variant = ChuButtonVariant.Ghost,
                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
-                    contentDescription = "all tabs",
+                    contentDescription = stringResource(R.string.tabs_all),
                 ) {
                     ChuText(
                         if (tabs.size > 99) "≡" else "${tabs.size}",
@@ -189,7 +191,7 @@ fun TerminalTabStrip(
                     modifier = Modifier.defaultMinSize(minHeight = 32.dp, minWidth = 32.dp),
                     variant = ChuButtonVariant.Ghost,
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                    contentDescription = "new connection",
+                    contentDescription = stringResource(R.string.tabs_new_connection),
                 ) {
                     ChuText("+", style = typography.label, color = colors.accent)
                 }

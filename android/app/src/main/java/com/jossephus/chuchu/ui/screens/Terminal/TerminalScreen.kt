@@ -51,8 +51,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,6 +67,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -75,7 +77,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.core.content.FileProvider
@@ -83,20 +84,22 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jossephus.chuchu.data.repository.SettingsRepository
+import com.jossephus.chuchu.R
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.HostProfile
 import com.jossephus.chuchu.model.Transport
+import com.jossephus.chuchu.model.connectionTarget
 import com.jossephus.chuchu.plugin.PluginManager
 import com.jossephus.chuchu.plugin.RegisteredSessionView
 import com.jossephus.chuchu.plugin.api.LocalPluginTheme
 import com.jossephus.chuchu.plugin.rememberPluginTheme
-import com.jossephus.chuchu.model.connectionTarget
 import com.jossephus.chuchu.service.terminal.SessionStatus
-import com.jossephus.chuchu.service.terminal.TransportTarget
 import com.jossephus.chuchu.service.terminal.TabSpec
+import com.jossephus.chuchu.service.terminal.TransportTarget
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuDialog
+import com.jossephus.chuchu.ui.components.HostKeyPromptDialog
 import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.components.ChuTextField
 import com.jossephus.chuchu.ui.screens.Files.ConnectionTab
@@ -202,7 +205,7 @@ private fun NewTabHostPicker(
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
             ) {
                 ChuText(
-                    "new session on $currentHostName",
+                    stringResource(R.string.terminal_new_session_on, currentHostName),
                     style = typography.label,
                     color = colors.textPrimary,
                 )
@@ -388,7 +391,8 @@ fun TerminalScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     openLocalShell: Boolean = false,
-    transportTarget: TransportTarget? = null,
+    openTarget: String? = null,
+    createTarget: Boolean = false,
 ) {
     val sessionState by vm.sessionState.collectAsStateWithLifecycle()
     val hosts by vm.hosts.collectAsStateWithLifecycle()
@@ -482,6 +486,8 @@ fun TerminalScreen(
     val showCustomActionsFab by settingsRepo.showCustomActionsFab.collectAsStateWithLifecycle()
     val builtinShortcuts by settingsRepo.builtinShortcuts.collectAsStateWithLifecycle()
     var fabFilteredActions by remember { mutableStateOf<List<TerminalCustomAction>?>(null) }
+    val builtinCommandLabels =
+        BuiltinCommand.entries.associateWith { stringResource(it.labelRes) }
     val pluginManager =
         remember(context) { PluginManager.getInstance(context.applicationContext as Application) }
     val pluginSessionViews by pluginManager.sessionViews.collectAsStateWithLifecycle()
@@ -499,6 +505,7 @@ fun TerminalScreen(
             currentTerminalCustomKeyGroups,
             builtinShortcuts,
             showCustomActionsFab,
+            builtinCommandLabels,
         ) {
             val isStrip = tabMode == TerminalTabMode.Strip
             val builtinCommandHandlers: Map<BuiltinCommand, () -> Unit> = mapOf(
@@ -523,6 +530,7 @@ fun TerminalScreen(
             )
             ChuchuKeyBindings.build(
                 builtinShortcuts = builtinShortcuts,
+                builtinLabels = builtinCommandLabels,
                 builtinCommandHandlers = builtinCommandHandlers,
                 customGroups = currentTerminalCustomKeyGroups,
                 onDispatchAction = { action ->
@@ -554,7 +562,7 @@ fun TerminalScreen(
         vm.openTab(
             TabSpec(
                 hostId = null,
-                displayName = "local shell",
+                displayName = context.getString(R.string.server_list_local_shell),
                 host = "localhost",
                 username = "android",
                 authMethod = AuthMethod.None,
@@ -611,8 +619,8 @@ fun TerminalScreen(
         if (requiresVerification) {
             requireUserVerification(
                 context = context,
-                title = "Verify to connect",
-                subtitle = "Authenticate to open this server session",
+                title = context.getString(R.string.verification_connect_title),
+                subtitle = context.getString(R.string.verification_connect_subtitle),
             ) { result ->
                 if (
                     result == VerificationResult.Success &&
@@ -647,7 +655,8 @@ fun TerminalScreen(
     }
     val pickerCurrentHostId = activeTab?.spec?.hostId ?: hostId
     val pickerCurrentHostName =
-        currentHostName ?: hosts.firstOrNull { it.id == pickerCurrentHostId }?.name ?: "current host"
+        currentHostName ?: hosts.firstOrNull { it.id == pickerCurrentHostId }?.name
+            ?: stringResource(R.string.terminal_current_host)
     val pickerOtherHosts =
         remember(hosts, pickerCurrentHostId) { hosts.filter { it.id != pickerCurrentHostId } }
     val openNewSessionForHost: (Long) -> Unit = { pickerHostId ->
@@ -676,7 +685,7 @@ fun TerminalScreen(
         }
     }
 
-    var transportTargetHandled by rememberSaveable { mutableStateOf(false) }
+    var openTargetHandled by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(activeTab?.id) { vm.watchHostBrowser(activeTab?.spec) }
     LaunchedEffect(hostId, openLocalShell) {
         showPassphrasePrompt = false
@@ -684,13 +693,20 @@ fun TerminalScreen(
         pendingTabSpec = null
         passphraseFromPicker = false
         if (hostId == null || openLocalShell) return@LaunchedEffect
-        if (transportTarget != null) {
-            if (transportTargetHandled) return@LaunchedEffect
-            transportTargetHandled = true
-            if (!transportTarget.creates && vm.selectTransportTab(hostId, transportTarget.value) != null) return@LaunchedEffect
+        if (openTarget != null) {
+            if (openTargetHandled) return@LaunchedEffect
+            openTargetHandled = true
             val prepared = vm.prepareTabOpenForHost(hostId) ?: return@LaunchedEffect
+            val spec =
+                if (prepared.spec.transport == Transport.Plugin) {
+                    if (!createTarget && vm.selectTransportTab(hostId, openTarget) != null) return@LaunchedEffect
+                    prepared.spec.copy(transportTarget = TransportTarget(openTarget, creates = createTarget))
+                } else {
+                    if (!createTarget && vm.selectMultiplexerTab(hostId, openTarget) != null) return@LaunchedEffect
+                    prepared.spec.copy(multiplexerSessionName = openTarget, multiplexerCreateIfMissing = createTarget)
+                }
             vm.refreshTailscaleStatus()
-            openPreparedTab(prepared.spec.copy(transportTarget = transportTarget), false, false)
+            openPreparedTab(spec, false, false)
             return@LaunchedEffect
         }
         val existing = vm.selectTabForHost(hostId)
@@ -745,8 +761,8 @@ fun TerminalScreen(
 
     if (showPassphrasePrompt) {
         ChuDialog(
-            title = "Key passphrase",
-            confirmLabel = "Connect",
+            title = stringResource(R.string.terminal_key_passphrase),
+            confirmLabel = stringResource(R.string.dialog_confirm_connect),
             onConfirm = {
                 val spec = pendingTabSpec
                 showPassphrasePrompt = false
@@ -775,7 +791,7 @@ fun TerminalScreen(
             ChuTextField(
                 value = passphraseInput,
                 onValueChange = { passphraseInput = it },
-                label = "Passphrase",
+                label = stringResource(R.string.field_passphrase),
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth(),
@@ -784,7 +800,7 @@ fun TerminalScreen(
     }
 
     fun showLocalShellFilesUnsupported() {
-        val message = "Files are not supported for local shell"
+        val message = context.getString(R.string.terminal_files_unsupported)
         localShellFilesMessage = message
         Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
     }
@@ -802,37 +818,13 @@ fun TerminalScreen(
         val previous = lastSessionStatus
         lastSessionStatus = sessionState.status
         if (sessionState.status == SessionStatus.Error && previous != SessionStatus.Error) {
-            val message = sessionState.error ?: "Connection failed"
+            val message =
+                sessionState.error ?: context.getString(R.string.terminal_connection_failed)
             Toast.makeText(context, message, Toast.LENGTH_LONG).show()
         }
     }
 
-    if (hostKeyPrompt != null) {
-        val prompt = hostKeyPrompt
-        ChuDialog(
-            onDismiss = { vm.onHostKeyDecision(false) },
-            title = "Verify host key",
-            confirmLabel = "Accept",
-            dismissLabel = "Reject",
-            onConfirm = { vm.onHostKeyDecision(true) },
-            properties = DialogProperties(
-                dismissOnBackPress = false,
-                dismissOnClickOutside = false,
-            ),
-        ) {
-            val previous = prompt?.previousFingerprint
-            val message = buildString {
-                append("Host: ${prompt?.host}:${prompt?.port}\n")
-                append("Algorithm: ${prompt?.algorithm}\n")
-                if (previous != null) {
-                    append("WARNING: host key changed!\n")
-                    append("Old: $previous\n")
-                }
-                append("New: ${prompt?.fingerprint}")
-            }
-            ChuText(message, style = typography.body)
-        }
-    }
+    hostKeyPrompt?.let { prompt -> HostKeyPromptDialog(prompt, vm::onHostKeyDecision) }
 
     val preflightError = multiplexerState.preflightError
     LaunchedEffect(preflightError) {
@@ -840,7 +832,15 @@ fun TerminalScreen(
             Toast.makeText(context, preflightError, Toast.LENGTH_LONG).show()
         }
     }
-    when (sessionState.status) {
+    val displaySessionStatus =
+        if (multiplexerState.preflightLoading) SessionStatus.Connecting else sessionState.status
+    val dismissMultiplexerLabel =
+        if (multiplexerState.reconnectRecovery) {
+            stringResource(R.string.action_dismiss)
+        } else {
+            stringResource(R.string.action_back)
+        }
+    when (displaySessionStatus) {
         SessionStatus.Disconnected,
         SessionStatus.Error -> {
             if (tabMode == TerminalTabMode.Strip) {
@@ -862,7 +862,7 @@ fun TerminalScreen(
                             TerminalRecoveryActions(
                                 message = errorMessage,
                                 isMultiplexerPreflight = preflightError != null,
-                                dismissMultiplexerLabel = if (multiplexerState.reconnectRecovery) "dismiss" else "back",
+                                dismissMultiplexerLabel = dismissMultiplexerLabel,
                                 onRetryMultiplexer = vm::retryPendingMultiplexerOpen,
                                 onConnectWithoutMultiplexer = {
                                     if (vm.connectPendingWithoutMultiplexer()) {
@@ -875,7 +875,7 @@ fun TerminalScreen(
                         } else if (tabs.isEmpty()) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 ChuText(
-                                    "no terminal sessions",
+                                    stringResource(R.string.tabs_empty),
                                     style = typography.body,
                                     color = colors.textMuted,
                                 )
@@ -887,7 +887,7 @@ fun TerminalScreen(
                                     bracketed = true,
                                 ) {
                                     ChuText(
-                                        "+ new connection",
+                                        stringResource(R.string.tabs_new_connection_row),
                                         style = typography.label,
                                         color = colors.accent,
                                     )
@@ -907,7 +907,7 @@ fun TerminalScreen(
                         TerminalRecoveryActions(
                             message = errorMessage,
                             isMultiplexerPreflight = preflightError != null,
-                            dismissMultiplexerLabel = if (multiplexerState.reconnectRecovery) "dismiss" else "back",
+                            dismissMultiplexerLabel = dismissMultiplexerLabel,
                             onRetryMultiplexer = vm::retryPendingMultiplexerOpen,
                             onConnectWithoutMultiplexer = {
                                 if (vm.connectPendingWithoutMultiplexer()) {
@@ -923,7 +923,9 @@ fun TerminalScreen(
         }
 
         SessionStatus.Connecting -> {
-            val hostLabel = if (tabMode == TerminalTabMode.Strip) {
+            val hostLabel = if (multiplexerState.preflightLoading) {
+                "${multiplexerState.preflightHostLabel ?: stringResource(R.string.terminal_unknown_server)}..."
+            } else if (tabMode == TerminalTabMode.Strip) {
                 activeTab?.spec?.tabLabel?.let { "$it..." } ?: "..."
             } else {
                 activeTabForHost?.spec?.host?.let { "$it..." } ?: "..."
@@ -943,7 +945,7 @@ fun TerminalScreen(
                         contentAlignment = Alignment.Center,
                     ) {
                         ChuText(
-                            "Connecting to $hostLabel",
+                            stringResource(R.string.terminal_connecting_to, hostLabel),
                             style = typography.body,
                         )
                     }
@@ -954,7 +956,7 @@ fun TerminalScreen(
                     verticalArrangement = Arrangement.Center,
                 ) {
                     ChuText(
-                        "Connecting to $hostLabel",
+                        stringResource(R.string.terminal_connecting_to, hostLabel),
                         style = typography.body,
                     )
                 }
@@ -1085,8 +1087,18 @@ fun TerminalScreen(
 
                     fun copySelection() {
                         val text = selectionState?.text ?: return
-                        clipboard?.setPrimaryClip(ClipData.newPlainText("terminal selection", text))
-                        Toast.makeText(context, "Copied selection", Toast.LENGTH_SHORT).show()
+                        clipboard?.setPrimaryClip(
+                            ClipData.newPlainText(
+                                context.getString(R.string.terminal_clipboard_selection_label),
+                                text,
+                            )
+                        )
+                        Toast.makeText(
+                                context,
+                                context.getString(R.string.terminal_copied_selection),
+                                Toast.LENGTH_SHORT,
+                            )
+                            .show()
                         selection = null
                         selectionState = null
                     }
@@ -1176,10 +1188,25 @@ fun TerminalScreen(
                                 withContext(Dispatchers.Main) {
                                     val msg =
                                         when {
-                                            failed == 0 -> "Uploaded $success file(s)"
+                                            failed == 0 ->
+                                                context.resources.getQuantityString(
+                                                    R.plurals.terminal_uploaded_files,
+                                                    success,
+                                                    success,
+                                                )
                                             lastError != null ->
-                                                "Uploaded $success, $failed failed: $lastError"
-                                            else -> "Uploaded $success, $failed failed"
+                                                context.getString(
+                                                    R.string.terminal_uploaded_some_failed_reason,
+                                                    success,
+                                                    failed,
+                                                    lastError,
+                                                )
+                                            else ->
+                                                context.getString(
+                                                    R.string.terminal_uploaded_some_failed,
+                                                    success,
+                                                    failed,
+                                                )
                                         }
                                     Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                                 }
@@ -1212,7 +1239,10 @@ fun TerminalScreen(
                                         withContext(Dispatchers.Main) {
                                             Toast.makeText(
                                                     context,
-                                                    "Downloaded ${pendingDownloadName}",
+                                                    context.getString(
+                                                        R.string.terminal_downloaded,
+                                                        pendingDownloadName,
+                                                    ),
                                                     Toast.LENGTH_SHORT,
                                                 )
                                                 .show()
@@ -1222,7 +1252,10 @@ fun TerminalScreen(
                                         withContext(Dispatchers.Main) {
                                             Toast.makeText(
                                                     context,
-                                                    "Download failed: ${it.message}",
+                                                    context.getString(
+                                                        R.string.terminal_download_failed,
+                                                        it.message.orEmpty(),
+                                                    ),
                                                     Toast.LENGTH_LONG,
                                                 )
                                                 .show()
@@ -1268,7 +1301,7 @@ fun TerminalScreen(
                             ) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     ChuText(
-                                        "no terminal sessions",
+                                        stringResource(R.string.tabs_empty),
                                         style = typography.body,
                                         color = colors.textMuted,
                                     )
@@ -1280,7 +1313,7 @@ fun TerminalScreen(
                                         bracketed = true,
                                     ) {
                                         ChuText(
-                                            "+ new connection",
+                                            stringResource(R.string.tabs_new_connection_row),
                                             style = typography.label,
                                             color = colors.accent,
                                         )
@@ -1298,8 +1331,17 @@ fun TerminalScreen(
                                     vm.selectConnectionTab(ConnectionTab.Terminal)
                                 },
                                 onCopyPath = { path ->
-                                    clipboard?.setPrimaryClip(ClipData.newPlainText("path", path))
-                                    Toast.makeText(context, "Copied path", Toast.LENGTH_SHORT)
+                                    clipboard?.setPrimaryClip(
+                                        ClipData.newPlainText(
+                                            context.getString(R.string.terminal_clipboard_path_label),
+                                            path,
+                                        )
+                                    )
+                                    Toast.makeText(
+                                            context,
+                                            context.getString(R.string.terminal_copied_path),
+                                            Toast.LENGTH_SHORT,
+                                        )
                                         .show()
                                 },
                                 onImportFile = { importFileLauncher.launch("*/*") },
@@ -1334,7 +1376,7 @@ fun TerminalScreen(
                                                     context.startActivity(
                                                         Intent.createChooser(
                                                             viewIntent,
-                                                            "Open with",
+                                                            context.getString(R.string.terminal_open_with),
                                                         )
                                                     )
                                                 }
@@ -1343,7 +1385,10 @@ fun TerminalScreen(
                                                 withContext(Dispatchers.Main) {
                                                     Toast.makeText(
                                                             context,
-                                                            "Open failed: ${it.message}",
+                                                            context.getString(
+                                                                R.string.terminal_open_failed,
+                                                                it.message.orEmpty(),
+                                                            ),
                                                             Toast.LENGTH_LONG,
                                                         )
                                                         .show()
@@ -1367,7 +1412,10 @@ fun TerminalScreen(
                                                 withContext(Dispatchers.Main) {
                                                     Toast.makeText(
                                                             context,
-                                                            "Download failed: ${it.message}",
+                                                            context.getString(
+                                                                R.string.terminal_download_failed,
+                                                                it.message.orEmpty(),
+                                                            ),
                                                             Toast.LENGTH_LONG,
                                                         )
                                                         .show()
@@ -1379,9 +1427,9 @@ fun TerminalScreen(
                             )
                             pendingDeleteEntry?.let { entry ->
                                 ChuDialog(
-                                    title = "Delete ${entry.name}?",
-                                    confirmLabel = "Delete",
-                                    dismissLabel = "Cancel",
+                                    title = stringResource(R.string.terminal_delete_file_title, entry.name),
+                                    confirmLabel = stringResource(R.string.dialog_confirm_delete),
+                                    dismissLabel = stringResource(R.string.dialog_dismiss),
                                     onConfirm = {
                                         val tabId = activeTabId ?: run {
                                             pendingDeleteEntry = null
@@ -1394,7 +1442,10 @@ fun TerminalScreen(
                                                     withContext(Dispatchers.Main) {
                                                         Toast.makeText(
                                                                 context,
-                                                                "Deleted ${entry.name}",
+                                                                context.getString(
+                                                                    R.string.terminal_deleted_file,
+                                                                    entry.name,
+                                                                ),
                                                                 Toast.LENGTH_SHORT,
                                                             )
                                                             .show()
@@ -1404,7 +1455,10 @@ fun TerminalScreen(
                                                     withContext(Dispatchers.Main) {
                                                         Toast.makeText(
                                                                 context,
-                                                                "Delete failed: ${it.message}",
+                                                                context.getString(
+                                                                    R.string.terminal_delete_failed,
+                                                                    it.message.orEmpty(),
+                                                                ),
                                                                 Toast.LENGTH_LONG,
                                                             )
                                                             .show()
@@ -1415,7 +1469,7 @@ fun TerminalScreen(
                                     onDismiss = { pendingDeleteEntry = null },
                                 ) {
                                     ChuText(
-                                        "This action cannot be undone.",
+                                        stringResource(R.string.terminal_delete_warning),
                                         style = typography.body,
                                     )
                                 }
@@ -1423,358 +1477,365 @@ fun TerminalScreen(
                         } else {
                             val defaultTerminal: @Composable () -> Unit = {
                                 Box(modifier = Modifier.fillMaxSize()) {
-                                        TerminalCanvas(
-                                            snapshot = snapshot,
-                                            fontSizeSp = terminalFontSizeSp,
-                                            minFontSizeSp = SettingsRepository.MIN_TERMINAL_FONT_SIZE,
-                                            maxFontSizeSp = SettingsRepository.MAX_TERMINAL_FONT_SIZE,
-                                            cursorColor =
-                                                ghosttyTheme?.cursorColor
-                                                    ?: Color.White.copy(alpha = 0.28f),
-                                            cursorTextColor = ghosttyTheme?.cursorText,
-                                            selectionBackgroundColor =
-                                                ghosttyTheme?.selectionBackground
-                                                    ?: colors.accent.copy(alpha = 0.45f),
-                                            selectionForegroundColor =
-                                                ghosttyTheme?.selectionForeground ?: colors.onAccent,
-                                            selection = selection,
-                                            onSelectionChange = { selection = it },
-                                            terminalHandle = sessionState.handle,
-                                            modifier = Modifier.fillMaxSize(),
-                                            onResize = vm::onCanvasSizeChanged,
-                                            onTap = requestInputFocus,
-                                            onPrimaryClick = vm::onPrimaryMouseClick,
-                                            onAppSelectionDrag = vm::onAppSelectionDrag,
-                                            onScroll = vm::onScroll,
-                                            onFontSizeChange = { sizeSp -> terminalFontSizeSp = sizeSp },
-                                            onSelectionChanged = { state -> selectionState = state },
-                                        )
+                                TerminalCanvas(
+                                    snapshot = snapshot,
+                                    fontSizeSp = terminalFontSizeSp,
+                                    minFontSizeSp = SettingsRepository.MIN_TERMINAL_FONT_SIZE,
+                                    maxFontSizeSp = SettingsRepository.MAX_TERMINAL_FONT_SIZE,
+                                    cursorColor =
+                                        ghosttyTheme?.cursorColor
+                                            ?: Color.White.copy(alpha = 0.28f),
+                                    cursorTextColor = ghosttyTheme?.cursorText,
+                                    selectionBackgroundColor =
+                                        ghosttyTheme?.selectionBackground
+                                            ?: colors.accent.copy(alpha = 0.45f),
+                                    selectionForegroundColor =
+                                        ghosttyTheme?.selectionForeground ?: colors.onAccent,
+                                    selection = selection,
+                                    onSelectionChange = { selection = it },
+                                    terminalHandle = sessionState.handle,
+                                    modifier = Modifier.fillMaxSize(),
+                                    onResize = vm::onCanvasSizeChanged,
+                                    onTap = requestInputFocus,
+                                    onPrimaryClick = vm::onPrimaryMouseClick,
+                                    onAppSelectionDrag = vm::onAppSelectionDrag,
+                                    onScroll = vm::onScroll,
+                                    onFontSizeChange = { sizeSp -> terminalFontSizeSp = sizeSp },
+                                    onSelectionChanged = { state -> selectionState = state },
+                                )
 
-                                        Row(
-                                            modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                        ) {
-                                            if (isReconnecting) {
+                                Row(
+                                    modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    if (isReconnecting) {
+                                        ChuText(
+                                            text =
+                                                if (sessionState.reconnectAttempt > 0) {
+                                                    stringResource(
+                                                        R.string.terminal_reconnecting_attempt,
+                                                        sessionState.reconnectAttempt,
+                                                    )
+                                                } else {
+                                                    stringResource(R.string.terminal_reconnecting)
+                                                },
+                                            style = typography.labelSmall,
+                                            color = colors.error,
+                                        )
+                                    }
+                                    if (multiplexerState.duplicateLoading) {
+                                        ChuText(
+                                            text = stringResource(R.string.terminal_preparing_mux),
+                                            style = typography.labelSmall,
+                                            color = colors.textMuted,
+                                        )
+                                    }
+                                    if (pwdText != null) {
+                                        ChuText(
+                                            text = pwdText,
+                                            style = typography.labelSmall,
+                                            color = colors.textPrimary.copy(alpha = 0.7f),
+                                        )
+                                    }
+                                }
+
+                                val selState = selectionState
+                                if (selState != null) {
+                                    val sel = selection
+                                    val isAnchorStart = sel != null && sel.anchorIndex <= sel.focusIndex
+                                    TerminalSelectionHandle(
+                                        tipX = selState.startOffset.x,
+                                        tipY = selState.startOffset.y + selState.cellHeightPx / 2f,
+                                        color = colors.accent,
+                                        borderColor = colors.background,
+                                        cellWidthPx = selState.cellWidthPx,
+                                        cellHeightPx = selState.cellHeightPx,
+                                        cols = selState.cols,
+                                        startCellProvider = {
+                                            val s = selection
+                                            if (s != null) minOf(s.anchorIndex, s.focusIndex) else 0
+                                        },
+                                        onDragToCell = { newCell ->
+                                            selection = selection?.withStart(newCell, updateAnchor = isAnchorStart)
+                                        },
+                                    )
+                                    TerminalSelectionHandle(
+                                        tipX = selState.endOffset.x,
+                                        tipY = selState.endOffset.y - selState.cellHeightPx / 2f,
+                                        color = colors.accent,
+                                        borderColor = colors.background,
+                                        cellWidthPx = selState.cellWidthPx,
+                                        cellHeightPx = selState.cellHeightPx,
+                                        cols = selState.cols,
+                                        startCellProvider = {
+                                            val s = selection
+                                            if (s != null) maxOf(s.anchorIndex, s.focusIndex) else 0
+                                        },
+                                        onDragToCell = { newCell ->
+                                            selection = selection?.withEnd(newCell, updateAnchor = !isAnchorStart)
+                                        },
+                                    )
+
+                                    val menuGapPx = with(density) { 8.dp.toPx() }
+                                    val selLeft = selState.boundsLeft
+                                    val selRight = selState.boundsRight
+                                    val selTop = selState.boundsTop
+                                    val selBottom = selState.boundsBottom
+                                    val centerX = (selLeft + selRight) / 2f
+                                    val menuWidth = menuSize.width.coerceAtLeast(1)
+                                    val menuHeight = menuSize.height.coerceAtLeast(1)
+                                    val maxMenuX = (selState.canvasWidthPx - menuWidth).coerceAtLeast(0)
+                                    val menuX = (centerX - menuWidth / 2f).toInt().coerceIn(0, maxMenuX)
+                                    val aboveY = (selTop - menuHeight - menuGapPx).toInt()
+                                    val belowY = (selBottom + menuGapPx).toInt()
+                                    val maxMenuY = (selState.canvasHeightPx - menuHeight).coerceAtLeast(0)
+                                    val menuY = if (aboveY >= 0) aboveY else belowY.coerceIn(0, maxMenuY)
+                                    Row(
+                                        modifier =
+                                            Modifier.offset { IntOffset(menuX, menuY) }
+                                                .onGloballyPositioned { menuSize = it.size }
+                                                .background(colors.background)
+                                                .border(1.dp, colors.border)
+                                                .padding(horizontal = 4.dp, vertical = 2.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        if (!selState.text.isNullOrEmpty()) {
+                                            ChuButton(
+                                                onClick = ::copySelection,
+                                                variant = ChuButtonVariant.Ghost,
+                                                bracketed = true,
+                                                borderColor = colors.textMuted,
+                                                contentPadding =
+                                                    PaddingValues(
+                                                        horizontal = 12.dp,
+                                                        vertical = 6.dp,
+                                                    ),
+                                            ) {
                                                 ChuText(
-                                                    text =
-                                                        "Reconnecting${sessionState.reconnectAttempt.takeIf { it > 0 }?.let { " ($it)" } ?: ""}",
-                                                    style = typography.labelSmall,
-                                                    color = colors.error,
-                                                )
-                                            }
-                                            if (multiplexerState.duplicateLoading) {
-                                                ChuText(
-                                                    text = "Preparing new multiplexer session...",
-                                                    style = typography.labelSmall,
+                                                    stringResource(R.string.action_copy),
+                                                    style = typography.label,
                                                     color = colors.textMuted,
                                                 )
                                             }
-                                            if (pwdText != null) {
-                                                ChuText(
-                                                    text = pwdText,
-                                                    style = typography.labelSmall,
-                                                    color = colors.textPrimary.copy(alpha = 0.7f),
-                                                )
-                                            }
                                         }
-
-                                        val selState = selectionState
-                                        if (selState != null) {
-                                            val sel = selection
-                                            val isAnchorStart = sel != null && sel.anchorIndex <= sel.focusIndex
-                                            TerminalSelectionHandle(
-                                                tipX = selState.startOffset.x,
-                                                tipY = selState.startOffset.y + selState.cellHeightPx / 2f,
-                                                color = colors.accent,
-                                                borderColor = colors.background,
-                                                cellWidthPx = selState.cellWidthPx,
-                                                cellHeightPx = selState.cellHeightPx,
-                                                cols = selState.cols,
-                                                startCellProvider = {
-                                                    val s = selection
-                                                    if (s != null) minOf(s.anchorIndex, s.focusIndex) else 0
-                                                },
-                                                onDragToCell = { newCell ->
-                                                    selection = selection?.withStart(newCell, updateAnchor = isAnchorStart)
-                                                },
-                                            )
-                                            TerminalSelectionHandle(
-                                                tipX = selState.endOffset.x,
-                                                tipY = selState.endOffset.y - selState.cellHeightPx / 2f,
-                                                color = colors.accent,
-                                                borderColor = colors.background,
-                                                cellWidthPx = selState.cellWidthPx,
-                                                cellHeightPx = selState.cellHeightPx,
-                                                cols = selState.cols,
-                                                startCellProvider = {
-                                                    val s = selection
-                                                    if (s != null) maxOf(s.anchorIndex, s.focusIndex) else 0
-                                                },
-                                                onDragToCell = { newCell ->
-                                                    selection = selection?.withEnd(newCell, updateAnchor = !isAnchorStart)
-                                                },
-                                            )
-
-                                            val menuGapPx = with(density) { 8.dp.toPx() }
-                                            val selLeft = selState.boundsLeft
-                                            val selRight = selState.boundsRight
-                                            val selTop = selState.boundsTop
-                                            val selBottom = selState.boundsBottom
-                                            val centerX = (selLeft + selRight) / 2f
-                                            val menuWidth = menuSize.width.coerceAtLeast(1)
-                                            val menuHeight = menuSize.height.coerceAtLeast(1)
-                                            val maxMenuX = (selState.canvasWidthPx - menuWidth).coerceAtLeast(0)
-                                            val menuX = (centerX - menuWidth / 2f).toInt().coerceIn(0, maxMenuX)
-                                            val aboveY = (selTop - menuHeight - menuGapPx).toInt()
-                                            val belowY = (selBottom + menuGapPx).toInt()
-                                            val maxMenuY = (selState.canvasHeightPx - menuHeight).coerceAtLeast(0)
-                                            val menuY = if (aboveY >= 0) aboveY else belowY.coerceIn(0, maxMenuY)
-                                            Row(
-                                                modifier =
-                                                    Modifier.offset { IntOffset(menuX, menuY) }
-                                                        .onGloballyPositioned { menuSize = it.size }
-                                                        .background(colors.background)
-                                                        .border(1.dp, colors.border)
-                                                        .padding(horizontal = 4.dp, vertical = 2.dp),
-                                                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                            ) {
-                                                if (!selState.text.isNullOrEmpty()) {
-                                                    ChuButton(
-                                                        onClick = ::copySelection,
-                                                        variant = ChuButtonVariant.Ghost,
-                                                        bracketed = true,
-                                                        borderColor = colors.textMuted,
-                                                        contentPadding =
-                                                            PaddingValues(
-                                                                horizontal = 12.dp,
-                                                                vertical = 6.dp,
-                                                            ),
-                                                    ) {
-                                                        ChuText(
-                                                            "copy",
-                                                            style = typography.label,
-                                                            color = colors.textMuted,
-                                                        )
-                                                    }
-                                                }
-                                                if (hasClipboardText) {
-                                                    ChuButton(
-                                                        onClick = { pasteClipboard() },
-                                                        variant = ChuButtonVariant.Ghost,
-                                                        bracketed = true,
-                                                        borderColor = colors.textMuted,
-                                                        contentPadding =
-                                                            PaddingValues(
-                                                                horizontal = 12.dp,
-                                                                vertical = 6.dp,
-                                                            ),
-                                                    ) {
-                                                        ChuText(
-                                                            "paste",
-                                                            style = typography.label,
-                                                            color = colors.textMuted,
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        AndroidView(
-                                            modifier =
-                                                Modifier.align(Alignment.BottomStart).size(1.dp).alpha(0f),
-                                            factory = { viewContext ->
-                                                TerminalInputView(viewContext)
-                                                    .apply {
-                                                        onTerminalText = { text ->
-                                                            if (!chuchuKeys.handleText(text)) {
-                                                                vm.dispatchTextWithModifierState(
-                                                                    text,
-                                                                    modifierState,
-                                                                )
-                                                            }
-                                                        }
-                                                        onTerminalKey = { key, codepoint, mods, action, charCode ->
-                                                            var shouldForwardToTerminal = true
-                                                            val overlayOpen = showTabSheet || showGlobalTabManager
-                                                            val overlayTabs = if (showGlobalTabManager) tabs else tabsForHost
-                                                            if (
-                                                                overlayOpen &&
-                                                                    overlayTabs.isEmpty() &&
-                                                                    action == GhosttyKeyAction.Press &&
-                                                                    key == TerminalSpecialKey.Escape.engineKey
-                                                            ) {
-                                                                showTabSheet = false
-                                                                showGlobalTabManager = false
-                                                                shouldForwardToTerminal = false
-                                                            } else if (overlayOpen && overlayTabs.isNotEmpty()) {
-                                                                var consumedByTabSwitcher = true
-                                                                val isPress =
-                                                                    action == GhosttyKeyAction.Press
-                                                                if (isPress && chuchuKeys.isPrefixActive) {
-                                                                    when (
-                                                                        codepoint.toChar().lowercaseChar()
-                                                                    ) {
-                                                                        'n' -> {
-                                                                            vm.duplicateActiveTab()
-                                                                            vm.selectConnectionTab(
-                                                                                ConnectionTab.Terminal
-                                                                            )
-                                                                            showTabSheet = false
-                                                                            showGlobalTabManager = false
-                                                                        }
-                                                                        't' -> {
-                                                                            if (tabMode == TerminalTabMode.Strip) {
-                                                                                showGlobalTabManager = true
-                                                                            } else {
-                                                                                showTabSheet = true
-                                                                            }
-                                                                        }
-                                                                        else -> {}
-                                                                    }
-                                                                    chuchuKeys.reset()
-                                                                    shouldForwardToTerminal = false
-                                                                    consumedByTabSwitcher = true
-                                                                }
-                                                                if (isPress) {
-                                                                    when (key) {
-                                                                        TerminalSpecialKey.Left.engineKey,
-                                                                        TerminalSpecialKey.Up.engineKey ->
-                                                                            focusedTabIndex =
-                                                                                (focusedTabIndex - 1).mod(
-                                                                                    overlayTabs.size
-                                                                                )
-
-                                                                        TerminalSpecialKey.Right.engineKey,
-                                                                        TerminalSpecialKey.Down.engineKey ->
-                                                                            focusedTabIndex =
-                                                                                (focusedTabIndex + 1).mod(
-                                                                                    overlayTabs.size
-                                                                                )
-
-                                                                        TerminalSpecialKey.Enter
-                                                                            .engineKey -> {
-                                                                            overlayTabs
-                                                                                .getOrNull(focusedTabIndex)
-                                                                                ?.let {
-                                                                                    vm.selectTab(it.id)
-                                                                                    showTabSheet = false
-                                                                                    showGlobalTabManager = false
-                                                                                }
-                                                                        }
-
-                                                                        TerminalSpecialKey.Escape
-                                                                            .engineKey -> {
-                                                                            showTabSheet = false
-                                                                            showGlobalTabManager = false
-                                                                        }
-
-                                                                        else ->
-                                                                            consumedByTabSwitcher = false
-                                                                    }
-                                                                }
-                                                                if (consumedByTabSwitcher) {
-                                                                    shouldForwardToTerminal = false
-                                                                }
-                                                            }
-                                                            if (shouldForwardToTerminal) {
-                                                                val mergedMods =
-                                                                    mods or modifierState.terminalMods()
-                                                                vm.onHardwareKey(
-                                                                    key,
-                                                                    codepoint,
-                                                                    mergedMods,
-                                                                    action,
-                                                                    charCode,
-                                                                )
-                                                            }
-                                                        }
-                                                        setOnFocusChangeListener { _, hasFocus ->
-                                                            vm.onFocusChanged(hasFocus)
-                                                            if (hasFocus) {
-                                                                showKeyboard(inputMethodManager)
-                                                            }
-                                                        }
-                                                    }
-                                                    .also { view -> inputViewRef.value = view }
-                                            },
-                                            update = { view ->
-                                                if (inputViewRef.value == null) {
-                                                    inputViewRef.value = view
-                                                }
-                                                view.disableAutocorrect = disableAutocorrect
-                                            },
-                                        )
-
-                                        if (currentTerminalCustomKeyGroups.isNotEmpty() &&
-                                            (showCustomActionsFab || fabFilteredActions != null)
-                                        ) {
-                                            TerminalCustomActionsFab(
-                                                groups = currentTerminalCustomKeyGroups,
-                                                onActionClick = { action ->
-                                                    val decoded = decodeCustomActionValue(action.payload)
-                                                    val rawText =
-                                                        decoded.text +
-                                                            if (
-                                                                CustomActionModifier.Enter in
-                                                                    decoded.modifiers
-                                                            )
-                                                                "\n"
-                                                            else ""
-                                                    val actionModifierState =
-                                                        modifierStateForCustomAction(decoded.modifiers)
-                                                    vm.dispatchTextWithModifierState(
-                                                        rawText,
-                                                        actionModifierState,
-                                                    )
-                                                    requestInputFocus()
-                                                },
-                                                modifier =
-                                                    Modifier.align(Alignment.BottomEnd)
-                                                        .padding(end = 14.dp, bottom = 12.dp),
-                                                filteredActions = fabFilteredActions,
-                                                onClearFilter = { fabFilteredActions = null },
-                                            )
-                                        }
-
-                                        androidx.compose.animation.AnimatedVisibility(
-                                            visible = chuchuKeys.isPrefixActive,
-                                            enter = fadeIn(),
-                                            exit = fadeOut(),
-                                            modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth(),
-                                        ) {
-                                            Row(
-                                                modifier =
-                                                    Modifier.fillMaxWidth()
-                                                        .padding(horizontal = 10.dp, vertical = 4.dp)
-                                                        .background(colors.surface)
-                                                        .border(1.dp, colors.border)
-                                                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
+                                        if (hasClipboardText) {
+                                            ChuButton(
+                                                onClick = { pasteClipboard() },
+                                                variant = ChuButtonVariant.Ghost,
+                                                bracketed = true,
+                                                borderColor = colors.textMuted,
+                                                contentPadding =
+                                                    PaddingValues(
+                                                        horizontal = 12.dp,
+                                                        vertical = 6.dp,
+                                                    ),
                                             ) {
                                                 ChuText(
-                                                    "⌘",
+                                                    stringResource(R.string.action_paste),
                                                     style = typography.label,
-                                                    color = colors.accent,
-                                                    modifier = Modifier.width(24.dp),
+                                                    color = colors.textMuted,
                                                 )
-                                                FlowRow(
-                                                    modifier = Modifier.weight(1f),
-                                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                                                ) {
-                                                    chuchuKeys.hints().forEach { hint ->
-                                                        ChuText(
-                                                            "${hint.key}: ${hint.description}",
-                                                            style = typography.labelSmall,
-                                                            color = colors.textSecondary,
+                                            }
+                                        }
+                                    }
+                                }
+
+                                AndroidView(
+                                    modifier =
+                                        Modifier.align(Alignment.BottomStart).size(1.dp).alpha(0f),
+                                    factory = { viewContext ->
+                                        TerminalInputView(viewContext)
+                                            .apply {
+                                                onTerminalText = { text ->
+                                                    if (!chuchuKeys.handleText(text)) {
+                                                        vm.dispatchTextWithModifierState(
+                                                            text,
+                                                            modifierState,
                                                         )
                                                     }
                                                 }
+                                                onTerminalKey = { key, codepoint, mods, action, charCode ->
+                                                    var shouldForwardToTerminal = true
+                                                    val overlayOpen = showTabSheet || showGlobalTabManager
+                                                    val overlayTabs = if (showGlobalTabManager) tabs else tabsForHost
+                                                    if (
+                                                        overlayOpen &&
+                                                            overlayTabs.isEmpty() &&
+                                                            action == GhosttyKeyAction.Press &&
+                                                            key == TerminalSpecialKey.Escape.engineKey
+                                                    ) {
+                                                        showTabSheet = false
+                                                        showGlobalTabManager = false
+                                                        shouldForwardToTerminal = false
+                                                    } else if (overlayOpen && overlayTabs.isNotEmpty()) {
+                                                        var consumedByTabSwitcher = true
+                                                        val isPress =
+                                                            action == GhosttyKeyAction.Press
+                                                        if (isPress && chuchuKeys.isPrefixActive) {
+                                                            when (
+                                                                codepoint.toChar().lowercaseChar()
+                                                            ) {
+                                                                'n' -> {
+                                                                    vm.duplicateActiveTab()
+                                                                    vm.selectConnectionTab(
+                                                                        ConnectionTab.Terminal
+                                                                    )
+                                                                    showTabSheet = false
+                                                                    showGlobalTabManager = false
+                                                                }
+                                                                't' -> {
+                                                                    if (tabMode == TerminalTabMode.Strip) {
+                                                                        showGlobalTabManager = true
+                                                                    } else {
+                                                                        showTabSheet = true
+                                                                    }
+                                                                }
+                                                                else -> {}
+                                                            }
+                                                            chuchuKeys.reset()
+                                                            shouldForwardToTerminal = false
+                                                            consumedByTabSwitcher = true
+                                                        }
+                                                        if (isPress) {
+                                                            when (key) {
+                                                                TerminalSpecialKey.Left.engineKey,
+                                                                TerminalSpecialKey.Up.engineKey ->
+                                                                    focusedTabIndex =
+                                                                        (focusedTabIndex - 1).mod(
+                                                                            overlayTabs.size
+                                                                        )
+
+                                                                TerminalSpecialKey.Right.engineKey,
+                                                                TerminalSpecialKey.Down.engineKey ->
+                                                                    focusedTabIndex =
+                                                                        (focusedTabIndex + 1).mod(
+                                                                            overlayTabs.size
+                                                                        )
+
+                                                                TerminalSpecialKey.Enter
+                                                                    .engineKey -> {
+                                                                    overlayTabs
+                                                                        .getOrNull(focusedTabIndex)
+                                                                        ?.let {
+                                                                            vm.selectTab(it.id)
+                                                                            showTabSheet = false
+                                                                            showGlobalTabManager = false
+                                                                        }
+                                                                }
+
+                                                                TerminalSpecialKey.Escape
+                                                                    .engineKey -> {
+                                                                    showTabSheet = false
+                                                                    showGlobalTabManager = false
+                                                                }
+
+                                                                else ->
+                                                                    consumedByTabSwitcher = false
+                                                            }
+                                                        }
+                                                        if (consumedByTabSwitcher) {
+                                                            shouldForwardToTerminal = false
+                                                        }
+                                                    }
+                                                    if (shouldForwardToTerminal) {
+                                                        val mergedMods =
+                                                            mods or modifierState.terminalMods()
+                                                        vm.onHardwareKey(
+                                                            key,
+                                                            codepoint,
+                                                            mergedMods,
+                                                            action,
+                                                            charCode,
+                                                        )
+                                                    }
+                                                }
+                                                setOnFocusChangeListener { _, hasFocus ->
+                                                    vm.onFocusChanged(hasFocus)
+                                                    if (hasFocus) {
+                                                        showKeyboard(inputMethodManager)
+                                                    }
+                                                }
+                                            }
+                                            .also { view -> inputViewRef.value = view }
+                                    },
+                                    update = { view ->
+                                        if (inputViewRef.value == null) {
+                                            inputViewRef.value = view
+                                        }
+                                        view.disableAutocorrect = disableAutocorrect
+                                    },
+                                )
+
+                                if (currentTerminalCustomKeyGroups.isNotEmpty() &&
+                                    (showCustomActionsFab || fabFilteredActions != null)
+                                ) {
+                                    TerminalCustomActionsFab(
+                                        groups = currentTerminalCustomKeyGroups,
+                                        onActionClick = { action ->
+                                            val decoded = decodeCustomActionValue(action.payload)
+                                            val rawText =
+                                                decoded.text +
+                                                    if (
+                                                        CustomActionModifier.Enter in
+                                                            decoded.modifiers
+                                                    )
+                                                        "\n"
+                                                    else ""
+                                            val actionModifierState =
+                                                modifierStateForCustomAction(decoded.modifiers)
+                                            vm.dispatchTextWithModifierState(
+                                                rawText,
+                                                actionModifierState,
+                                            )
+                                            requestInputFocus()
+                                        },
+                                        modifier =
+                                            Modifier.align(Alignment.BottomEnd)
+                                                .padding(end = 14.dp, bottom = 12.dp),
+                                        filteredActions = fabFilteredActions,
+                                        onClearFilter = { fabFilteredActions = null },
+                                    )
+                                }
+
+                                androidx.compose.animation.AnimatedVisibility(
+                                    visible = chuchuKeys.isPrefixActive,
+                                    enter = fadeIn(),
+                                    exit = fadeOut(),
+                                    modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth(),
+                                ) {
+                                    Row(
+                                        modifier =
+                                            Modifier.fillMaxWidth()
+                                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                                                .background(colors.surface)
+                                                .border(1.dp, colors.border)
+                                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        ChuText(
+                                            "⌘",
+                                            style = typography.label,
+                                            color = colors.accent,
+                                            modifier = Modifier.width(24.dp),
+                                        )
+                                        FlowRow(
+                                            modifier = Modifier.weight(1f),
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                                        ) {
+                                            chuchuKeys.hints().forEach { hint ->
+                                                ChuText(
+                                                    "${hint.key}: ${hint.description}",
+                                                    style = typography.labelSmall,
+                                                    color = colors.textSecondary,
+                                                )
                                             }
                                         }
+                                    }
                                 }
+                            }
                             }
                             Box(modifier = Modifier.weight(1f)) {
                                 val pluginSession = activePluginSession
@@ -1975,9 +2036,9 @@ fun TerminalScreen(
                             val hostForMessage = activeTab?.spec?.tabLabel?.let { " $it" } ?: ""
                             val message =
                                 if (isReconnecting) {
-                                    "Reconnecting to${hostForMessage}..."
+                                    stringResource(R.string.terminal_reconnecting_to, hostForMessage)
                                 } else {
-                                    "Preparing terminal..."
+                                    stringResource(R.string.terminal_preparing)
                                 }
                             ChuText(message, style = typography.body)
                         }
@@ -1990,9 +2051,9 @@ fun TerminalScreen(
                         val hostForMessage = activeTabForHost?.spec?.host?.let { " $it" } ?: ""
                         val message =
                             if (isReconnecting) {
-                                "Reconnecting to${hostForMessage}..."
+                                stringResource(R.string.terminal_reconnecting_to, hostForMessage)
                             } else {
-                                "Preparing terminal..."
+                                stringResource(R.string.terminal_preparing)
                             }
                         ChuText(message, style = typography.body)
                     }
@@ -2041,7 +2102,7 @@ fun TerminalScreen(
 private fun TerminalRecoveryActions(
     message: String,
     isMultiplexerPreflight: Boolean,
-    dismissMultiplexerLabel: String = "back",
+    dismissMultiplexerLabel: String? = null,
     onRetryMultiplexer: () -> Unit,
     onConnectWithoutMultiplexer: () -> Unit,
     onBack: () -> Unit,
@@ -2058,7 +2119,11 @@ private fun TerminalRecoveryActions(
                 modifier = Modifier.fillMaxWidth(),
                 variant = ChuButtonVariant.Filled,
             ) {
-                ChuText("retry multiplexer", style = typography.label, color = colors.onAccent)
+                ChuText(
+                    stringResource(R.string.terminal_retry_multiplexer),
+                    style = typography.label,
+                    color = colors.onAccent,
+                )
             }
             Spacer(modifier = Modifier.height(8.dp))
             ChuButton(
@@ -2067,7 +2132,10 @@ private fun TerminalRecoveryActions(
                 variant = ChuButtonVariant.Outlined,
                 bracketed = true,
             ) {
-                ChuText("connect without multiplexer", style = typography.label)
+                ChuText(
+                    stringResource(R.string.terminal_connect_without_mux),
+                    style = typography.label,
+                )
             }
             Spacer(modifier = Modifier.height(8.dp))
             ChuButton(
@@ -2077,7 +2145,11 @@ private fun TerminalRecoveryActions(
                 bracketed = true,
                 borderColor = colors.textMuted,
             ) {
-                ChuText(dismissMultiplexerLabel, style = typography.label, color = colors.textMuted)
+                ChuText(
+                    dismissMultiplexerLabel ?: stringResource(R.string.action_back),
+                    style = typography.label,
+                    color = colors.textMuted,
+                )
             }
         } else {
             ChuButton(
@@ -2085,7 +2157,11 @@ private fun TerminalRecoveryActions(
                 modifier = Modifier.fillMaxWidth(),
                 variant = ChuButtonVariant.Filled,
             ) {
-                ChuText("Retry", style = typography.label, color = colors.onAccent)
+                ChuText(
+                    stringResource(R.string.action_retry),
+                    style = typography.label,
+                    color = colors.onAccent,
+                )
             }
         }
     }
@@ -2130,7 +2206,12 @@ private fun UploadProgressDialog(progress: UploadProgress) {
 
             if (progress.totalFiles > 1) {
                 ChuText(
-                    text = "file ${progress.fileIndex + 1} of ${progress.totalFiles}",
+                    text =
+                        stringResource(
+                            R.string.terminal_file_progress,
+                            progress.fileIndex + 1,
+                            progress.totalFiles,
+                        ),
                     style = typography.labelSmall,
                     color = colors.textMuted,
                 )

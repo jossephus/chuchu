@@ -23,8 +23,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.jossephus.chuchu.R
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
@@ -51,14 +54,18 @@ fun KeysContent(vm: KeysViewModel, modifier: Modifier = Modifier) {
         vm.events.collect { event ->
             when (event) {
                 is KeysEvent.Generated ->
-                    Toast.makeText(context, "generated ${event.name}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.keys_event_generated, event.name),
+                        Toast.LENGTH_SHORT,
+                    ).show()
                 is KeysEvent.Imported -> {
                     showImportDialog = false
                     val msg =
                         if (event.publicKeyDerived) {
-                            "imported ${event.name}"
+                            context.getString(R.string.keys_event_imported, event.name)
                         } else {
-                            "imported ${event.name} (public key unavailable for this format)"
+                            context.getString(R.string.keys_event_imported_partial, event.name)
                         }
                     Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                 }
@@ -68,13 +75,21 @@ fun KeysContent(vm: KeysViewModel, modifier: Modifier = Modifier) {
                     Toast.makeText(context, event.message, Toast.LENGTH_SHORT).show()
                 KeysEvent.Renamed -> {
                     renameTarget = null
-                    Toast.makeText(context, "key renamed", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.keys_event_renamed),
+                        Toast.LENGTH_SHORT,
+                    ).show()
                 }
                 is KeysEvent.RenameFailed ->
                     Toast.makeText(context, event.message, Toast.LENGTH_SHORT).show()
                 KeysEvent.Deleted -> {
                     deleteTarget = null
-                    Toast.makeText(context, "key deleted", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.keys_event_deleted),
+                        Toast.LENGTH_SHORT,
+                    ).show()
                 }
             }
         }
@@ -91,7 +106,11 @@ fun KeysContent(vm: KeysViewModel, modifier: Modifier = Modifier) {
                 bracketed = true,
                 modifier = Modifier.weight(1f),
             ) {
-                ChuText("+ generate key", style = typography.label, color = colors.accent)
+                ChuText(
+                    stringResource(R.string.keys_generate),
+                    style = typography.label,
+                    color = colors.accent,
+                )
             }
             ChuButton(
                 onClick = { showImportDialog = true },
@@ -99,13 +118,17 @@ fun KeysContent(vm: KeysViewModel, modifier: Modifier = Modifier) {
                 bracketed = true,
                 modifier = Modifier.weight(1f),
             ) {
-                ChuText("import key", style = typography.label, color = colors.accent)
+                ChuText(
+                    stringResource(R.string.keys_import),
+                    style = typography.label,
+                    color = colors.accent,
+                )
             }
         }
 
         if (state.keys.isEmpty()) {
             ChuText(
-                text = "No SSH keys yet. Generate one here, or from a server's key auth section.",
+                text = stringResource(R.string.keys_empty),
                 style = typography.bodySmall,
                 color = colors.textMuted,
             )
@@ -193,18 +216,27 @@ private fun KeyCard(item: KeyListItem, onRename: () -> Unit, onDelete: () -> Uni
                     bracketed = true,
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                 ) {
-                    ChuText("rename", style = typography.label, color = colors.textSecondary)
+                    ChuText(stringResource(R.string.action_rename), style = typography.label, color = colors.textSecondary)
                 }
                 ChuButton(
                     onClick = {
-                        clipboard.setPrimaryClip(ClipData.newPlainText("SSH Public Key", key.publicKeyOpenSsh))
-                        Toast.makeText(context, "public key copied", Toast.LENGTH_SHORT).show()
+                        clipboard.setPrimaryClip(
+                            ClipData.newPlainText(
+                                context.getString(R.string.add_server_clipboard_label),
+                                key.publicKeyOpenSsh,
+                            )
+                        )
+                        Toast.makeText(
+                            context,
+                            context.getString(R.string.keys_public_key_copied),
+                            Toast.LENGTH_SHORT,
+                        ).show()
                     },
                     variant = ChuButtonVariant.Ghost,
                     bracketed = true,
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                 ) {
-                    ChuText("copy", style = typography.label, color = colors.textSecondary)
+                    ChuText(stringResource(R.string.action_copy), style = typography.label, color = colors.textSecondary)
                 }
                 ChuButton(
                     onClick = onDelete,
@@ -213,7 +245,7 @@ private fun KeyCard(item: KeyListItem, onRename: () -> Unit, onDelete: () -> Uni
                     borderColor = colors.error,
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                 ) {
-                    ChuText("delete", style = typography.label, color = colors.error)
+                    ChuText(stringResource(R.string.action_delete), style = typography.label, color = colors.error)
                 }
             }
         }
@@ -224,12 +256,17 @@ private fun KeyCard(item: KeyListItem, onRename: () -> Unit, onDelete: () -> Uni
 private fun GenerateKeyDialog(onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
     var name by remember { mutableStateOf("android-ed25519") }
     ChuDialog(
-        title = "generate key",
-        confirmLabel = "generate",
+        title = stringResource(R.string.keys_generate_title),
+        confirmLabel = stringResource(R.string.action_generate),
         onConfirm = { onConfirm(name) },
         onDismiss = onDismiss,
     ) {
-        ChuTextField(value = name, onValueChange = { name = it }, label = "name", singleLine = true)
+        ChuTextField(
+            value = name,
+            onValueChange = { name = it },
+            label = stringResource(R.string.field_name),
+            singleLine = true,
+        )
     }
 }
 
@@ -253,15 +290,19 @@ private fun ImportKeyDialog(onConfirm: (String, String) -> Unit, onDismiss: () -
                     }
                     .getOrNull()
             if (content.isNullOrBlank()) {
-                Toast.makeText(context, "Couldn't read that file", Toast.LENGTH_SHORT).show()
+                Toast.makeText(
+                    context,
+                    context.getString(R.string.keys_import_read_failed),
+                    Toast.LENGTH_SHORT,
+                ).show()
             } else {
                 privateKey = content
             }
         }
 
     ChuDialog(
-        title = "import key",
-        confirmLabel = "import",
+        title = stringResource(R.string.keys_import),
+        confirmLabel = stringResource(R.string.action_import),
         onConfirm = { onConfirm(name, privateKey) },
         onDismiss = onDismiss,
     ) {
@@ -269,7 +310,7 @@ private fun ImportKeyDialog(onConfirm: (String, String) -> Unit, onDismiss: () -
             ChuTextField(
                 value = name,
                 onValueChange = { name = it },
-                label = "name",
+                label = stringResource(R.string.field_name),
                 singleLine = true,
                 autoFocus = false,
             )
@@ -279,21 +320,29 @@ private fun ImportKeyDialog(onConfirm: (String, String) -> Unit, onDismiss: () -
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                ChuText("private key", style = typography.labelSmall, color = colors.textMuted)
+                ChuText(
+                    stringResource(R.string.keys_private_key),
+                    style = typography.labelSmall,
+                    color = colors.textMuted,
+                )
                 ChuButton(
                     onClick = { fileLauncher.launch(arrayOf("*/*")) },
                     variant = ChuButtonVariant.Ghost,
                     bracketed = true,
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                 ) {
-                    ChuText("choose file", style = typography.labelSmall, color = colors.accent)
+                    ChuText(
+                        stringResource(R.string.keys_choose_file),
+                        style = typography.labelSmall,
+                        color = colors.accent,
+                    )
                 }
             }
             Spacer(modifier = Modifier.height(4.dp))
             ChuTextField(
                 value = privateKey,
                 onValueChange = { privateKey = it },
-                label = "private key",
+                label = stringResource(R.string.keys_private_key),
                 placeholder = "-----BEGIN OPENSSH PRIVATE KEY-----",
                 singleLine = false,
                 showLabel = false,
@@ -302,7 +351,7 @@ private fun ImportKeyDialog(onConfirm: (String, String) -> Unit, onDismiss: () -
             Spacer(modifier = Modifier.height(6.dp))
             ChuText(
                 text =
-                    "paste or choose an OpenSSH private key. add a passphrase on the server if it's encrypted.",
+                    stringResource(R.string.keys_import_hint),
                 style = typography.bodySmall,
                 color = colors.textMuted,
             )
@@ -318,12 +367,17 @@ private fun RenameKeyDialog(
 ) {
     var name by remember { mutableStateOf(currentName) }
     ChuDialog(
-        title = "rename key",
-        confirmLabel = "rename",
+        title = stringResource(R.string.keys_rename_title),
+        confirmLabel = stringResource(R.string.action_rename),
         onConfirm = { onConfirm(name) },
         onDismiss = onDismiss,
     ) {
-        ChuTextField(value = name, onValueChange = { name = it }, label = "name", singleLine = true)
+        ChuTextField(
+            value = name,
+            onValueChange = { name = it },
+            label = stringResource(R.string.field_name),
+            singleLine = true,
+        )
     }
 }
 
@@ -332,22 +386,25 @@ private fun DeleteKeyDialog(item: KeyListItem, onConfirm: () -> Unit, onDismiss:
     val colors = ChuColors.current
     val typography = ChuTypography.current
     ChuDialog(
-        title = "delete key",
-        confirmLabel = "delete",
+        title = stringResource(R.string.keys_delete_title),
+        confirmLabel = stringResource(R.string.action_delete),
         onConfirm = onConfirm,
         onDismiss = onDismiss,
     ) {
         Column {
             ChuText(
-                text = "Delete \"${item.key.name}\"? This can't be undone.",
+                text = stringResource(R.string.keys_delete_confirm, item.key.name),
                 style = typography.body,
             )
             if (item.usedByServers > 0) {
                 Spacer(modifier = Modifier.height(8.dp))
                 ChuText(
                     text =
-                        "${item.usedByServers} server${if (item.usedByServers == 1) "" else "s"} " +
-                            "using this key will need auth updated before connecting again.",
+                        pluralStringResource(
+                            R.plurals.keys_delete_in_use,
+                            item.usedByServers,
+                            item.usedByServers,
+                        ),
                     style = typography.bodySmall,
                     color = colors.warning,
                 )

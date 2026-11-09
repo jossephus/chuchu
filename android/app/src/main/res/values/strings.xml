@@ -1,3 +1,469 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">chuchu</string>
+
+    <!-- Shared actions -->
+    <string name="action_manage">manage</string>
+    <string name="action_filter">filter</string>
+    <string name="action_open">open</string>
+    <string name="action_cancel">cancel</string>
+    <string name="action_delete">delete</string>
+    <string name="action_edit">edit</string>
+    <string name="action_connect">connect</string>
+    <string name="action_disconnect">disconnect</string>
+    <string name="action_save">save</string>
+    <string name="action_clear">clear</string>
+    <string name="action_copy">copy</string>
+    <string name="action_download">download</string>
+    <string name="action_customize">customize</string>
+    <string name="action_reset">reset</string>
+    <string name="action_export">export</string>
+    <string name="action_back">back</string>
+    <string name="action_paste">paste</string>
+    <string name="action_accept">Accept</string>
+    <string name="action_reject">Reject</string>
+    <string name="action_retry">Retry</string>
+    <string name="action_dismiss">dismiss</string>
+    <string name="action_add">add</string>
+    <string name="action_confirm_import">confirm import</string>
+    <string name="action_rename">rename</string>
+    <string name="action_generate">generate</string>
+    <string name="action_import">import</string>
+
+    <!-- Shared field labels -->
+    <string name="field_name">Name</string>
+    <string name="field_host">Host</string>
+    <string name="field_port">Port</string>
+    <string name="field_username">Username</string>
+    <string name="field_password">Password</string>
+    <string name="field_passphrase">Passphrase</string>
+
+    <!-- Shared section headers -->
+    <string name="section_connection">CONNECTION</string>
+    <string name="section_transport">TRANSPORT</string>
+    <string name="section_authentication">AUTHENTICATION</string>
+    <string name="section_session_persistence">SESSION PERSISTENCE</string>
+    <string name="section_plugins">PLUGINS</string>
+    <string name="add_server_pairing_invalid">That QR code is not a %1$s pairing code</string>
+    <string name="add_server_transport_unavailable">The \'%1$s\' transport plugin isn\'t available. Enable it under Settings › plugins.</string>
+    <string name="add_server_scan_pairing">scan pairing qr code</string>
+    <string name="add_server_scan_again">scan again</string>
+    <string name="add_server_connects_to">connects to %1$s</string>
+    <string name="add_server_invalid_address">not a %1$s address</string>
+    <string name="add_server_multiplexer_missing">%1$s (missing)</string>
+
+    <!-- Shared option labels -->
+    <string name="auth_password">password</string>
+    <string name="auth_ssh_key">ssh key</string>
+    <string name="auth_none">none</string>
+    <string name="label_off">off</string>
+
+    <!-- Shared dialogs -->
+    <string name="dialog_dismiss">Cancel</string>
+    <string name="dialog_confirm_connect">Connect</string>
+    <string name="dialog_confirm_disconnect">Disconnect</string>
+    <string name="dialog_confirm_delete">Delete</string>
+
+    <!-- Badges -->
+    <string name="badge_android">android</string>
+    <string name="badge_tailscale">tailscale</string>
+
+    <!-- Server list -->
+    <string name="server_list_filter_placeholder">filter hosts</string>
+    <string name="server_list_header_hosts">HOSTS</string>
+    <string name="server_list_no_hosts_match">no hosts match</string>
+    <string name="server_list_disconnect_before_delete">Disconnect before deleting this host</string>
+    <string name="server_list_add_server">+ add server</string>
+    <string name="server_list_disconnect_title">Disconnect %1$s?</string>
+    <plurals name="server_list_disconnect_body">
+        <item quantity="one">This closes %1$d session on this host.</item>
+        <item quantity="other">This closes %1$d sessions on this host.</item>
+    </plurals>
+    <string name="server_list_empty_title"># no hosts configured</string>
+    <string name="server_list_empty_hint">add your first host to connect quickly.</string>
+    <string name="server_list_local_shell">local shell</string>
+    <string name="server_list_local_shell_subtitle">&gt; this device · app sandbox</string>
+    <string name="server_list_cd_open_local_shell">Open local shell</string>
+    <string name="server_list_swipe_disconnect">[disconnect]</string>
+    <string name="server_list_cd_connect_to">Connect to %1$s</string>
+    <string name="server_list_cd_disconnect_from">Disconnect from %1$s</string>
+
+    <!-- Add / edit server -->
+    <string name="add_server_title_edit">edit server</string>
+    <string name="add_server_title_new">add server</string>
+    <string name="add_server_name_placeholder">My server</string>
+    <string name="add_server_tailscale_hint">Connects through the Tailscale network. Use the host\'s Tailscale IP (100.x.x.x) or MagicDNS name.</string>
+    <string name="add_server_ssh_key_only_hint">no SSH auth uses Tailscale SSH policy (`tailscale up --ssh`) on the server. connect through Tailscale SSH instead of regular sshd credentials.</string>
+    <string name="add_server_no_public_key">No public key available</string>
+    <string name="add_server_public_key_copied">Public key copied</string>
+    <string name="add_server_clipboard_label">SSH Public Key</string>
+    <string name="add_server_set_passphrase">set passphrase</string>
+    <string name="add_server_additional_settings">additional settings</string>
+    <string name="add_server_require_biometric">require biometric auth</string>
+    <string name="add_server_test_idle">test connection</string>
+    <string name="add_server_test_running">testing…</string>
+    <string name="add_server_test_success">connected</string>
+    <string name="add_server_test_connected_message">Connected</string>
+    <string name="add_server_test_error">test failed</string>
+    <string name="add_server_copy_public_key">copy public key</string>
+    <string name="add_server_new_key">new key</string>
+    <string name="add_server_generate_key">generate key</string>
+    <string name="add_server_generate_key_hint">generate an Ed25519 key, then copy the public key to ~/.ssh/authorized_keys on the remote host.</string>
+    <string name="add_server_change_key">change key</string>
+    <string name="add_server_use_existing_key">use existing key</string>
+    <string name="add_server_autorun">auto-run on connect</string>
+    <string name="add_server_autorun_placeholder">e.g. tmux attach -t main</string>
+
+    <!-- SSH keys -->
+    <string name="keys_generate">+ generate key</string>
+    <string name="keys_generate_title">generate key</string>
+    <string name="keys_import">import key</string>
+    <string name="keys_empty">No SSH keys yet. Generate one here, or from a server\'s key auth section.</string>
+    <string name="keys_private_key">private key</string>
+    <string name="keys_choose_file">choose file</string>
+    <string name="keys_import_hint">paste or choose an OpenSSH private key. add a passphrase on the server if it\'s encrypted.</string>
+    <string name="keys_import_read_failed">Couldn\'t read that file</string>
+    <string name="keys_public_key_copied">public key copied</string>
+    <string name="keys_rename_title">rename key</string>
+    <string name="keys_delete_title">delete key</string>
+    <string name="keys_delete_confirm">Delete &quot;%1$s&quot;? This can\'t be undone.</string>
+    <plurals name="keys_delete_in_use">
+        <item quantity="one">%1$d server using this key will need auth updated before connecting again.</item>
+        <item quantity="other">%1$d servers using this key will need auth updated before connecting again.</item>
+    </plurals>
+    <string name="keys_event_generated">generated %1$s</string>
+    <string name="keys_event_imported">imported %1$s</string>
+    <string name="keys_event_imported_partial">imported %1$s (public key unavailable for this format)</string>
+    <string name="keys_event_renamed">key renamed</string>
+    <string name="keys_event_deleted">key deleted</string>
+
+    <!-- File browser -->
+    <string name="files_filter_placeholder">filter...</string>
+    <string name="files_loading">Loading...</string>
+    <string name="files_empty_directory">Empty directory</string>
+    <string name="files_no_matches">No matches</string>
+    <string name="files_error_list_directory">Failed to list directory</string>
+
+    <!-- SSH backup -->
+    <string name="backup_subtitle_overview">Backup your SSH keys and server profiles.</string>
+    <string name="backup_subtitle_export">Create an encrypted backup file.</string>
+    <string name="backup_subtitle_import">Restore from an encrypted backup file.</string>
+    <string name="backup_subtitle_preview">Review what will be imported.</string>
+    <string name="backup_working">Working…</string>
+    <string name="backup_key_details_title">ssh key details</string>
+    <string name="backup_configured_keys">configured keys:</string>
+    <string name="backup_no_keys">No SSH keys configured yet. Add keys in a server profile.</string>
+    <string name="backup_include_warning">Backups include all private keys, passwords, and passphrases inside an encrypted file.</string>
+    <string name="backup_view">view</string>
+    <string name="backup_key_name">name</string>
+    <string name="backup_public_key">public key</string>
+    <string name="backup_copy_public">copy public</string>
+    <string name="backup_encryption_passphrase">encryption passphrase</string>
+    <string name="backup_passphrase_min_placeholder">at least %1$d characters</string>
+    <string name="backup_confirm_passphrase">confirm passphrase</string>
+    <string name="backup_reenter_passphrase">re-enter passphrase</string>
+    <string name="backup_passphrase_too_short">Passphrase must be at least %1$d characters.</string>
+    <string name="backup_passphrase_mismatch">Passphrases do not match.</string>
+    <string name="backup_export_hint">You will be prompted to choose a save location and verify your identity.</string>
+    <string name="backup_import_passphrase">backup passphrase</string>
+    <string name="backup_import_passphrase_placeholder">passphrase used during export</string>
+    <string name="backup_import_hint">You will be prompted to select a backup file and verify your identity.</string>
+    <string name="backup_import_summary">import summary</string>
+    <string name="backup_summary_nothing">Nothing to import</string>
+    <plurals name="backup_summary_new_keys">
+        <item quantity="one">%1$d new key</item>
+        <item quantity="other">%1$d new keys</item>
+    </plurals>
+    <plurals name="backup_summary_reused_keys">
+        <item quantity="one">%1$d existing key reused</item>
+        <item quantity="other">%1$d existing keys reused</item>
+    </plurals>
+    <plurals name="backup_summary_renamed_keys">
+        <item quantity="one">%1$d key renamed</item>
+        <item quantity="other">%1$d keys renamed</item>
+    </plurals>
+    <plurals name="backup_summary_hosts">
+        <item quantity="one">%1$d host</item>
+        <item quantity="other">%1$d hosts</item>
+    </plurals>
+    <plurals name="backup_summary_renamed_hosts">
+        <item quantity="one">%1$d host renamed</item>
+        <item quantity="other">%1$d hosts renamed</item>
+    </plurals>
+    <string name="backup_reused_keys_header">reused keys:</string>
+    <string name="backup_new_keys_header">new keys:</string>
+    <string name="backup_renamed_suffix"> (renamed)</string>
+    <string name="backup_hosts_to_add">hosts to add:</string>
+    <string name="backup_renamed_hosts">renamed hosts:</string>
+    <string name="backup_host_conflict_resolved">%1$s (conflict resolved)</string>
+    <string name="backup_summary_note">Existing data will not be overwritten. Conflicting names will be auto-renamed.</string>
+
+    <!-- Identity verification prompts -->
+    <string name="verification_export_title">Export SSH backup</string>
+    <string name="verification_export_subtitle">Authenticate to create an encrypted backup</string>
+    <string name="verification_import_title">Import SSH backup</string>
+    <string name="verification_import_subtitle">Authenticate to restore an encrypted backup</string>
+    <string name="verification_local_shell_title">Verify to open local shell</string>
+    <string name="verification_local_shell_subtitle">Authenticate to open this device shell</string>
+    <string name="verification_connect_title">Verify to connect</string>
+    <string name="verification_connect_subtitle">Authenticate to open this server session</string>
+    <string name="verification_unlock_title">Unlock Chuchu</string>
+    <string name="verification_unlock_subtitle">Authenticate to continue</string>
+
+    <!-- Tabs -->
+    <string name="tabs_header">tabs</string>
+    <string name="tab_new">+ new</string>
+    <string name="tabs_all">all tabs</string>
+    <string name="tabs_new_connection">new connection</string>
+    <string name="tabs_new_connection_row">+ new connection</string>
+    <string name="tabs_empty">no terminal sessions</string>
+    <string name="tabs_duplicate">dup</string>
+    <string name="tabs_state_active">active</string>
+    <string name="tabs_state_inactive">inactive</string>
+    <string name="tabs_cd_close_manager">close tab manager</string>
+    <string name="tabs_cd_duplicate">duplicate %1$s</string>
+    <string name="tabs_cd_close">close %1$s</string>
+    <plurals name="tabs_session_count">
+        <item quantity="one">%1$d session</item>
+        <item quantity="other">%1$d sessions</item>
+    </plurals>
+    <string name="action_close">close</string>
+    <string name="session_status_connected">connected</string>
+    <string name="session_status_connecting">connecting</string>
+    <string name="session_status_reconnecting">reconnecting</string>
+    <string name="session_status_disconnected">disconnected</string>
+    <string name="session_status_error">error</string>
+
+    <!-- Builtin chuchu commands -->
+    <string name="builtin_tabs_label">tabs</string>
+    <string name="builtin_tabs_description">show tab manager</string>
+    <string name="builtin_new_tab_label">new tab</string>
+    <string name="builtin_new_tab_description">open a new tab</string>
+    <string name="builtin_actions_label">actions</string>
+    <string name="builtin_actions_description">toggle floating custom actions button</string>
+    <string name="builtin_settings_label">settings</string>
+    <string name="builtin_settings_description">open settings</string>
+    <string name="builtin_close_label">close</string>
+    <string name="builtin_close_description">close the active tab</string>
+
+    <!-- Multiplexer session panel -->
+    <string name="mux_sessions">multiplexer sessions</string>
+    <string name="mux_refresh">refresh</string>
+    <string name="mux_new">new</string>
+    <string name="mux_attached">attached</string>
+    <string name="mux_attach">attach</string>
+    <string name="session_browser_connecting">connecting to %1$s…</string>
+    <string name="session_browser_empty">no sessions yet.</string>
+    <string name="session_browser_new">new session</string>
+    <string name="session_browser_retry">retry</string>
+    <string name="session_browser_refresh">refresh</string>
+    <string name="session_browser_host_missing">This server no longer exists</string>
+    <string name="session_browser_connect_failed">Could not connect</string>
+    <string name="session_browser_new_item">New pane in %1$s</string>
+    <string name="session_browser_expand">Expand %1$s</string>
+    <string name="session_browser_collapse">Collapse %1$s</string>
+
+    <!-- Terminal session -->
+    <string name="terminal_new_session_on">new session on %1$s</string>
+    <string name="terminal_current_host">current host</string>
+    <string name="terminal_key_passphrase">Key passphrase</string>
+    <string name="terminal_files_unsupported">Files are not supported for local shell</string>
+    <string name="terminal_connection_failed">Connection failed</string>
+    <string name="terminal_hostkey_title">Verify host key</string>
+    <string name="terminal_hostkey_host">Host: %1$s:%2$s</string>
+    <string name="terminal_hostkey_algorithm">Algorithm: %1$s</string>
+    <string name="terminal_hostkey_changed_warning">WARNING: host key changed!</string>
+    <string name="terminal_hostkey_old">Old: %1$s</string>
+    <string name="terminal_hostkey_new">New: %1$s</string>
+    <string name="terminal_clipboard_selection_label">terminal selection</string>
+    <string name="terminal_clipboard_path_label">path</string>
+    <string name="terminal_copied_selection">Copied selection</string>
+    <string name="terminal_copied_path">Copied path</string>
+    <string name="terminal_open_with">Open with</string>
+    <string name="terminal_open_failed">Open failed: %1$s</string>
+    <string name="terminal_download_failed">Download failed: %1$s</string>
+    <string name="terminal_downloaded">Downloaded %1$s</string>
+    <plurals name="terminal_uploaded_files">
+        <item quantity="one">Uploaded %1$d file</item>
+        <item quantity="other">Uploaded %1$d files</item>
+    </plurals>
+    <string name="terminal_uploaded_some_failed_reason">Uploaded %1$d, %2$d failed: %3$s</string>
+    <string name="terminal_uploaded_some_failed">Uploaded %1$d, %2$d failed</string>
+    <string name="terminal_delete_file_title">Delete %1$s?</string>
+    <string name="terminal_deleted_file">Deleted %1$s</string>
+    <string name="terminal_delete_failed">Delete failed: %1$s</string>
+    <string name="terminal_delete_warning">This action cannot be undone.</string>
+    <string name="terminal_preparing_mux">Preparing new multiplexer session…</string>
+    <string name="terminal_reconnecting_to">Reconnecting to%1$s…</string>
+    <string name="terminal_preparing">Preparing terminal…</string>
+    <string name="terminal_retry_multiplexer">retry multiplexer</string>
+    <string name="terminal_connect_without_mux">connect without multiplexer</string>
+    <string name="terminal_file_progress">file %1$d of %2$d</string>
+    <string name="terminal_error_create_mux">Could not create multiplexer session</string>
+    <string name="terminal_error_prepare_mux">Could not prepare multiplexer session</string>
+    <string name="terminal_error_list_sessions">Failed to list sessions</string>
+    <string name="terminal_connecting_to">Connecting to %1$s</string>
+    <string name="terminal_unknown_server">server</string>
+    <string name="terminal_reconnecting">Reconnecting</string>
+    <string name="terminal_reconnecting_attempt">Reconnecting (%1$d)</string>
+    <string name="terminal_endpoint_local_shell">this device · app sandbox</string>
+    <string name="terminal_error_mosh_unsupported">%1$s is not supported for Mosh connections</string>
+    <string name="terminal_error_transport_unsupported">%1$s is not supported for %2$s connections</string>
+    <string name="terminal_error_multiplexer_unsupported">%1$s is not supported yet</string>
+    <string name="terminal_error_session_gone">Terminal session is no longer available</string>
+    <string name="terminal_error_session_list_stale">Session list is stale. Refresh sessions and try again.</string>
+
+    <!-- Session foreground notification -->
+    <string name="notification_channel_name">SSH sessions</string>
+    <string name="notification_channel_description">Keeps active terminal sessions alive</string>
+    <string name="notification_title">Chuchu connected</string>
+    <string name="notification_default_label">Active session</string>
+    <string name="notification_action_disconnect">Disconnect</string>
+
+    <!-- Backup / key errors surfaced from view models -->
+    <string name="add_server_key_generation_failed">Key generation failed</string>
+    <string name="add_server_host_key_unverified">host key not verified — connect once to verify this host</string>
+    <string name="add_server_host_key_changed">host key CHANGED (%1$s → %2$s) — connect once to verify this host</string>
+    <string name="add_server_native_ssh_unavailable">Native SSH unavailable</string>
+    <string name="keys_error_paste_first">Paste a private key first</string>
+    <string name="keys_error_not_a_private_key">That doesn\'t look like a private key</string>
+    <string name="keys_error_name_empty">Name can\'t be empty</string>
+    <string name="keys_error_name_taken">A key named &quot;%1$s&quot; already exists</string>
+    <string name="backup_error_open_destination">Could not open backup destination</string>
+    <string name="backup_error_open_file">Could not open backup file</string>
+    <string name="backup_error_file_too_large">Backup file is too large</string>
+    <string name="backup_export_success">Backup exported successfully</string>
+    <string name="backup_export_failed">Export failed. Please choose another location and try again.</string>
+    <string name="backup_wrong_passphrase">Wrong passphrase. Could not decrypt backup.</string>
+    <string name="backup_invalid_file">Import failed. Choose a valid Chuchu backup file.</string>
+    <string name="backup_read_failed">Import failed. Could not read the selected backup file.</string>
+    <string name="backup_import_failed_nothing_changed">Import failed. Nothing was changed.</string>
+    <string name="backup_import_complete">Import complete: %1$s</string>
+    <plurals name="backup_result_keys_imported">
+        <item quantity="one">%1$d key</item>
+        <item quantity="other">%1$d keys</item>
+    </plurals>
+    <plurals name="backup_result_keys_reused">
+        <item quantity="one">%1$d reused</item>
+        <item quantity="other">%1$d reused</item>
+    </plurals>
+    <plurals name="backup_result_keys_renamed">
+        <item quantity="one">%1$d key renamed</item>
+        <item quantity="other">%1$d keys renamed</item>
+    </plurals>
+    <plurals name="backup_result_hosts_imported">
+        <item quantity="one">%1$d host</item>
+        <item quantity="other">%1$d hosts</item>
+    </plurals>
+    <plurals name="backup_result_hosts_renamed">
+        <item quantity="one">%1$d host renamed</item>
+        <item quantity="other">%1$d hosts renamed</item>
+    </plurals>
+
+    <!-- Settings -->
+    <string name="settings_title">settings</string>
+    <string name="settings_category_general">general</string>
+    <string name="settings_category_terminal">terminal</string>
+    <string name="settings_category_keys">keys</string>
+    <string name="settings_category_plugins">plugins</string>
+    <string name="plugins_builtin">built-in</string>
+    <string name="plugins_installed">installed</string>
+    <string name="plugins_none_installed">no plugin apps installed</string>
+    <string name="plugins_unreadable_certificate">unreadable signing certificate</string>
+    <string name="plugins_status_invalid">can\'t load: %1$s</string>
+    <string name="plugins_status_quarantined">disabled: chuchu stopped shortly after loading it; enable to try again</string>
+    <string name="plugins_status_certificate_changed">disabled: signed by a different certificate than you approved; enable to trust it</string>
+    <string name="plugins_status_pending_restart">enabled; restart chuchu to load it</string>
+    <string name="plugins_status_active">active</string>
+    <string name="plugins_status_failed">disabled: %1$s</string>
+    <string name="plugins_status_incompatible">incompatible: %1$s</string>
+    <string name="plugins_consent_title">Enable %1$s?</string>
+    <string name="plugins_consent_confirm">Enable</string>
+    <string name="plugins_consent_warning">Plugins run inside chuchu with full access to it, including your sessions, hosts and keys. Only enable plugins you trust.</string>
+    <string name="plugins_consent_package">package: %1$s</string>
+    <string name="plugins_consent_certificate">signing certificate (SHA-256):\n%1$s</string>
+    <string name="plugins_consent_update_note">If an update is signed with a different certificate, it stays off until you approve it again.</string>
+    <string name="plugins_restart_banner">restart chuchu to apply plugin changes; open sessions will close</string>
+    <string name="plugins_restart">restart</string>
+    <string name="settings_security_header">SECURITY</string>
+    <string name="settings_lock_app_on_open">lock app on open</string>
+    <string name="settings_verify_before_connect">verify before server connect</string>
+    <string name="settings_verify_before_connect_hint">use biometrics or device PIN/pattern.</string>
+    <string name="settings_backup_title">ssh hosts &amp; keys backup</string>
+    <string name="settings_backup_hint">encrypted export/import.</string>
+    <string name="settings_theme_header">THEME</string>
+    <string name="settings_theme_dark">dark</string>
+    <string name="settings_theme_light">light</string>
+    <string name="settings_theme_system">system</string>
+    <string name="settings_theme_show_preview">show preview</string>
+    <string name="settings_theme_search_label">Search themes</string>
+    <string name="settings_theme_search_placeholder">Type to filter</string>
+    <string name="settings_theme_preview">preview</string>
+    <string name="settings_font_header">FONT</string>
+    <string name="settings_terminal_header">TERMINAL</string>
+    <string name="settings_font_size">font size</string>
+    <string name="settings_tab_interface">tab interface</string>
+    <string name="settings_tab_mode_palette">palette</string>
+    <string name="settings_tab_mode_strip">tab strip</string>
+    <string name="settings_session_picker">session picker</string>
+    <string name="settings_session_picker_hint">how tmux and zmx sessions are chosen when you open a host</string>
+    <string name="settings_session_picker_panel">panel</string>
+    <string name="settings_session_picker_browser">browser</string>
+    <string name="settings_accessory_keys">accessory keys</string>
+    <string name="settings_no_keys_enabled">no keys enabled</string>
+    <plurals name="settings_keys_enabled">
+        <item quantity="one">%1$d key enabled</item>
+        <item quantity="other">%1$d keys enabled</item>
+    </plurals>
+    <string name="settings_single_row_bar">single-row accessory bar</string>
+    <string name="settings_single_row_bar_hint">off = two rows (default), on = one horizontal row</string>
+    <string name="settings_choose_keys_hint">choose the accessory keys you want in the terminal bar.</string>
+    <string name="settings_choose_keys_hint_short">choose which keys appear in the bar.</string>
+    <string name="settings_custom_actions">custom actions</string>
+    <string name="settings_no_custom_actions">no custom actions</string>
+    <plurals name="settings_actions_count">
+        <item quantity="one">%1$d action</item>
+        <item quantity="other">%1$d actions</item>
+    </plurals>
+    <string name="settings_create_quick_keys">create quick keys.</string>
+    <string name="settings_show_actions_button">show actions button</string>
+    <string name="settings_show_actions_button_hint">toggle visibility of the floating button in terminal</string>
+    <string name="settings_chuchu_commands">chuchu commands</string>
+    <string name="settings_no_shortcuts">no shortcuts</string>
+    <plurals name="settings_shortcuts_count">
+        <item quantity="one">%1$d shortcut</item>
+        <item quantity="other">%1$d shortcuts</item>
+    </plurals>
+    <string name="settings_assign_shortcuts_hint">assign shortcut keys for builtin commands.</string>
+    <string name="settings_commands_editor_hint">empty key hides the command. overrides custom action shortcut keys.</string>
+    <string name="settings_commands_key_placeholder">key</string>
+    <string name="settings_enable_local_shell">enable local shell</string>
+    <string name="settings_enable_local_shell_hint">show the Android local shell shortcut on the server list</string>
+    <string name="settings_allow_remote_clipboard">allow remote clipboard writes</string>
+    <string name="settings_allow_remote_clipboard_hint">lets the remote host set this device\'s clipboard (OSC 52). only the visible tab can write.</string>
+    <string name="settings_keep_screen_awake">keep screen awake</string>
+    <string name="settings_keep_screen_awake_hint">prevent the display from sleeping while a terminal is open</string>
+    <string name="settings_hide_screen_contents">hide screen contents</string>
+    <string name="settings_hide_screen_contents_hint">blocks screenshots and hides the terminal in the app switcher</string>
+    <string name="settings_disable_autocorrect">disable autocorrect</string>
+    <string name="settings_disable_autocorrect_hint">for keyboards that ignore the standard hint; may disable glide typing</string>
+    <string name="settings_accessory_preview">preview</string>
+    <string name="settings_no_accessory_keys_selected">no accessory keys selected.</string>
+    <string name="settings_accessory_drag_hint">long-press a key in preview, then drag to place it where you want.</string>
+    <string name="settings_accessory_group_desc">group · %1$d keys</string>
+    <string name="settings_accessory_group">group</string>
+    <string name="settings_accessory_key">key</string>
+
+    <!-- Custom actions editor -->
+    <string name="custom_actions_add">+ add</string>
+    <string name="custom_actions_key">Key</string>
+    <string name="custom_actions_key_placeholder">a</string>
+    <string name="custom_actions_shortcut">Shortcut</string>
+    <string name="custom_actions_shortcut_placeholder">single key for chuchu command</string>
+    <string name="custom_actions_no_modifiers">No modifiers</string>
+    <string name="custom_actions_modifiers">Modifiers: %1$s</string>
+    <string name="custom_actions_value">Value</string>
+    <string name="custom_actions_preview">Preview: %1$s</string>
+    <string name="custom_actions_preview_empty">Preview: (empty)</string>
+    <string name="custom_actions_delete">[ delete ]</string>
 </resources>

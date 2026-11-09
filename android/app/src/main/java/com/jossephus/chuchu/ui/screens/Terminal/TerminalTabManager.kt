@@ -39,6 +39,8 @@ import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -55,6 +57,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.jossephus.chuchu.R
 import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerSession
 import com.jossephus.chuchu.service.terminal.SessionStatus
 import com.jossephus.chuchu.service.terminal.SessionState
@@ -111,6 +114,7 @@ fun TerminalTabManager(
     val listState = rememberLazyListState()
     val maxIndex = (entries.size - 1).coerceAtLeast(0)
     val focusRequester = remember { FocusRequester() }
+    val closeTabManagerLabel = stringResource(R.string.tabs_cd_close_manager)
 
     BackHandler(enabled = visible) { onDismiss() }
 
@@ -143,7 +147,7 @@ fun TerminalTabManager(
             modifier = Modifier
                 .fillMaxSize()
                 .background(colors.background)
-                .semantics { contentDescription = "close tab manager" }
+                .semantics { contentDescription = closeTabManagerLabel }
                 .clickable(onClick = onDismiss)
                 .focusRequester(focusRequester)
                 .focusable()
@@ -193,13 +197,17 @@ fun TerminalTabManager(
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                 ) {
                     ChuText(
-                        "tabs",
+                        stringResource(R.string.tabs_header),
                         style = typography.body,
                         color = colors.textSecondary,
                         modifier = Modifier.align(Alignment.Center),
                     )
                     ChuText(
-                        "${entries.size} session${if (entries.size != 1) "s" else ""}",
+                        pluralStringResource(
+                            R.plurals.tabs_session_count,
+                            entries.size,
+                            entries.size,
+                        ),
                         style = typography.labelSmall,
                         color = colors.textMuted,
                         modifier = Modifier.align(Alignment.CenterEnd),
@@ -227,6 +235,12 @@ fun TerminalTabManager(
                             val title = rowState.title?.takeIf { it.isNotBlank() }
                             val workingDirectory = rowState.pwd?.takeIf { it.isNotBlank() }
                             val statusText = statusLabel(status)
+                            val stateText =
+                                if (isActive) {
+                                    stringResource(R.string.tabs_state_active)
+                                } else {
+                                    stringResource(R.string.tabs_state_inactive)
+                                }
 
                             Row(
                                 modifier = Modifier
@@ -241,7 +255,7 @@ fun TerminalTabManager(
                                         else colors.border.copy(alpha = 0.35f),
                                     )
                                     .semantics {
-                                        contentDescription = "$statusText — $label, ${if (isActive) "active" else "inactive"}"
+                                        contentDescription = "$statusText — $label, $stateText"
                                     }
                                     .clickable { onSelectTab(tab.id) }
                                     .padding(horizontal = 12.dp, vertical = 8.dp),
@@ -332,10 +346,11 @@ fun TerminalTabManager(
                                             horizontal = 8.dp,
                                             vertical = 4.dp,
                                         ),
-                                        contentDescription = "duplicate ${label}",
+                                        contentDescription =
+                                            stringResource(R.string.tabs_cd_duplicate, label),
                                     ) {
                                         ChuText(
-                                            "dup",
+                                            stringResource(R.string.tabs_duplicate),
                                             style = typography.labelSmall,
                                             color = colors.textSecondary,
                                         )
@@ -349,10 +364,11 @@ fun TerminalTabManager(
                                             horizontal = 8.dp,
                                             vertical = 4.dp,
                                         ),
-                                        contentDescription = "close ${label}",
+                                        contentDescription =
+                                            stringResource(R.string.tabs_cd_close, label),
                                     ) {
                                         ChuText(
-                                            "close",
+                                            stringResource(R.string.action_close),
                                             style = typography.labelSmall,
                                             color = colors.textMuted,
                                         )
@@ -376,8 +392,8 @@ fun TerminalTabManager(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
-                        PaletteHint("\u21B5", "open")
-                        PaletteHint("esc", "dismiss")
+                        PaletteHint("\u21B5", stringResource(R.string.action_open))
+                        PaletteHint("esc", stringResource(R.string.action_dismiss))
                         Spacer(modifier = Modifier.weight(1f))
                         ChuButton(
                             onClick = {
@@ -389,7 +405,7 @@ fun TerminalTabManager(
                             bracketed = true,
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                         ) {
-                            ChuText("+ new", style = typography.labelSmall, color = colors.accent)
+                            ChuText(stringResource(R.string.tab_new), style = typography.labelSmall, color = colors.accent)
                         }
                     }
                 } else {
@@ -402,7 +418,7 @@ fun TerminalTabManager(
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             ChuText(
-                                "no terminal sessions",
+                                stringResource(R.string.tabs_empty),
                                 style = typography.body,
                                 color = colors.textMuted,
                             )
@@ -417,7 +433,7 @@ fun TerminalTabManager(
                                 bracketed = true,
                             ) {
                                 ChuText(
-                                    "+ new connection",
+                                    stringResource(R.string.tabs_new_connection_row),
                                     style = typography.label,
                                     color = colors.accent,
                                 )

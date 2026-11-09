@@ -18,9 +18,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jossephus.chuchu.R
 import com.jossephus.chuchu.plugin.DiscoveredPlugin
 import com.jossephus.chuchu.plugin.ExternalPluginState
 import com.jossephus.chuchu.plugin.ExternalPlugins
@@ -61,14 +63,14 @@ internal fun PluginsSettings() {
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (restartNeeded) RestartBanner()
-        ChuText("built-in", style = typography.label, color = colors.textMuted)
+        ChuText(stringResource(R.string.plugins_builtin), style = typography.label, color = colors.textMuted)
         records.filter { it.descriptor.source == PluginSource.Builtin }.forEach { record ->
             val schema = settingsEntries.firstOrNull { it.pluginId == record.descriptor.id }?.global
             PluginCard(record, schema, manager)
         }
-        ChuText("installed", style = typography.label, color = colors.textMuted)
+        ChuText(stringResource(R.string.plugins_installed), style = typography.label, color = colors.textMuted)
         if (discovered.isEmpty()) {
-            ChuText("no plugin apps installed", style = typography.body, color = colors.textMuted)
+            ChuText(stringResource(R.string.plugins_none_installed), style = typography.body, color = colors.textMuted)
         }
         discovered.forEach { plugin ->
             val state = remember(plugin, revision) { external.state(plugin) }
@@ -160,18 +162,18 @@ private fun externalStatus(
     val colors = ChuColors.current
     return when (state) {
         ExternalPluginState.Invalid ->
-            "can't load: ${plugin.manifestProblem ?: "unreadable signing certificate"}" to colors.error
+            stringResource(R.string.plugins_status_invalid, plugin.manifestProblem ?: stringResource(R.string.plugins_unreadable_certificate)) to colors.error
         ExternalPluginState.Quarantined ->
-            "disabled: chuchu stopped shortly after loading it; enable to try again" to colors.warning
+            stringResource(R.string.plugins_status_quarantined) to colors.warning
         ExternalPluginState.CertificateChanged ->
-            "disabled: signed by a different certificate than you approved; enable to trust it" to colors.warning
-        ExternalPluginState.Disabled -> "off" to colors.textMuted
+            stringResource(R.string.plugins_status_certificate_changed) to colors.warning
+        ExternalPluginState.Disabled -> stringResource(R.string.label_off) to colors.textMuted
         ExternalPluginState.Enabled ->
             when (record?.status) {
-                PluginStatus.Active -> "active" to colors.success
-                PluginStatus.Failed -> "disabled: ${record.error.orEmpty()}" to colors.error
-                PluginStatus.Incompatible -> "incompatible: ${record.error.orEmpty()}" to colors.warning
-                null -> "enabled; restart chuchu to load it" to colors.textSecondary
+                PluginStatus.Active -> stringResource(R.string.plugins_status_active) to colors.success
+                PluginStatus.Failed -> stringResource(R.string.plugins_status_failed, record.error.orEmpty()) to colors.error
+                PluginStatus.Incompatible -> stringResource(R.string.plugins_status_incompatible, record.error.orEmpty()) to colors.warning
+                null -> stringResource(R.string.plugins_status_pending_restart) to colors.textSecondary
             }
     }
 }
@@ -181,25 +183,24 @@ private fun ConsentDialog(plugin: DiscoveredPlugin, onConfirm: () -> Unit, onDis
     val colors = ChuColors.current
     val typography = ChuTypography.current
     ChuDialog(
-        title = "Enable ${plugin.descriptor.name}?",
-        confirmLabel = "Enable",
+        title = stringResource(R.string.plugins_consent_title, plugin.descriptor.name),
+        confirmLabel = stringResource(R.string.plugins_consent_confirm),
         onConfirm = onConfirm,
         onDismiss = onDismiss,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             ChuText(
-                "Plugins run inside chuchu with full access to it, including your sessions, " +
-                    "hosts and keys. Only enable plugins you trust.",
+                stringResource(R.string.plugins_consent_warning),
                 style = typography.body,
             )
-            ChuText("package: ${plugin.descriptor.packageName}", style = typography.bodySmall, color = colors.textSecondary)
+            ChuText(stringResource(R.string.plugins_consent_package, plugin.descriptor.packageName.orEmpty()), style = typography.bodySmall, color = colors.textSecondary)
             ChuText(
-                "signing certificate (SHA-256):\n${plugin.certSha256?.chunked(4)?.joinToString(" ").orEmpty()}",
+                stringResource(R.string.plugins_consent_certificate, plugin.certSha256?.chunked(4)?.joinToString(" ").orEmpty()),
                 style = typography.bodySmall,
                 color = colors.textSecondary,
             )
             ChuText(
-                "If an update is signed with a different certificate, it stays off until you approve it again.",
+                stringResource(R.string.plugins_consent_update_note),
                 style = typography.bodySmall,
                 color = colors.textMuted,
             )
@@ -219,12 +220,12 @@ private fun RestartBanner() {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             ChuText(
-                "restart chuchu to apply plugin changes; open sessions will close",
+                stringResource(R.string.plugins_restart_banner),
                 style = typography.bodySmall,
                 modifier = Modifier.weight(1f),
             )
             ChuButton(onClick = { restartApp(context) }, variant = ChuButtonVariant.Outlined, bracketed = true) {
-                ChuText("restart", style = typography.label, color = colors.accent)
+                ChuText(stringResource(R.string.plugins_restart), style = typography.label, color = colors.accent)
             }
         }
     }
@@ -256,14 +257,14 @@ private fun PluginCard(record: PluginRecord, schema: SettingsSchema?, manager: P
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 ChuText(descriptor.name, style = typography.label)
-                val source = if (descriptor.source == PluginSource.Builtin) "built-in" else descriptor.version
+                val source = if (descriptor.source == PluginSource.Builtin) stringResource(R.string.plugins_builtin) else descriptor.version
                 ChuText(source, style = typography.bodySmall, color = colors.textMuted)
             }
             val (statusText, statusColor) =
                 when (record.status) {
-                    PluginStatus.Active -> "active" to colors.success
-                    PluginStatus.Failed -> "disabled: ${record.error.orEmpty()}" to colors.error
-                    PluginStatus.Incompatible -> "incompatible: ${record.error.orEmpty()}" to colors.warning
+                    PluginStatus.Active -> stringResource(R.string.plugins_status_active) to colors.success
+                    PluginStatus.Failed -> stringResource(R.string.plugins_status_failed, record.error.orEmpty()) to colors.error
+                    PluginStatus.Incompatible -> stringResource(R.string.plugins_status_incompatible, record.error.orEmpty()) to colors.warning
                 }
             ChuText(statusText, style = typography.bodySmall, color = statusColor)
             if (schema != null && record.status == PluginStatus.Active) {

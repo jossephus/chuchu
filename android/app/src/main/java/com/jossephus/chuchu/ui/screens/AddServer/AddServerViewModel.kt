@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.jossephus.chuchu.R
 import com.jossephus.chuchu.data.db.AppDatabase
 import com.jossephus.chuchu.data.repository.HostRepository
 import com.jossephus.chuchu.data.repository.KeyGenerationResult
@@ -157,7 +158,8 @@ class AddServerViewModel(application: Application, private val hostId: Long?) :
                             privateKeyPem = result.key.privateKeyPem,
                             publicKeyOpenSsh = result.key.publicKeyOpenSsh,
                         )
-                KeyGenerationResult.Failed -> _errorMessage.emit("Key generation failed")
+                KeyGenerationResult.Failed ->
+                    _errorMessage.emit(getApplication<Application>().getString(R.string.add_server_key_generation_failed))
             }
         }
     }
@@ -253,18 +255,27 @@ class AddServerViewModel(application: Application, private val hostId: Long?) :
                                 is HostKeyCheck.Match -> true
                                 is HostKeyCheck.Unknown -> {
                                     hostKeyError =
-                                        "host key not verified — connect once to verify this host"
+                                        getApplication<Application>()
+                                            .getString(R.string.add_server_host_key_unverified)
                                     false
                                 }
                                 is HostKeyCheck.Changed -> {
                                     hostKeyError =
-                                        "host key CHANGED (${result.previousFingerprint} → ${result.fingerprint}) — connect once to verify this host"
+                                        getApplication<Application>()
+                                            .getString(
+                                                R.string.add_server_host_key_changed,
+                                                result.previousFingerprint,
+                                                result.fingerprint,
+                                            )
                                     false
                                 }
                             }
                         }
                         NativeSshService(hostKeyPolicy = policy).use { nativeSsh ->
-                            check(nativeSsh.isAvailable()) { "Native SSH unavailable" }
+                            check(nativeSsh.isAvailable()) {
+                                getApplication<Application>()
+                                    .getString(R.string.add_server_native_ssh_unavailable)
+                            }
                             nativeSsh.connect(
                                 host = host,
                                 port = port,
@@ -284,13 +295,18 @@ class AddServerViewModel(application: Application, private val hostId: Long?) :
                 if (result.isSuccess) {
                     ConnectionTestState(
                         status = ConnectionTestStatus.Success,
-                        message = "Connected",
+                        message =
+                            getApplication<Application>()
+                                .getString(R.string.add_server_test_connected_message),
                     )
                 } else {
                     ConnectionTestState(
                         status = ConnectionTestStatus.Error,
                         message =
-                            hostKeyError ?: result.exceptionOrNull()?.message ?: "Connection failed",
+                            hostKeyError
+                                ?: result.exceptionOrNull()?.message
+                                ?: getApplication<Application>()
+                                    .getString(R.string.terminal_connection_failed),
                     )
                 }
         }
