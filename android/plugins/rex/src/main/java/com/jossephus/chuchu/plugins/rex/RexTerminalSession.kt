@@ -12,6 +12,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import org.json.JSONArray
@@ -71,10 +73,14 @@ class RexTerminalSession(
         val ownership = RexBlockOwnership(attached.blockId)
         // Subscribe before claiming so a take by another client right after ours is not missed.
         scope.launch(start = CoroutineStart.UNDISPATCHED) { control.events.collect(ownership::onEvent) }
-        // Sent before claiming: Rex stores a non-owner's size and applies it on the take.
-        if (size != null) sendResize(attached, size)
-        if (active) takeBlock(attached, ownership)
-        data.open(endpoint, requestTicket(attached))
+        // The resize and the ticket are independent round trips; overlap them. The resize
+        // goes before any claim: Rex stores a non-owner's size and applies it on the take.
+        val ticket = coroutineScope {
+            val ticket = async { requestTicket(attached) }
+            if (size != null) sendResize(attached, size)
+            ticket.await()
+        }
+        data.open(endpoint, ticket)
         scope.launch { data.fail(control.awaitEnd()) }
         scope.launch { pumpWrites(attached, ownership) }
         scope.launch { pumpResizes(attached, ownership) }
@@ -125,6 +131,9 @@ class RexTerminalSession(
     }
 
     private suspend fun attach(): Target {
+        if (request is RexOpenRequest.Block && hub.browser.knowsBlock(request.sessionId, request.attachment.blockId)) {
+            return Target(request.sessionId, request.attachment.blockId)
+        }
         val sessionId =
             when (request) {
                 RexOpenRequest.NewSession -> return createSession()

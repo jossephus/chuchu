@@ -56,6 +56,16 @@ class RexSessionBrowser(private val control: RexControlConnection) : Closeable {
     val state: StateFlow<RexBrowserState>
         get() = _state
 
+    // Read from pane connects on other threads; replaced whole on every publish.
+    @Volatile private var knownBlocks: Map<String, Set<String>> = emptyMap()
+
+    /**
+     * True when [blockId] is a terminal of [sessionId] in the list as last loaded. The
+     * shared connection is then already attached to that session, so a pane opened from
+     * the list can skip session.attach and session.view.
+     */
+    fun knowsBlock(sessionId: String, blockId: String): Boolean = knownBlocks[sessionId]?.contains(blockId) == true
+
     suspend fun start() =
         withContext(confined) {
             try {
@@ -197,6 +207,7 @@ class RexSessionBrowser(private val control: RexControlConnection) : Closeable {
     }
 
     private fun publish() {
+        knownBlocks = views.mapValues { (_, view) -> RexPanePicker.terminalBlockIds(view).toSet() }
         if (_state.value is RexBrowserState.Failed) return
         _state.value = RexBrowserState.Ready(order.mapNotNull(::summary))
     }
