@@ -69,15 +69,21 @@ class RexPanePickerTest {
     }
 
     @Test
-    fun terminalBlocksListsEveryWindowInOrderWithLabels() {
+    fun terminalBlocksNameEachPaneAfterItsWindow() {
         val view =
             view(
-                active = "window:b",
-                window("window:a", focused = "block:a1", blocks = listOf(terminal("block:a1"), block("block:web", "com.example.browser"))),
-                window("window:b", focused = "block:b1", blocks = listOf(terminal("block:b1"), terminal("block:b2"))),
+                active = "window:0000-9976c71a",
+                window(
+                    "window:a",
+                    focused = "block:a1",
+                    label = "build",
+                    blocks = listOf(terminal("block:a1"), block("block:web", "com.example.browser")),
+                ),
+                window("window:0000-9976c71a", focused = "block:b1", blocks = listOf(terminal("block:b1"), terminal("block:b2"))),
             )
         assertEquals(
-            listOf("block:a1" to "block:a1-label", "block:b1" to "block:b1-label", "block:b2" to "block:b2-label"),
+            // An unlabelled window falls back to Rex's own "Window <id suffix>" name.
+            listOf("block:a1" to "build", "block:b1" to "Window 9976c71a", "block:b2" to "Window 9976c71a"),
             RexPanePicker.terminalBlocks(view),
         )
     }
@@ -90,10 +96,11 @@ class RexPanePickerTest {
     private fun view(active: String, vararg windows: String) =
         JSONObject("""{"revision":1,"session_id":"session:x","active_window_id":"$active","windows":[${windows.joinToString(",")}]}""")
 
-    private fun window(id: String, focused: String?, zoomed: String? = null, blocks: List<String>): String {
+    private fun window(id: String, focused: String?, zoomed: String? = null, label: String? = null, blocks: List<String>): String {
         val focus = focused?.let { "\"$it\"" } ?: "null"
         val zoom = zoomed?.let { ",\"zoomed_block_id\":\"$it\"" }.orEmpty()
-        return """{"window_id":"$id","focused_block_id":$focus$zoom,"layers":[{"layer_id":"l","kind":"tiled","bounds":[0,0,1,1],"layout":null,"blocks":[${blocks.joinToString(",")}]}]}"""
+        val name = label?.let { ",\"label\":\"$it\"" }.orEmpty()
+        return """{"window_id":"$id","focused_block_id":$focus$zoom$name,"layers":[{"layer_id":"l","kind":"tiled","bounds":[0,0,1,1],"layout":null,"blocks":[${blocks.joinToString(",")}]}]}"""
     }
 
     private fun terminal(id: String) = block(id, "com.superlogical.terminal")

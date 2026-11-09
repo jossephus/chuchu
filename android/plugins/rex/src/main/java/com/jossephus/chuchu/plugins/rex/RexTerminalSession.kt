@@ -309,6 +309,7 @@ class RexTerminalSession(
 
 internal object RexPanePicker {
     const val TERMINAL_CREATOR = "com.superlogical.terminal"
+    private const val WINDOW_ID_SUFFIX = 8
 
     fun pick(view: JSONObject): String? {
         val windows = view.optJSONArray("windows") ?: return null
@@ -339,15 +340,25 @@ internal object RexPanePicker {
         }
     }
 
+    /**
+     * Terminal blocks in [window], each paired with the name to show for it. That is the
+     * window's label, as the official clients list windows by name, and Rex's own
+     * "Window <id>" form when a window has none.
+     */
     private fun windowTerminals(window: JSONObject): List<Pair<String, String?>> {
         val layers = window.optJSONArray("layers") ?: return emptyList()
+        val windowName =
+            window.stringOrNull("label")
+                ?: window.stringOrNull("window_id")?.let { "Window " + it.takeLast(WINDOW_ID_SUFFIX) }
         val found = mutableListOf<Pair<String, String?>>()
         for (i in 0 until layers.length()) {
             val blocks = layers.optJSONObject(i)?.optJSONArray("blocks") ?: continue
             for (j in 0 until blocks.length()) {
                 val block = blocks.optJSONObject(j) ?: continue
                 val id = block.stringOrNull("block_id") ?: continue
-                if (block.stringOrNull("creator_name") == TERMINAL_CREATOR) found += id to block.stringOrNull("label")
+                if (block.stringOrNull("creator_name") == TERMINAL_CREATOR) {
+                    found += id to (windowName ?: block.stringOrNull("label"))
+                }
             }
         }
         return found
