@@ -80,6 +80,7 @@
     <!-- Add / edit server -->
     <string name="add_server_title_edit">编辑主机</string>
     <string name="add_server_title_new">添加主机</string>
+    <string name="add_server_copy_suffix">副本</string>
     <string name="add_server_name_placeholder">我的服务器</string>
     <string name="add_server_tailscale_hint">通过 Tailscale 网络连接。请填写主机的 Tailscale IP（100.x.x.x）或 MagicDNS 名称。</string>
     <string name="add_server_ssh_key_only_hint">该服务器不走 SSH 认证，而是使用 Tailscale SSH 策略（`tailscale up --ssh`）。请改用 Tailscale SSH 连接，而不是常规 sshd 凭据。</string>
