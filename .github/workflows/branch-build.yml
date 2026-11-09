@@ -1,0 +1,131 @@
+# Builds a signed APK from any branch for testing on a device. Unlike Nightly and
+# Release, it never moves a tag or publishes a release: the APK is attached to the
+# workflow run as an artifact.
+#
+#   gh workflow run branch-build.yml --ref <branch>
+#   gh run download <run-id> -n <artifact-name>
+on:
+  workflow_dispatch:
+  pull_request:
+
+name: Branch build
+
+concurrency:
+  group: branch-build-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    # Pull requests from forks get no secrets, so they cannot be signed.
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Tags and history give the version the same base as Nightly.
+          fetch-depth: 0
+
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: nix shell
+        run: nix develop -L --verbose
+
+      - name: resolve branch version
+        id: version
+        env:
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+          SHORT_SHA="$(git rev-parse --short=7 HEAD)"
+          # Branch names become part of the version and the artifact name.
+          SLUG="$(printf '%s' "$BRANCH" | tr -c 'A-Za-z0-9.-' '-' | sed 's/-\{2,\}/-/g; s/^-//; s/-$//' | cut -c1-40)"
+
+          TAG="$(git tag -l 'v*.*.*' --sort=-v:refname | head -n1 || true)"
+          if [ -z "$TAG" ]; then
+            VERSION="0.0.0"
+            BASE=0
+            OFFSET="${GITHUB_RUN_NUMBER:-1}"
+          else
+            VERSION="${TAG#v}"
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+            BASE=$((MAJOR * 10000 + MINOR * 100 + PATCH))
+            OFFSET="$(git rev-list "${TAG}..HEAD" --count)"
+            if [ "$OFFSET" -lt 1 ]; then OFFSET=1; fi
+          fi
+          if [ "$OFFSET" -gt 999 ]; then OFFSET=999; fi
+
+          # Same scheme as Nightly, so a branch build that is ahead of main can
+          # update over the nightly and the next nightly can update over it.
+          VERSION_CODE=$((BASE * 1000 + OFFSET))
+          VERSION_NAME="${VERSION}-${SLUG}+${SHORT_SHA}"
+          {
+            echo "slug=${SLUG}"
+            echo "short_sha=${SHORT_SHA}"
+            echo "version_code=${VERSION_CODE}"
+            echo "version_name=${VERSION_NAME}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Branch build version: ${VERSION_NAME} (code=${VERSION_CODE})"
+
+      - name: build chuchu_jni
+        run: |
+          nix develop -c bash -c '
+            set -e
+            cd zig-src
+            zig build -Doptimize=ReleaseSmall -Dtarget=aarch64-linux-android.24 jni
+          '
+
+      - name: generate release key
+        run: |
+          cd android/app/ && echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > key.jks
+
+      - name: build android release APK
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          VERSION_CODE: ${{ steps.version.outputs.version_code }}
+          VERSION_NAME: ${{ steps.version.outputs.version_name }}
+          ANDROID_ABI_FILTERS: arm64-v8a
+        run: |
+          nix develop -c bash -c '
+            set -e
+            cd android
+            chmod +x ./gradlew
+            if [ -f local.properties ]; then chmod -w local.properties; fi
+            ./gradlew assembleRelease
+          '
+
+      - name: name APK
+        id: apk
+        run: |
+          set -euo pipefail
+          SRC="$(ls ./android/app/build/outputs/apk/release/*.apk | head -n1)"
+          NAME="chuchu-${{ steps.version.outputs.slug }}-${{ steps.version.outputs.short_sha }}"
+          cp "$SRC" "./${NAME}.apk"
+          echo "name=${NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.apk.outputs.name }}
+          path: ${{ steps.apk.outputs.name }}.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: summary
+        run: |
+          {
+            echo "### Branch build"
+            echo
+            echo "- **branch:** \`${{ github.head_ref || github.ref_name }}\`"
+            echo "- **versionName:** \`${{ steps.version.outputs.version_name }}\`"
+            echo "- **versionCode:** \`${{ steps.version.outputs.version_code }}\`"
+            echo "- **APK:** \`${{ steps.apk.outputs.name }}\` in this run's artifacts"
+            echo
+            echo "Download with \`gh run download ${{ github.run_id }} -n ${{ steps.apk.outputs.name }}\`."
+          } >> "$GITHUB_STEP_SUMMARY"
