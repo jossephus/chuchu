@@ -410,6 +410,8 @@
     <string name="settings_allow_remote_clipboard_hint">lets the remote host set this device\'s clipboard (OSC 52). only the visible tab can write.</string>
     <string name="settings_keep_screen_awake">keep screen awake</string>
     <string name="settings_keep_screen_awake_hint">prevent the display from sleeping while a terminal is open</string>
+    <string name="settings_hide_status_bar">hide status bar</string>
+    <string name="settings_hide_status_bar_hint">full screen terminal; swipe down from the top to peek at it</string>
     <string name="settings_hide_screen_contents">hide screen contents</string>
     <string name="settings_hide_screen_contents_hint">blocks screenshots and hides the terminal in the app switcher</string>
     <string name="settings_disable_autocorrect">disable autocorrect</string>

@@ -619,9 +619,9 @@ internal fun TerminalSettings(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
-                    ChuText("hide status bar", style = typography.label)
+                    ChuText(stringResource(R.string.settings_hide_status_bar), style = typography.label)
                     ChuText(
-                        "full screen terminal; swipe down from the top to peek at it",
+                        stringResource(R.string.settings_hide_status_bar_hint),
                         style = typography.bodySmall,
                         color = colors.textMuted,
                     )

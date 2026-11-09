@@ -11,8 +11,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
@@ -221,9 +223,16 @@ fun TerminalScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val colors = ChuColors.current
-    val screenInsetsModifier = modifier.windowInsetsPadding(WindowInsets.safeDrawing)
-    var lastSessionStatus by remember { mutableStateOf<SessionStatus?>(null) }
     val settingsRepo = remember(context) { SettingsRepository.getInstance(context) }
+    val hideStatusBar by settingsRepo.hideStatusBar.collectAsStateWithLifecycle()
+    val screenInsets =
+        if (hideStatusBar) {
+            WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
+        } else {
+            WindowInsets.safeDrawing
+        }
+    val screenInsetsModifier = modifier.windowInsetsPadding(screenInsets)
+    var lastSessionStatus by remember { mutableStateOf<SessionStatus?>(null) }
     val currentTheme by settingsRepo.themeName.collectAsStateWithLifecycle()
     val themeMode by settingsRepo.themeMode.collectAsStateWithLifecycle()
     val lightThemeName by settingsRepo.lightThemeName.collectAsStateWithLifecycle()
@@ -240,7 +249,6 @@ fun TerminalScreen(
     val settingsFontSize by settingsRepo.terminalFontSize.collectAsStateWithLifecycle()
     val keepScreenAwake by settingsRepo.keepScreenAwake.collectAsStateWithLifecycle()
     val disableAutocorrect by settingsRepo.disableAutocorrect.collectAsStateWithLifecycle()
-    val hideStatusBar by settingsRepo.hideStatusBar.collectAsStateWithLifecycle()
     val keepAwakeView = LocalView.current
     DisposableEffect(hideStatusBar, keepAwakeView) {
         val window = (keepAwakeView.context as? Activity)?.window
