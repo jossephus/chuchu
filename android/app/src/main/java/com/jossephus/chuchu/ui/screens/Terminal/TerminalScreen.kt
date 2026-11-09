@@ -244,6 +244,8 @@ fun TerminalScreen(
     val tabMode by settingsRepo.terminalTabMode.collectAsStateWithLifecycle()
     val currentAccessoryLayoutIds by settingsRepo.accessoryLayoutIds.collectAsStateWithLifecycle()
     val useSingleRowAccessoryBar by settingsRepo.accessoryBarSingleRow.collectAsStateWithLifecycle()
+    val accessoryBarOnlyWithKeyboard by
+        settingsRepo.accessoryBarOnlyWithKeyboard.collectAsStateWithLifecycle()
     val currentTerminalCustomKeyGroups by
         settingsRepo.terminalCustomKeyGroups.collectAsStateWithLifecycle()
     val settingsFontSize by settingsRepo.terminalFontSize.collectAsStateWithLifecycle()
@@ -720,6 +722,7 @@ fun TerminalScreen(
                     chuchuKeys = chuchuKeys,
                     accessoryLayout = accessoryLayout,
                     useSingleRowAccessoryBar = useSingleRowAccessoryBar,
+                    accessoryBarOnlyWithKeyboard = accessoryBarOnlyWithKeyboard,
                     customKeyGroups = currentTerminalCustomKeyGroups,
                     showCustomActionsFab = showCustomActionsFab,
                     disableAutocorrect = disableAutocorrect,

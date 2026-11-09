@@ -64,6 +64,7 @@ internal fun TerminalConnectedContent(
     chuchuKeys: ChuchuKeyBindings,
     accessoryLayout: List<ResolvedAccessoryEntry>,
     useSingleRowAccessoryBar: Boolean,
+    accessoryBarOnlyWithKeyboard: Boolean,
     customKeyGroups: List<TerminalCustomKeyGroup>,
     showCustomActionsFab: Boolean,
     disableAutocorrect: Boolean,
@@ -288,6 +289,7 @@ internal fun TerminalConnectedContent(
                         }
                     },
                     useSingleRow = useSingleRowAccessoryBar,
+                    onlyWithKeyboard = accessoryBarOnlyWithKeyboard,
                 )
             }
         }
