@@ -13,7 +13,6 @@ room = "2.6.1"
 navigation = "2.7.7"
 kotlinxSerialization = "1.7.3"
 kotlinxCoroutines = "1.7.3"
-binaryCompatibilityValidator = "0.16.3"
 robolectric = "4.16"
 roborazzi = "1.50.0"
 camerax = "1.4.2"
@@ -57,5 +56,4 @@ android-library = { id = "com.android.library", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
-binary-compatibility-validator = { id = "org.jetbrains.kotlinx.binary-compatibility-validator", version.ref = "binaryCompatibilityValidator" }
 

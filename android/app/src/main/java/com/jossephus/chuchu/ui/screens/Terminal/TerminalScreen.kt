@@ -1845,10 +1845,7 @@ fun TerminalScreen(
                                             defaultTerminal,
                                         ) { view, inner ->
                                             {
-                                                CompositionLocalProvider(
-                                                    LocalContext provides (view.context ?: context),
-                                                    LocalPluginTheme provides pluginTheme,
-                                                ) {
+                                                CompositionLocalProvider(LocalPluginTheme provides pluginTheme) {
                                                     view.provider.Content(pluginSession, Modifier.fillMaxSize(), inner)
                                                 }
                                             }

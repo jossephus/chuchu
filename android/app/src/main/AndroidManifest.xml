@@ -14,11 +14,6 @@
         android:required="false" />
 
     <!-- Package visibility (Android 11+): lets chuchu discover installed plugin APKs. -->
-    <queries>
-        <intent>
-            <action android:name="com.jossephus.chuchu.PLUGIN" />
-        </intent>
-    </queries>
 
     <application
         android:name="com.jossephus.chuchu.ChuchuApplication"

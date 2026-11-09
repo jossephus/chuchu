@@ -1,11 +1,9 @@
 package com.jossephus.chuchu.plugin
 
 import android.app.Application
-import android.content.Context
 import android.util.Log
 import com.jossephus.chuchu.plugin.api.ChuchuPlugin
 import com.jossephus.chuchu.plugin.api.MultiplexerProvider
-import com.jossephus.chuchu.plugin.api.PluginApi
 import com.jossephus.chuchu.plugin.api.PluginHost
 import com.jossephus.chuchu.plugin.api.PluginLogger
 import com.jossephus.chuchu.plugin.api.PluginNotification
@@ -35,8 +33,6 @@ enum class PluginStatus {
     Active,
 
     Failed,
-
-    Incompatible,
 }
 
 data class PluginRecord(
@@ -48,7 +44,6 @@ data class PluginRecord(
 class RegisteredSessionView(
     val pluginId: String,
     val provider: SessionViewProvider,
-    val context: Context? = null,
 )
 
 data class PluginSettingsEntry(
@@ -73,7 +68,6 @@ class PluginManager(
     private val sessions: SessionRegistry,
     private val prefsFactory: PluginPrefsFactory,
     private val terminalFactory: TerminalFactory,
-    private val appContext: Context? = null,
     private val notifier: PluginNotifier? = null,
     private val appVisible: StateFlow<Boolean> = MutableStateFlow(true),
     private val logSink: PluginLogSink = androidLogSink,
@@ -83,7 +77,6 @@ class PluginManager(
         val plugin: ChuchuPlugin,
         val scope: CoroutineScope,
         val prefs: PluginPrefs,
-        val context: Context?,
     ) {
         val terminals = ArrayList<PluginTerminal>()
     }
@@ -143,15 +136,6 @@ class PluginManager(
                 return
             }
         }
-        if (!PluginApi.isSupported(descriptor.apiVersion)) {
-            val reason =
-                "built for plugin API ${descriptor.apiVersion}; this chuchu supports " +
-                    "${PluginApi.MIN_SUPPORTED_VERSION}..${PluginApi.VERSION}"
-            logSink.log(Log.WARN, TAG, "plugin '${descriptor.id}' $reason", null)
-            publish(PluginRecord(descriptor, PluginStatus.Incompatible, reason))
-            return
-        }
-
         val plugin =
             try {
                 entry.create()
@@ -167,7 +151,6 @@ class PluginManager(
                 plugin,
                 pluginScope(descriptor.id),
                 prefsFactory.open(descriptor.id),
-                entry.context ?: appContext,
             )
         synchronized(lock) {
             active[descriptor.id] = loaded
@@ -175,7 +158,7 @@ class PluginManager(
         }
         try {
             plugin.register(HostImpl(loaded))
-            logSink.log(Log.INFO, TAG, "plugin '${descriptor.id}' ${descriptor.version} loaded", null)
+            logSink.log(Log.INFO, TAG, "plugin '${descriptor.id}' loaded", null)
         } catch (e: Throwable) {
             disable(descriptor.id, "register failed", e)
         }
@@ -268,8 +251,7 @@ class PluginManager(
                 check(_sessionViews.value.none { it.pluginId == pluginId && it.provider.id == provider.id }) {
                     "plugin '$pluginId' already registered session view '${provider.id}'"
                 }
-                val pluginContext = loaded.context.takeIf { loaded.descriptor.source == PluginSource.External }
-                _sessionViews.value = _sessionViews.value + RegisteredSessionView(pluginId, provider, pluginContext)
+                _sessionViews.value = _sessionViews.value + RegisteredSessionView(pluginId, provider)
             }
         }
 
@@ -317,7 +299,6 @@ class PluginManager(
                 PluginSessionRegistry(tabs, scope),
                 SharedPreferencesPluginPrefs.factory(application),
                 GhosttyTerminalFactory(),
-                application,
                 PluginNotifier(application),
                 AppVisibility.visible,
             )
