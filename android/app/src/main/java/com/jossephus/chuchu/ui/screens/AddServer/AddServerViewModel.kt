@@ -27,18 +27,26 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class AddServerViewModel(application: Application, private val hostId: Long?) :
-    AndroidViewModel(application) {
+class AddServerViewModel(
+    application: Application,
+    private val hostId: Long?,
+    private val copyFromHostId: Long? = null,
+) : AndroidViewModel(application) {
     companion object {
-        fun factory(application: Application, hostId: Long?): ViewModelProvider.Factory =
+        fun factory(
+            application: Application,
+            hostId: Long?,
+            copyFromHostId: Long? = null,
+        ): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
                     if (modelClass.isAssignableFrom(AddServerViewModel::class.java)) {
                         @Suppress("UNCHECKED_CAST")
-                        return AddServerViewModel(application, hostId) as T
+                        return AddServerViewModel(application, hostId, copyFromHostId) as T
                     }
                     throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
                 }
@@ -73,28 +81,25 @@ class AddServerViewModel(application: Application, private val hostId: Long?) :
         if (hostId != null) {
             viewModelScope.launch {
                 val profile = hostRepository.getById(hostId) ?: return@launch
-                val key = profile.keyId?.let { sshKeyRepository.getById(it) }
+                _form.value = AddServerForm.fromProfile(profile, loadKey(profile))
+            }
+        } else if (copyFromHostId != null) {
+            viewModelScope.launch {
+                val profile = hostRepository.getById(copyFromHostId) ?: return@launch
+                val takenNames = hostRepository.observeAll().first().mapTo(HashSet()) { it.name }
+                val copyLabel = getApplication<Application>().getString(R.string.add_server_copy_suffix)
                 _form.value =
-                    AddServerForm(
-                        id = profile.id,
-                        name = profile.name,
-                        host = profile.host,
-                        port = profile.port.toString(),
-                        username = profile.username,
-                        password = profile.password,
-                        keyId = profile.keyId,
-                        privateKeyPem = key?.privateKeyPem ?: "",
-                        publicKeyOpenSsh = key?.publicKeyOpenSsh ?: "",
-                        keyPassphrase = profile.keyPassphrase,
-                        transport = profile.transport,
-                        authMethod = profile.authMethod,
-                        requireAuthOnConnect = profile.requireAuthOnConnect,
-                        postConnectCommand = profile.postConnectCommand.orEmpty(),
-                        multiplexer = profile.multiplexer,
+                    AddServerForm.copyOf(
+                        profile,
+                        loadKey(profile),
+                        copyHostName(profile.name, copyLabel, takenNames),
                     )
             }
         }
     }
+
+    private suspend fun loadKey(profile: HostProfile): SshKey? =
+        profile.keyId?.let { sshKeyRepository.getById(it) }
 
     fun updateName(name: String) {
         _form.value = _form.value.copy(name = name)
@@ -313,6 +318,12 @@ class AddServerViewModel(application: Application, private val hostId: Long?) :
     }
 }
 
+fun copyHostName(name: String, copyLabel: String, takenNames: Set<String>): String {
+    val base = "${name.trim()} $copyLabel".trim()
+    if (base !in takenNames) return base
+    return generateSequence(2) { it + 1 }.map { "$base $it" }.first { it !in takenNames }
+}
+
 data class AddServerForm(
     val id: Long? = null,
     val name: String = "",
@@ -329,7 +340,31 @@ data class AddServerForm(
     val requireAuthOnConnect: Boolean = false,
     val postConnectCommand: String = "",
     val multiplexer: MultiplexerType? = null,
-)
+) {
+    companion object {
+        fun fromProfile(profile: HostProfile, key: SshKey?): AddServerForm =
+            AddServerForm(
+                id = profile.id,
+                name = profile.name,
+                host = profile.host,
+                port = profile.port.toString(),
+                username = profile.username,
+                password = profile.password,
+                keyId = profile.keyId,
+                privateKeyPem = key?.privateKeyPem ?: "",
+                publicKeyOpenSsh = key?.publicKeyOpenSsh ?: "",
+                keyPassphrase = profile.keyPassphrase,
+                transport = profile.transport,
+                authMethod = profile.authMethod,
+                requireAuthOnConnect = profile.requireAuthOnConnect,
+                postConnectCommand = profile.postConnectCommand.orEmpty(),
+                multiplexer = profile.multiplexer,
+            )
+
+        fun copyOf(profile: HostProfile, key: SshKey?, name: String): AddServerForm =
+            fromProfile(profile, key).copy(id = null, name = name)
+    }
+}
 
 fun AddServerForm.canSave(): Boolean {
     if (name.isBlank() || host.isBlank() || username.isBlank()) return false

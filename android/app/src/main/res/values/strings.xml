@@ -83,6 +83,7 @@
     <!-- Add / edit server -->
     <string name="add_server_title_edit">edit server</string>
     <string name="add_server_title_new">add server</string>
+    <string name="add_server_copy_suffix">copy</string>
     <string name="add_server_name_placeholder">My server</string>
     <string name="add_server_tailscale_hint">Connects through the Tailscale network. Use the host\'s Tailscale IP (100.x.x.x) or MagicDNS name.</string>
     <string name="add_server_ssh_key_only_hint">no SSH auth uses Tailscale SSH policy (`tailscale up --ssh`) on the server. connect through Tailscale SSH instead of regular sshd credentials.</string>

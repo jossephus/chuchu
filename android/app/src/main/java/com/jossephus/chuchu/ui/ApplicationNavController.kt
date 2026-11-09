@@ -98,6 +98,7 @@ fun ApplicationNavController() {
                         }
                     },
                 onEditServer = { id -> navController.navigate("servers/edit/$id") },
+                onCopyServer = { id -> navController.navigate("servers/copy/$id") },
                 onConnectServer = { id ->
                     val host = hosts.firstOrNull { it.id == id }
                     val hostRequiresAuth = host?.requireAuthOnConnect == true
@@ -215,6 +216,15 @@ fun ApplicationNavController() {
         composable("servers/add") {
             val vm: AddServerViewModel =
                 viewModel(factory = AddServerViewModel.factory(application, null))
+            AddServerScreen(vm = vm, onBack = { navController.popBackStack() })
+        }
+        composable(
+            route = "servers/copy/{id}",
+            arguments = listOf(navArgument("id") { type = NavType.LongType }),
+        ) { backStackEntry ->
+            val id = backStackEntry.arguments?.getLong("id")
+            val vm: AddServerViewModel =
+                viewModel(factory = AddServerViewModel.factory(application, null, copyFromHostId = id))
             AddServerScreen(vm = vm, onBack = { navController.popBackStack() })
         }
         composable(
