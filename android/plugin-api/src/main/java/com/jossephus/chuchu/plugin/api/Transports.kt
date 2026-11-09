@@ -105,6 +105,10 @@ fun interface HostBrowserFactory {
 interface HostBrowser : AutoCloseable {
     val state: StateFlow<HostBrowserState>
 
+    /** True when [state] follows the host on its own, so the list needs no refresh button. */
+    val updatesLive: Boolean
+        get() = false
+
     suspend fun start()
 
     override fun close()

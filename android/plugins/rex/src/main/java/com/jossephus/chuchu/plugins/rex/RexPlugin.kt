@@ -129,6 +129,9 @@ private class RexHostBrowser(endpoint: RexEndpoint) : HostBrowser {
     private val hub = RexHubs.acquire(endpoint)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+    // Server events keep the list current.
+    override val updatesLive: Boolean = true
+
     override val state: StateFlow<HostBrowserState> =
         hub.browser.state
             .map(::toBrowserState)
