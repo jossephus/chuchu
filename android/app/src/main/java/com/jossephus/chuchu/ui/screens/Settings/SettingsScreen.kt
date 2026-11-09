@@ -33,6 +33,7 @@ import com.jossephus.chuchu.ui.components.ChuSwitch
 import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.screens.Keys.KeysContent
 import com.jossephus.chuchu.ui.screens.Keys.KeysViewModel
+import com.jossephus.chuchu.ui.screens.SessionBrowser.SessionPickerStyle
 import com.jossephus.chuchu.ui.screens.Terminal.TerminalTabMode
 import com.jossephus.chuchu.ui.terminal.TerminalCustomKeyGroup
 import com.jossephus.chuchu.ui.theme.ChuColors
@@ -65,6 +66,8 @@ fun SettingsScreen(
     onBuiltinShortcutsChanged: (Map<String, String>) -> Unit = {},
     currentTabMode: TerminalTabMode = TerminalTabMode.Classic,
     onTabModeChanged: (TerminalTabMode) -> Unit = {},
+    currentSessionPickerStyle: SessionPickerStyle = SessionPickerStyle.Panel,
+    onSessionPickerStyleChanged: (SessionPickerStyle) -> Unit = {},
     themeMode: ThemeMode,
     lightThemeName: String,
     onThemeSelected: (String) -> Unit,
@@ -199,6 +202,8 @@ fun SettingsScreen(
                             onEditChuchuCommands = { showChuchuCommandsEditor = true },
                             currentTabMode = currentTabMode,
                             onTabModeChanged = onTabModeChanged,
+                            currentSessionPickerStyle = currentSessionPickerStyle,
+                            onSessionPickerStyleChanged = onSessionPickerStyleChanged,
                             localShellEnabled = localShellEnabled,
                             onLocalShellEnabledChanged = onLocalShellEnabledChanged,
                             keepScreenAwake = keepScreenAwake,

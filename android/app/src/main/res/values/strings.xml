@@ -244,6 +244,12 @@
     <string name="mux_new">new</string>
     <string name="mux_attached">attached</string>
     <string name="mux_attach">attach</string>
+    <string name="session_browser_connecting">connecting to %1$s…</string>
+    <string name="session_browser_empty">no sessions yet.</string>
+    <string name="session_browser_new">new session</string>
+    <string name="session_browser_retry">retry</string>
+    <string name="session_browser_refresh">refresh</string>
+    <string name="session_browser_host_missing">This server no longer exists</string>
 
     <!-- Terminal session -->
     <string name="terminal_new_session_on">new session on %1$s</string>
@@ -366,6 +372,10 @@
     <string name="settings_tab_interface">tab interface</string>
     <string name="settings_tab_mode_palette">palette</string>
     <string name="settings_tab_mode_strip">tab strip</string>
+    <string name="settings_session_picker">session picker</string>
+    <string name="settings_session_picker_hint">how tmux and zmx sessions are chosen when you open a host</string>
+    <string name="settings_session_picker_panel">panel</string>
+    <string name="settings_session_picker_browser">browser</string>
     <string name="settings_accessory_keys">accessory keys</string>
     <string name="settings_no_keys_enabled">no keys enabled</string>
     <plurals name="settings_keys_enabled">

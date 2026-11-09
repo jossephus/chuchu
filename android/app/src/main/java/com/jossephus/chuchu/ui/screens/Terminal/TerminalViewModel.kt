@@ -120,6 +120,14 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         return target
     }
 
+    fun selectMultiplexerTab(hostId: Long, sessionName: String): TabSession? {
+        val existing =
+            sessionRepository.tabsForHost(hostId).firstOrNull { it.spec.multiplexerSessionName == sessionName }
+                ?: return null
+        sessionRepository.selectTab(existing.id)
+        return existing
+    }
+
     fun selectLocalShellTab(): TabSession? {
         val existing =
             sessionRepository.tabs.value.filter {

@@ -49,6 +49,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -74,7 +75,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.core.content.FileProvider
@@ -91,6 +91,7 @@ import com.jossephus.chuchu.service.terminal.TabSpec
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuDialog
+import com.jossephus.chuchu.ui.components.HostKeyPromptDialog
 import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.components.ChuTextField
 import com.jossephus.chuchu.ui.screens.Files.ConnectionTab
@@ -382,6 +383,8 @@ fun TerminalScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     openLocalShell: Boolean = false,
+    multiplexerSession: String? = null,
+    createMultiplexerSession: Boolean = false,
 ) {
     val sessionState by vm.sessionState.collectAsStateWithLifecycle()
     val hosts by vm.hosts.collectAsStateWithLifecycle()
@@ -664,12 +667,31 @@ fun TerminalScreen(
         }
     }
 
+    var multiplexerSessionHandled by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(hostId, openLocalShell) {
         showPassphrasePrompt = false
         passphraseInput = ""
         pendingTabSpec = null
         passphraseFromPicker = false
         if (hostId == null || openLocalShell) return@LaunchedEffect
+        if (multiplexerSession != null) {
+            if (multiplexerSessionHandled) return@LaunchedEffect
+            multiplexerSessionHandled = true
+            if (!createMultiplexerSession && vm.selectMultiplexerTab(hostId, multiplexerSession) != null) {
+                return@LaunchedEffect
+            }
+            val prepared = vm.prepareTabOpenForHost(hostId) ?: return@LaunchedEffect
+            vm.refreshTailscaleStatus()
+            openPreparedTab(
+                prepared.spec.copy(
+                    multiplexerSessionName = multiplexerSession,
+                    multiplexerCreateIfMissing = createMultiplexerSession,
+                ),
+                false,
+                false,
+            )
+            return@LaunchedEffect
+        }
         val existing = vm.selectTabForHost(hostId)
         if (existing != null) {
             return@LaunchedEffect
@@ -785,52 +807,7 @@ fun TerminalScreen(
         }
     }
 
-    if (hostKeyPrompt != null) {
-        val prompt = hostKeyPrompt
-        ChuDialog(
-            onDismiss = { vm.onHostKeyDecision(false) },
-            title = stringResource(R.string.terminal_hostkey_title),
-            confirmLabel = stringResource(R.string.action_accept),
-            dismissLabel = stringResource(R.string.action_reject),
-            onConfirm = { vm.onHostKeyDecision(true) },
-            properties = DialogProperties(
-                dismissOnBackPress = false,
-                dismissOnClickOutside = false,
-            ),
-        ) {
-            val previous = prompt?.previousFingerprint
-            val message = buildString {
-                append(
-                    context.getString(
-                        R.string.terminal_hostkey_host,
-                        prompt?.host.orEmpty(),
-                        prompt?.port?.toString().orEmpty(),
-                    )
-                )
-                append('\n')
-                append(
-                    context.getString(
-                        R.string.terminal_hostkey_algorithm,
-                        prompt?.algorithm.orEmpty(),
-                    )
-                )
-                append('\n')
-                if (previous != null) {
-                    append(context.getString(R.string.terminal_hostkey_changed_warning))
-                    append('\n')
-                    append(context.getString(R.string.terminal_hostkey_old, previous))
-                    append('\n')
-                }
-                append(
-                    context.getString(
-                        R.string.terminal_hostkey_new,
-                        prompt?.fingerprint.orEmpty(),
-                    )
-                )
-            }
-            ChuText(message, style = typography.body)
-        }
-    }
+    hostKeyPrompt?.let { prompt -> HostKeyPromptDialog(prompt, vm::onHostKeyDecision) }
 
     val preflightError = multiplexerState.preflightError
     LaunchedEffect(preflightError) {
