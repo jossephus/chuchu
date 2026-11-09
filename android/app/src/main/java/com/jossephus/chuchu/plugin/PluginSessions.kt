@@ -212,7 +212,9 @@ internal fun TabSpec.toHostInfo(): HostInfo =
                 Transport.TailscaleSSH -> SessionTransport.TailscaleSsh
                 Transport.Mosh -> SessionTransport.Mosh
                 Transport.LocalShell -> SessionTransport.LocalShell
+                Transport.Plugin -> SessionTransport.Plugin
             },
         multiplexer = multiplexer?.id,
         multiplexerSession = multiplexerSessionName,
+        transportId = transportId,
     )

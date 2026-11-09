@@ -175,6 +175,29 @@ class ChuchuBackupCoreTest {
         )
     }
 
+    @Test
+    fun payloadV3PreservesPluginTransportId() {
+        val host = sampleHost(transport = Transport.Plugin).copy(transportId = "rex")
+        val payload = samplePayload().copy(hosts = listOf(BackupHostProfile.fromEntity(host)))
+
+        val decoded = ChuchuBackupCodec.decodePayload(ChuchuBackupCodec.encodePayload(payload))
+
+        assertEquals(Transport.Plugin, decoded.hosts.single().transport)
+        assertEquals("rex", decoded.hosts.single().transportId)
+    }
+
+    @Test
+    fun payloadV2DefaultsTransportIdToNull() {
+        val v3 = ChuchuBackupCodec.encodePayload(samplePayload())
+        writeIntAt(v3, offset = Int.SIZE_BYTES, value = 2)
+        val v2 = v3.copyOf(v3.size - NULL_FIELD_SIZE)
+
+        val decoded = ChuchuBackupCodec.decodePayload(v2)
+
+        assertNull(decoded.hosts.single().transportId)
+        assertEquals(MultiplexerType.Tmux, decoded.hosts.single().multiplexer)
+    }
+
     @Test(expected = BackupFormatException::class)
     fun payloadDecodeRejectsUnknownEnums() {
         val payload = samplePayload().copy(
@@ -211,7 +234,7 @@ class ChuchuBackupCoreTest {
     fun payloadV1DefaultsMultiplexerToNull() {
         val v2 = ChuchuBackupCodec.encodePayload(samplePayload())
         writeIntAt(v2, offset = Int.SIZE_BYTES, value = 1)
-        val v1 = v2.copyOf(v2.size - encodedNullableStringSize(MultiplexerType.Tmux.id))
+        val v1 = v2.copyOf(v2.size - encodedNullableStringSize(MultiplexerType.Tmux.id) - NULL_FIELD_SIZE)
 
         val decoded = ChuchuBackupCodec.decodePayload(v1)
 
@@ -267,6 +290,8 @@ class ChuchuBackupCoreTest {
         postConnectCommand = "echo hello",
         multiplexer = MultiplexerType.Tmux,
     )
+
+    private val NULL_FIELD_SIZE = 1
 
     private fun encodedNullableStringSize(value: String): Int =
         1 + Int.SIZE_BYTES + value.toByteArray(Charsets.UTF_8).size

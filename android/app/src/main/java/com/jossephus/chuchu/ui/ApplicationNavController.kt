@@ -1,11 +1,14 @@
 package com.jossephus.chuchu.ui
 
 import android.app.Application
+import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
@@ -20,9 +23,15 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.jossephus.chuchu.data.repository.SettingsRepository
+import com.jossephus.chuchu.model.Transport
+import com.jossephus.chuchu.service.terminal.TransportTarget
+import com.jossephus.chuchu.service.transport.TransportRegistry
+import com.jossephus.chuchu.service.terminal.TerminalSessionRepository
 import com.jossephus.chuchu.ui.screens.AddServer.AddServerScreen
 import com.jossephus.chuchu.ui.screens.AddServer.AddServerViewModel
 import com.jossephus.chuchu.ui.screens.Keys.KeysViewModel
+import com.jossephus.chuchu.ui.screens.HostBrowser.HostBrowserScreen
+import com.jossephus.chuchu.ui.screens.HostBrowser.HostBrowserViewModel
 import com.jossephus.chuchu.ui.screens.ServerList.ServerListScreen
 import com.jossephus.chuchu.ui.screens.ServerList.ServerListViewModel
 import com.jossephus.chuchu.ui.screens.Settings.SettingsBackupViewModel
@@ -93,10 +102,14 @@ fun ApplicationNavController() {
                 onEditServer = { id -> navController.navigate("servers/edit/$id") },
                 onConnectServer = { id ->
                     val host = hosts.firstOrNull { it.id == id }
+                    val browsable =
+                        host?.transport == Transport.Plugin &&
+                            TransportRegistry.forId(host.transportId)?.hostBrowser != null
+                    val route = if (browsable) "browse/$id" else "terminal/$id"
                     val hostRequiresAuth = host?.requireAuthOnConnect == true
                     val mustVerify = requireAuthOnConnect || hostRequiresAuth
                     if (!mustVerify) {
-                        navController.navigate("terminal/$id")
+                        navController.navigate(route)
                     } else {
                         requireUserVerification(
                             context = context,
@@ -104,7 +117,7 @@ fun ApplicationNavController() {
                             subtitle = "Authenticate to open this server session",
                         ) { result ->
                             if (result == VerificationResult.Success) {
-                                navController.navigate("terminal/$id")
+                                navController.navigate(route)
                             }
                         }
                     }
@@ -222,16 +235,56 @@ fun ApplicationNavController() {
             }
         }
         composable(
-            route = "terminal/{id}",
+            route = "browse/{id}",
             arguments = listOf(navArgument("id") { type = NavType.LongType }),
+        ) { backStackEntry ->
+            val id = backStackEntry.arguments?.getLong("id") ?: return@composable
+            val vm: HostBrowserViewModel = viewModel(factory = HostBrowserViewModel.factory(application, id))
+            val sessionRepo = TerminalSessionRepository.getInstance(application)
+            val tabs by sessionRepo.tabs.collectAsStateWithLifecycle()
+            val openTargets =
+                tabs.filter { it.spec.hostId == id }
+                    .mapNotNull { it.transportTarget }
+                    .toSet()
+            HostBrowserScreen(
+                vm = vm,
+                openTargets = openTargets,
+                onOpen = { target -> navController.navigate(transportTerminalRoute(id, target)) },
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(
+            route = "terminal/{id}?target={target}&creates={creates}",
+            arguments =
+                listOf(
+                    navArgument("id") { type = NavType.LongType },
+                    navArgument("target") { type = NavType.StringType; nullable = true; defaultValue = null },
+                    navArgument("creates") { type = NavType.BoolType; defaultValue = false },
+                ),
         ) { backStackEntry ->
             val id = backStackEntry.arguments?.getLong("id")
             val vm: TerminalViewModel = viewModel(factory = TerminalViewModel.factory(application))
+            val transportTarget =
+                backStackEntry.arguments?.getString("target")?.let { value ->
+                    TransportTarget(value, creates = backStackEntry.arguments?.getBoolean("creates") == true)
+                }
+            var leaving by remember { mutableStateOf(false) }
+            val back: () -> Unit = {
+                if (!leaving) {
+                    leaving = true
+                    navController.popBackStack()
+                    if (transportTarget != null && id != null) {
+                        TerminalSessionRepository.getInstance(application).closeHostTabs(id)
+                    }
+                }
+            }
+            BackHandler(enabled = transportTarget != null, onBack = back)
             TerminalScreen(
                 vm = vm,
                 hostId = id,
+                transportTarget = transportTarget,
                 onOpenSettings = { navController.navigate("settings") },
-                onBack = { navController.popBackStack() },
+                onBack = back,
             )
         }
     }
@@ -262,3 +315,6 @@ fun ApplicationNavController() {
         }
     }
 }
+
+private fun transportTerminalRoute(hostId: Long, target: TransportTarget): String =
+    "terminal/$hostId?target=${Uri.encode(target.value)}&creates=${target.creates}"

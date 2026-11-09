@@ -18,6 +18,11 @@ import com.jossephus.chuchu.plugin.api.SessionTransport
 import com.jossephus.chuchu.plugin.api.SessionViewProvider
 import com.jossephus.chuchu.plugin.api.SettingsSchema
 import com.jossephus.chuchu.plugin.api.ToggleField
+import com.jossephus.chuchu.plugin.api.TransportConnectRequest
+import com.jossephus.chuchu.plugin.api.TransportConnection
+import com.jossephus.chuchu.plugin.api.TransportHostForm
+import com.jossephus.chuchu.plugin.api.TransportProvider
+import com.jossephus.chuchu.service.transport.TransportRegistry
 import com.jossephus.chuchu.plugin.api.provideService
 import com.jossephus.chuchu.plugin.api.service
 import kotlinx.coroutines.CoroutineScope
@@ -327,5 +332,57 @@ class PluginManagerTest {
 
         assertEquals(PluginStatus.Failed, status("twice"))
         assertTrue(manager.settings.value.isEmpty())
+    }
+
+    private class FakeTransport(override val id: String) : TransportProvider {
+        override val displayName = id
+        override val hostForm = TransportHostForm(addressLabel = "address")
+
+        override fun normalizeAddress(raw: String): String? = raw.trim().ifEmpty { null }
+
+        override suspend fun test(address: String): String = "ok"
+
+        override suspend fun connect(request: TransportConnectRequest): TransportConnection =
+            error("no connections in unit tests")
+    }
+
+    @Test
+    fun registeredTransportIsResolvableById() {
+        val transport = FakeTransport("test-transport-active")
+        manager.load(listOf(entry("transport_owner") { RecordingPlugin { it.registerTransport(transport) } }))
+
+        assertSame(transport, TransportRegistry.forId("test-transport-active"))
+        TransportRegistry.unregisterOwner("transport_owner")
+    }
+
+    @Test
+    fun registerFailureRollsBackTheTransport() {
+        manager.load(
+            listOf(
+                entry("transport_failing") {
+                    RecordingPlugin {
+                        it.registerTransport(FakeTransport("test-transport-rolled-back"))
+                        error("boom")
+                    }
+                },
+            ),
+        )
+
+        assertEquals(PluginStatus.Failed, status("transport_failing"))
+        assertNull(TransportRegistry.forId("test-transport-rolled-back"))
+    }
+
+    @Test
+    fun duplicateTransportIdFailsTheSecondPlugin() {
+        manager.load(
+            listOf(
+                entry("transport_first") { RecordingPlugin { it.registerTransport(FakeTransport("test-transport-dup")) } },
+                entry("transport_second") { RecordingPlugin { it.registerTransport(FakeTransport("test-transport-dup")) } },
+            ),
+        )
+
+        assertEquals(PluginStatus.Active, status("transport_first"))
+        assertEquals(PluginStatus.Failed, status("transport_second"))
+        TransportRegistry.unregisterOwner("transport_first")
     }
 }

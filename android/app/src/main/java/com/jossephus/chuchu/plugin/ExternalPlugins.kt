@@ -249,7 +249,7 @@ class ExternalPlugins(
             )
 
         // Android's boot loader: framework (android.*, java.*) classes only.
-        private val FRAMEWORK_LOADER: ClassLoader = requireNotNull(String::class.java.classLoader)
+        private val FRAMEWORK_LOADER: ClassLoader by lazy { requireNotNull(String::class.java.classLoader) }
 
         // Matches the settings/prefs file naming, where ids become file names.
         private val ID_PATTERN = Regex("^[a-z0-9_]{1,64}$")

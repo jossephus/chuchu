@@ -23,6 +23,10 @@ class ConnectionRecoveryPolicyTest {
             ReadLoopExitAction.AutomaticReconnect,
             readLoopExitAction(Transport.TailscaleSSH),
         )
+        assertEquals(
+            ReadLoopExitAction.AutomaticReconnect,
+            readLoopExitAction(Transport.Plugin),
+        )
     }
 
     @Test

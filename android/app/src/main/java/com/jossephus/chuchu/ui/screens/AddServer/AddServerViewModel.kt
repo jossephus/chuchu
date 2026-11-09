@@ -20,6 +20,9 @@ import com.jossephus.chuchu.plugin.api.ChoiceField
 import com.jossephus.chuchu.plugin.api.SettingField
 import com.jossephus.chuchu.plugin.api.TextField
 import com.jossephus.chuchu.plugin.api.ToggleField
+import com.jossephus.chuchu.plugin.api.TransportProvider
+import com.jossephus.chuchu.service.transport.TransportRegistry
+import java.net.URI
 import com.jossephus.chuchu.service.ssh.HostKeyCheck
 import com.jossephus.chuchu.service.ssh.HostKeyPolicy
 import com.jossephus.chuchu.service.ssh.HostKeyStore
@@ -99,6 +102,7 @@ class AddServerViewModel(application: Application, private val hostId: Long?) :
                         requireAuthOnConnect = profile.requireAuthOnConnect,
                         postConnectCommand = profile.postConnectCommand.orEmpty(),
                         multiplexer = profile.multiplexer,
+                        transportId = profile.transportId,
                     )
             }
         }
@@ -172,11 +176,32 @@ class AddServerViewModel(application: Application, private val hostId: Long?) :
         _form.value =
             current.copy(
                 transport = transport,
+                transportId = null,
                 authMethod = nextAuthMethod,
                 // Keep an id whose plugin isn't loaded: reinstalling the plugin restores it,
                 // and TabSpec ignores unsupported multiplexers at connect time.
                 multiplexer = current.multiplexer.takeIf { transport != Transport.Mosh },
             )
+        _testState.value = ConnectionTestState()
+    }
+
+    fun selectPluginTransport(transportId: String) {
+        val current = _form.value
+        _form.value = current.copy(transport = Transport.Plugin, transportId = transportId, multiplexer = null)
+        _testState.value = ConnectionTestState()
+    }
+
+    fun applyPairingCode(code: String): Boolean {
+        val current = _form.value
+        val address = current.transportProvider?.addressFromPairingCode(code) ?: return false
+        val hostName = runCatching { URI(address).host }.getOrNull()?.substringBefore('.').orEmpty()
+        _form.value =
+            current.copy(
+                host = address,
+                name = current.name.ifBlank { hostName },
+            )
+        _testState.value = ConnectionTestState()
+        return true
     }
 
     fun updateAuthMethod(authMethod: AuthMethod) {
@@ -210,6 +235,10 @@ class AddServerViewModel(application: Application, private val hostId: Long?) :
 
     fun testConnection() {
         val current = _form.value
+        if (current.transport == Transport.Plugin) {
+            testPluginConnection(current)
+            return
+        }
         val host = current.host.filterNot { it.isWhitespace() }
         if (host.isBlank()) return
         val username = current.username.trim()
@@ -303,8 +332,33 @@ class AddServerViewModel(application: Application, private val hostId: Long?) :
             is ChoiceField -> field.default
         }
 
+    private fun testPluginConnection(current: AddServerForm) {
+        val provider = current.transportProvider ?: return
+        val address = provider.normalizeAddress(current.host) ?: return
+        _testState.value = ConnectionTestState(status = ConnectionTestStatus.Running)
+        viewModelScope.launch {
+            val result = runCatching { provider.test(address) }
+            _testState.value =
+                result.fold(
+                    onSuccess = { message ->
+                        ConnectionTestState(status = ConnectionTestStatus.Success, message = message)
+                    },
+                    onFailure = { error ->
+                        ConnectionTestState(
+                            status = ConnectionTestStatus.Error,
+                            message = error.message ?: "Connection failed",
+                        )
+                    },
+                )
+        }
+    }
+
     fun save(onComplete: () -> Unit) {
         val current = _form.value
+        if (current.transport == Transport.Plugin) {
+            savePluginHost(current, onComplete)
+            return
+        }
         val host = current.host.filterNot { it.isWhitespace() }
         val port = current.port.toIntOrNull() ?: 22
         if (!current.canSave() || host.isBlank()) return
@@ -329,11 +383,38 @@ class AddServerViewModel(application: Application, private val hostId: Long?) :
                     multiplexer = current.multiplexer.takeIf { current.transport != Transport.Mosh },
                 )
             val savedId = hostRepository.upsert(profile)
-            _pluginHostEdits.value.forEach { (pluginId, edits) ->
-                val values = pluginManager.hostSettingValues(pluginId, savedId)
-                edits.forEach { (field, raw) -> values.set(field, raw) }
-            }
+            savePluginHostEdits(savedId)
             onComplete()
+        }
+    }
+
+    private fun savePluginHost(current: AddServerForm, onComplete: () -> Unit) {
+        if (!current.canSave()) return
+        val address = current.transportProvider?.normalizeAddress(current.host) ?: return
+        viewModelScope.launch {
+            val savedId =
+                hostRepository.upsert(
+                    HostProfile(
+                        id = current.id ?: 0L,
+                        name = current.name.trim(),
+                        host = address,
+                        port = 0,
+                        username = "",
+                        transport = Transport.Plugin,
+                        authMethod = AuthMethod.None,
+                        requireAuthOnConnect = current.requireAuthOnConnect,
+                        transportId = current.transportId,
+                    )
+                )
+            savePluginHostEdits(savedId)
+            onComplete()
+        }
+    }
+
+    private fun savePluginHostEdits(savedId: Long) {
+        _pluginHostEdits.value.forEach { (pluginId, edits) ->
+            val values = pluginManager.hostSettingValues(pluginId, savedId)
+            edits.forEach { (field, raw) -> values.set(field, raw) }
         }
     }
 }
@@ -354,9 +435,14 @@ data class AddServerForm(
     val requireAuthOnConnect: Boolean = false,
     val postConnectCommand: String = "",
     val multiplexer: MultiplexerType? = null,
-)
+    val transportId: String? = null,
+) {
+    val transportProvider: TransportProvider?
+        get() = if (transport == Transport.Plugin) TransportRegistry.forId(transportId) else null
+}
 
 fun AddServerForm.canSave(): Boolean {
+    if (transport == Transport.Plugin) return name.isNotBlank() && transportProvider?.normalizeAddress(host) != null
     if (name.isBlank() || host.isBlank() || username.isBlank()) return false
     return when (authMethod) {
         AuthMethod.Key,

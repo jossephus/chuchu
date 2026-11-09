@@ -1,3 +1,39 @@
+public final class com/jossephus/chuchu/plugin/api/BrowserGroup {
+	public static final field $stable I
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/util/List;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/lang/String;)Lcom/jossephus/chuchu/plugin/api/BrowserGroup;
+	public static synthetic fun copy$default (Lcom/jossephus/chuchu/plugin/api/BrowserGroup;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/lang/String;ILjava/lang/Object;)Lcom/jossephus/chuchu/plugin/api/BrowserGroup;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getId ()Ljava/lang/String;
+	public final fun getItems ()Ljava/util/List;
+	public final fun getLabel ()Ljava/lang/String;
+	public final fun getNewItemTarget ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/jossephus/chuchu/plugin/api/BrowserItem {
+	public static final field $stable I
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lcom/jossephus/chuchu/plugin/api/BrowserItem;
+	public static synthetic fun copy$default (Lcom/jossephus/chuchu/plugin/api/BrowserItem;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lcom/jossephus/chuchu/plugin/api/BrowserItem;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDetail ()Ljava/lang/String;
+	public final fun getTarget ()Ljava/lang/String;
+	public final fun getTitle ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public abstract interface class com/jossephus/chuchu/plugin/api/ByteStreamEvent {
 }
 
@@ -62,10 +98,58 @@ public abstract interface class com/jossephus/chuchu/plugin/api/ExecChannel : ja
 	public abstract fun write ([BLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
+public abstract interface class com/jossephus/chuchu/plugin/api/HostBrowser : java/lang/AutoCloseable {
+	public abstract fun close ()V
+	public abstract fun getState ()Lkotlinx/coroutines/flow/StateFlow;
+	public abstract fun start (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public abstract interface class com/jossephus/chuchu/plugin/api/HostBrowserFactory {
+	public abstract fun open (Ljava/lang/String;)Lcom/jossephus/chuchu/plugin/api/HostBrowser;
+}
+
+public abstract interface class com/jossephus/chuchu/plugin/api/HostBrowserState {
+}
+
+public final class com/jossephus/chuchu/plugin/api/HostBrowserState$Connecting : com/jossephus/chuchu/plugin/api/HostBrowserState {
+	public static final field $stable I
+	public static final field INSTANCE Lcom/jossephus/chuchu/plugin/api/HostBrowserState$Connecting;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/jossephus/chuchu/plugin/api/HostBrowserState$Failed : com/jossephus/chuchu/plugin/api/HostBrowserState {
+	public static final field $stable I
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lcom/jossephus/chuchu/plugin/api/HostBrowserState$Failed;
+	public static synthetic fun copy$default (Lcom/jossephus/chuchu/plugin/api/HostBrowserState$Failed;Ljava/lang/String;ILjava/lang/Object;)Lcom/jossephus/chuchu/plugin/api/HostBrowserState$Failed;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMessage ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/jossephus/chuchu/plugin/api/HostBrowserState$Ready : com/jossephus/chuchu/plugin/api/HostBrowserState {
+	public static final field $stable I
+	public fun <init> (Ljava/util/List;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/util/List;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/util/List;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/util/List;Ljava/lang/String;)Lcom/jossephus/chuchu/plugin/api/HostBrowserState$Ready;
+	public static synthetic fun copy$default (Lcom/jossephus/chuchu/plugin/api/HostBrowserState$Ready;Ljava/util/List;Ljava/lang/String;ILjava/lang/Object;)Lcom/jossephus/chuchu/plugin/api/HostBrowserState$Ready;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getGroups ()Ljava/util/List;
+	public final fun getNewGroupTarget ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class com/jossephus/chuchu/plugin/api/HostInfo {
 	public static final field $stable I
-	public fun <init> (Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Lcom/jossephus/chuchu/plugin/api/SessionTransport;Ljava/lang/String;Ljava/lang/String;)V
-	public synthetic fun <init> (Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Lcom/jossephus/chuchu/plugin/api/SessionTransport;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Lcom/jossephus/chuchu/plugin/api/SessionTransport;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Lcom/jossephus/chuchu/plugin/api/SessionTransport;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/lang/Long;
 	public final fun component2 ()Ljava/lang/String;
 	public final fun component3 ()Ljava/lang/String;
@@ -74,8 +158,9 @@ public final class com/jossephus/chuchu/plugin/api/HostInfo {
 	public final fun component6 ()Lcom/jossephus/chuchu/plugin/api/SessionTransport;
 	public final fun component7 ()Ljava/lang/String;
 	public final fun component8 ()Ljava/lang/String;
-	public final fun copy (Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Lcom/jossephus/chuchu/plugin/api/SessionTransport;Ljava/lang/String;Ljava/lang/String;)Lcom/jossephus/chuchu/plugin/api/HostInfo;
-	public static synthetic fun copy$default (Lcom/jossephus/chuchu/plugin/api/HostInfo;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Lcom/jossephus/chuchu/plugin/api/SessionTransport;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lcom/jossephus/chuchu/plugin/api/HostInfo;
+	public final fun component9 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Lcom/jossephus/chuchu/plugin/api/SessionTransport;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lcom/jossephus/chuchu/plugin/api/HostInfo;
+	public static synthetic fun copy$default (Lcom/jossephus/chuchu/plugin/api/HostInfo;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Lcom/jossephus/chuchu/plugin/api/SessionTransport;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lcom/jossephus/chuchu/plugin/api/HostInfo;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getHost ()Ljava/lang/String;
 	public final fun getHostId ()Ljava/lang/Long;
@@ -84,6 +169,7 @@ public final class com/jossephus/chuchu/plugin/api/HostInfo {
 	public final fun getName ()Ljava/lang/String;
 	public final fun getPort ()I
 	public final fun getTransport ()Lcom/jossephus/chuchu/plugin/api/SessionTransport;
+	public final fun getTransportId ()Ljava/lang/String;
 	public final fun getUsername ()Ljava/lang/String;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
@@ -117,6 +203,13 @@ public final class com/jossephus/chuchu/plugin/api/MultiplexerSessionNames {
 	public static final field $stable I
 	public static final field INSTANCE Lcom/jossephus/chuchu/plugin/api/MultiplexerSessionNames;
 	public final fun next (Ljava/util/Collection;Ljava/util/Collection;)Ljava/lang/String;
+}
+
+public final class com/jossephus/chuchu/plugin/api/PairingPrompt {
+	public static final field $stable I
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public final fun getHint ()Ljava/lang/String;
+	public final fun getTitle ()Ljava/lang/String;
 }
 
 public final class com/jossephus/chuchu/plugin/api/PluginApi {
@@ -157,6 +250,7 @@ public abstract interface class com/jossephus/chuchu/plugin/api/PluginHost {
 	public abstract fun registerMultiplexer (Lcom/jossephus/chuchu/plugin/api/MultiplexerProvider;)V
 	public abstract fun registerSessionView (Lcom/jossephus/chuchu/plugin/api/SessionViewProvider;)V
 	public abstract fun registerSettings (Lcom/jossephus/chuchu/plugin/api/SettingsSchema;)V
+	public abstract fun registerTransport (Lcom/jossephus/chuchu/plugin/api/TransportProvider;)V
 	public abstract fun service (Lkotlin/reflect/KClass;)Ljava/lang/Object;
 }
 
@@ -392,6 +486,7 @@ public final class com/jossephus/chuchu/plugin/api/SessionStatus : java/lang/Enu
 public final class com/jossephus/chuchu/plugin/api/SessionTransport : java/lang/Enum {
 	public static final field LocalShell Lcom/jossephus/chuchu/plugin/api/SessionTransport;
 	public static final field Mosh Lcom/jossephus/chuchu/plugin/api/SessionTransport;
+	public static final field Plugin Lcom/jossephus/chuchu/plugin/api/SessionTransport;
 	public static final field Ssh Lcom/jossephus/chuchu/plugin/api/SessionTransport;
 	public static final field TailscaleSsh Lcom/jossephus/chuchu/plugin/api/SessionTransport;
 	public static fun getEntries ()Lkotlin/enums/EnumEntries;
@@ -459,6 +554,97 @@ public final class com/jossephus/chuchu/plugin/api/ToggleField : com/jossephus/c
 	public fun getDescription ()Ljava/lang/String;
 	public fun getKey ()Ljava/lang/String;
 	public fun getTitle ()Ljava/lang/String;
+}
+
+public final class com/jossephus/chuchu/plugin/api/TransportBehavior {
+	public static final field $stable I
+	public fun <init> ()V
+	public fun <init> (ZZZ)V
+	public synthetic fun <init> (ZZZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getActiveTabOnly ()Z
+	public final fun getRemoteAnswersQueries ()Z
+	public final fun getTabsFollowBrowserGroup ()Z
+}
+
+public final class com/jossephus/chuchu/plugin/api/TransportConnectRequest {
+	public static final field $stable I
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Lcom/jossephus/chuchu/plugin/api/PtySize;Ljava/lang/Long;)V
+	public final fun getAddress ()Ljava/lang/String;
+	public final fun getHostId ()Ljava/lang/Long;
+	public final fun getSize ()Lcom/jossephus/chuchu/plugin/api/PtySize;
+	public final fun getTarget ()Ljava/lang/String;
+}
+
+public abstract interface class com/jossephus/chuchu/plugin/api/TransportConnection : java/lang/AutoCloseable {
+	public abstract fun close ()V
+	public abstract fun getFrames ()Lkotlinx/coroutines/flow/Flow;
+	public abstract fun getTarget ()Ljava/lang/String;
+	public abstract fun resize (Lcom/jossephus/chuchu/plugin/api/PtySize;)V
+	public abstract fun write ([B)V
+}
+
+public final class com/jossephus/chuchu/plugin/api/TransportEndedException : java/io/IOException {
+	public static final field $stable I
+	public fun <init> (Ljava/lang/String;)V
+}
+
+public abstract interface class com/jossephus/chuchu/plugin/api/TransportFrame {
+}
+
+public final class com/jossephus/chuchu/plugin/api/TransportFrame$Output : com/jossephus/chuchu/plugin/api/TransportFrame {
+	public static final field $stable I
+	public fun <init> ([B)V
+	public final fun getBytes ()[B
+}
+
+public final class com/jossephus/chuchu/plugin/api/TransportFrame$Resize : com/jossephus/chuchu/plugin/api/TransportFrame {
+	public static final field $stable I
+	public fun <init> (II)V
+	public final fun component1 ()I
+	public final fun component2 ()I
+	public final fun copy (II)Lcom/jossephus/chuchu/plugin/api/TransportFrame$Resize;
+	public static synthetic fun copy$default (Lcom/jossephus/chuchu/plugin/api/TransportFrame$Resize;IIILjava/lang/Object;)Lcom/jossephus/chuchu/plugin/api/TransportFrame$Resize;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCols ()I
+	public final fun getRows ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/jossephus/chuchu/plugin/api/TransportFrame$Snapshot : com/jossephus/chuchu/plugin/api/TransportFrame {
+	public static final field $stable I
+	public fun <init> ([B)V
+	public final fun getBytes ()[B
+}
+
+public final class com/jossephus/chuchu/plugin/api/TransportHostForm {
+	public static final field $stable I
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lcom/jossephus/chuchu/plugin/api/PairingPrompt;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lcom/jossephus/chuchu/plugin/api/PairingPrompt;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getAddressLabel ()Ljava/lang/String;
+	public final fun getAddressPlaceholder ()Ljava/lang/String;
+	public final fun getDescription ()Ljava/lang/String;
+	public final fun getPairing ()Lcom/jossephus/chuchu/plugin/api/PairingPrompt;
+}
+
+public abstract interface class com/jossephus/chuchu/plugin/api/TransportProvider {
+	public abstract fun addressFromPairingCode (Ljava/lang/String;)Ljava/lang/String;
+	public abstract fun connect (Lcom/jossephus/chuchu/plugin/api/TransportConnectRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun duplicateTarget (Ljava/lang/String;)Ljava/lang/String;
+	public abstract fun getBehavior ()Lcom/jossephus/chuchu/plugin/api/TransportBehavior;
+	public abstract fun getDisplayName ()Ljava/lang/String;
+	public abstract fun getHostBrowser ()Lcom/jossephus/chuchu/plugin/api/HostBrowserFactory;
+	public abstract fun getHostForm ()Lcom/jossephus/chuchu/plugin/api/TransportHostForm;
+	public abstract fun getId ()Ljava/lang/String;
+	public abstract fun normalizeAddress (Ljava/lang/String;)Ljava/lang/String;
+	public abstract fun test (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class com/jossephus/chuchu/plugin/api/TransportProvider$DefaultImpls {
+	public static fun addressFromPairingCode (Lcom/jossephus/chuchu/plugin/api/TransportProvider;Ljava/lang/String;)Ljava/lang/String;
+	public static fun duplicateTarget (Lcom/jossephus/chuchu/plugin/api/TransportProvider;Ljava/lang/String;)Ljava/lang/String;
+	public static fun getBehavior (Lcom/jossephus/chuchu/plugin/api/TransportProvider;)Lcom/jossephus/chuchu/plugin/api/TransportBehavior;
+	public static fun getHostBrowser (Lcom/jossephus/chuchu/plugin/api/TransportProvider;)Lcom/jossephus/chuchu/plugin/api/HostBrowserFactory;
 }
 
 public final class com/jossephus/chuchu/plugin/api/UiKt {

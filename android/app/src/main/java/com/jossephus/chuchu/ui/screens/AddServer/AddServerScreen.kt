@@ -39,6 +39,8 @@ import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.service.multiplexer.MultiplexerRegistry
 import com.jossephus.chuchu.ui.screens.Settings.PluginHostSettings
 import com.jossephus.chuchu.model.Transport
+import com.jossephus.chuchu.plugin.api.TransportProvider
+import com.jossephus.chuchu.service.transport.TransportRegistry
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuSegmentedControl
@@ -61,11 +63,35 @@ fun AddServerScreen(vm: AddServerViewModel, onBack: () -> Unit, modifier: Modifi
     val scrollState = rememberScrollState()
     val context = LocalContext.current
     var showAdditionalSettings by remember { mutableStateOf(false) }
+    var showPairingScanner by remember { mutableStateOf(false) }
+    val transportProviders by TransportRegistry.providers.collectAsStateWithLifecycle()
+    val pluginTransport = form.transportProvider
+    val isPluginTransport = form.transport == Transport.Plugin
 
     LaunchedEffect(vm) {
         vm.errorMessage.collect { message ->
             Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
         }
+    }
+
+    val pairing = pluginTransport?.hostForm?.pairing
+    if (showPairingScanner && pairing != null) {
+        QrCodeScanner(
+            title = pairing.title,
+            hint = pairing.hint,
+            onResult = { code ->
+                showPairingScanner = false
+                if (!vm.applyPairingCode(code)) {
+                    Toast.makeText(
+                        context,
+                        "That QR code is not a ${pluginTransport?.displayName} pairing code",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            },
+            onClose = { showPairingScanner = false },
+        )
+        return
     }
     Column(
         modifier =
@@ -98,8 +124,8 @@ fun AddServerScreen(vm: AddServerViewModel, onBack: () -> Unit, modifier: Modifi
         ChuTextField(
             value = form.host,
             onValueChange = vm::updateHost,
-            label = "Host",
-            placeholder = "192.168.1.10",
+            label = pluginTransport?.hostForm?.addressLabel ?: "Host",
+            placeholder = pluginTransport?.hostForm?.addressPlaceholder ?: "192.168.1.10",
             singleLine = true,
             keyboardOptions =
                 KeyboardOptions(
@@ -110,54 +136,62 @@ fun AddServerScreen(vm: AddServerViewModel, onBack: () -> Unit, modifier: Modifi
             autoFocus = false,
             modifier = Modifier.fillMaxWidth(),
         )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            ChuTextField(
-                value = form.port,
-                onValueChange = vm::updatePort,
-                label = "Port",
-                singleLine = true,
-                keyboardOptions =
-                    KeyboardOptions(
-                        keyboardType = KeyboardType.Number,
-                        capitalization = KeyboardCapitalization.None,
-                        autoCorrectEnabled = false,
-                    ),
-                autoFocus = false,
-                modifier = Modifier.weight(0.3f),
-            )
-            ChuTextField(
-                value = form.username,
-                onValueChange = vm::updateUsername,
-                label = "Username",
-                placeholder = "root",
-                singleLine = true,
-                keyboardOptions =
-                    KeyboardOptions(
-                        keyboardType = KeyboardType.Ascii,
-                        capitalization = KeyboardCapitalization.None,
-                        autoCorrectEnabled = false,
-                    ),
-                autoFocus = false,
-                modifier = Modifier.weight(0.7f),
-            )
+        if (!isPluginTransport) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                ChuTextField(
+                    value = form.port,
+                    onValueChange = vm::updatePort,
+                    label = "Port",
+                    singleLine = true,
+                    keyboardOptions =
+                        KeyboardOptions(
+                            keyboardType = KeyboardType.Number,
+                            capitalization = KeyboardCapitalization.None,
+                            autoCorrectEnabled = false,
+                        ),
+                    autoFocus = false,
+                    modifier = Modifier.weight(0.3f),
+                )
+                ChuTextField(
+                    value = form.username,
+                    onValueChange = vm::updateUsername,
+                    label = "Username",
+                    placeholder = "root",
+                    singleLine = true,
+                    keyboardOptions =
+                        KeyboardOptions(
+                            keyboardType = KeyboardType.Ascii,
+                            capitalization = KeyboardCapitalization.None,
+                            autoCorrectEnabled = false,
+                        ),
+                    autoFocus = false,
+                    modifier = Modifier.weight(0.7f),
+                )
+            }
         }
 
         SectionDivider()
 
         SectionHeader("TRANSPORT")
+        val transportChoices =
+            listOf(
+                TransportChoice(Transport.SSH, null, "ssh"),
+                TransportChoice(Transport.TailscaleSSH, null, "tailscale"),
+                TransportChoice(Transport.Mosh, null, "mosh"),
+            ) + transportProviders.map { TransportChoice(Transport.Plugin, it.id, it.displayName.lowercase()) }
+        val selectedChoice =
+            transportChoices.firstOrNull { it.transport == form.transport && it.transportId == form.transportId }
+                ?: TransportChoice(form.transport, form.transportId, form.transportId ?: form.transport.name)
         ChuSegmentedControl(
-            options = listOf(Transport.SSH, Transport.TailscaleSSH, Transport.Mosh),
-            labels =
-                mapOf(
-                    Transport.SSH to "ssh",
-                    Transport.TailscaleSSH to "tailscale",
-                    Transport.Mosh to "mosh",
-                ),
-            selected = form.transport,
-            onSelect = vm::updateTransport,
+            options = transportChoices,
+            labels = transportChoices.associateWith { it.label },
+            selected = selectedChoice,
+            onSelect = { choice ->
+                if (choice.transportId != null) vm.selectPluginTransport(choice.transportId) else vm.updateTransport(choice.transport)
+            },
         )
         if (form.transport == Transport.TailscaleSSH) {
             ChuText(
@@ -167,106 +201,117 @@ fun AddServerScreen(vm: AddServerViewModel, onBack: () -> Unit, modifier: Modifi
             )
         }
 
+        if (isPluginTransport) {
+            PluginTransportSection(
+                provider = pluginTransport,
+                transportId = form.transportId,
+                address = form.host,
+                onScan = { showPairingScanner = true },
+            )
+        }
+
         SectionDivider()
 
-        SectionHeader("AUTHENTICATION")
-        val authOptions =
-            when (form.transport) {
-                Transport.TailscaleSSH ->
-                    listOf(AuthMethod.Password, AuthMethod.Key, AuthMethod.None)
-                else -> listOf(AuthMethod.Password, AuthMethod.Key)
-            }
-        if (form.authMethod == AuthMethod.None && form.transport != Transport.TailscaleSSH) {
-            androidx.compose.runtime.SideEffect { vm.updateAuthMethod(AuthMethod.Password) }
-        }
-        val segmentSelected =
-            if (form.authMethod == AuthMethod.KeyWithPassphrase) AuthMethod.Key else form.authMethod
-        ChuSegmentedControl(
-            options = authOptions,
-            labels =
-                mapOf(
-                    AuthMethod.Password to "password",
-                    AuthMethod.Key to "ssh key",
-                    AuthMethod.None to "none",
-                ),
-            selected = segmentSelected,
-            onSelect = vm::updateAuthMethod,
-        )
-
-        when (form.authMethod) {
-            AuthMethod.Password -> {
-                ChuTextField(
-                    value = form.password,
-                    onValueChange = vm::updatePassword,
-                    label = "Password",
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    autoFocus = false,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-            AuthMethod.Key,
-            AuthMethod.KeyWithPassphrase -> {
-                KeyAuthSection(
-                    form = form,
-                    keys = keys,
-                    onGenerate = { vm.generateKey(form.name) },
-                    onSelectKey = { vm.selectStoredKey(it) },
-                    onCopyPublicKey = {
-                        if (form.publicKeyOpenSsh.isBlank()) {
-                            Toast.makeText(context, "No public key available", Toast.LENGTH_SHORT)
-                                .show()
-                        } else {
-                            val clipboard =
-                                context.getSystemService(Context.CLIPBOARD_SERVICE)
-                                    as ClipboardManager
-                            clipboard.setPrimaryClip(
-                                ClipData.newPlainText("SSH Public Key", form.publicKeyOpenSsh)
-                            )
-                            Toast.makeText(context, "Public key copied", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                ) {
-                    ChuSwitch(
-                        checked = form.authMethod == AuthMethod.KeyWithPassphrase,
-                        onCheckedChange = { checked ->
-                            if (checked) {
-                                vm.updateAuthMethod(AuthMethod.KeyWithPassphrase)
-                            } else {
-                                vm.updateAuthMethod(AuthMethod.Key)
-                                vm.updateKeyPassphrase("")
-                            }
-                        },
-                    )
-                    ChuText("set passphrase", style = typography.label)
+        if (!isPluginTransport) {
+            SectionHeader("AUTHENTICATION")
+            val authOptions =
+                when (form.transport) {
+                    Transport.TailscaleSSH ->
+                        listOf(AuthMethod.Password, AuthMethod.Key, AuthMethod.None)
+                    else -> listOf(AuthMethod.Password, AuthMethod.Key)
                 }
-                if (form.authMethod == AuthMethod.KeyWithPassphrase) {
+            if (form.authMethod == AuthMethod.None && form.transport != Transport.TailscaleSSH) {
+                androidx.compose.runtime.SideEffect { vm.updateAuthMethod(AuthMethod.Password) }
+            }
+            val segmentSelected =
+                if (form.authMethod == AuthMethod.KeyWithPassphrase) AuthMethod.Key else form.authMethod
+            ChuSegmentedControl(
+                options = authOptions,
+                labels =
+                    mapOf(
+                        AuthMethod.Password to "password",
+                        AuthMethod.Key to "ssh key",
+                        AuthMethod.None to "none",
+                    ),
+                selected = segmentSelected,
+                onSelect = vm::updateAuthMethod,
+            )
+
+            when (form.authMethod) {
+                AuthMethod.Password -> {
                     ChuTextField(
-                        value = form.keyPassphrase,
-                        onValueChange = vm::updateKeyPassphrase,
-                        label = "Passphrase",
+                        value = form.password,
+                        onValueChange = vm::updatePassword,
+                        label = "Password",
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                         autoFocus = false,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
+                AuthMethod.Key,
+                AuthMethod.KeyWithPassphrase -> {
+                    KeyAuthSection(
+                        form = form,
+                        keys = keys,
+                        onGenerate = { vm.generateKey(form.name) },
+                        onSelectKey = { vm.selectStoredKey(it) },
+                        onCopyPublicKey = {
+                            if (form.publicKeyOpenSsh.isBlank()) {
+                                Toast.makeText(context, "No public key available", Toast.LENGTH_SHORT)
+                                    .show()
+                            } else {
+                                val clipboard =
+                                    context.getSystemService(Context.CLIPBOARD_SERVICE)
+                                        as ClipboardManager
+                                clipboard.setPrimaryClip(
+                                    ClipData.newPlainText("SSH Public Key", form.publicKeyOpenSsh)
+                                )
+                                Toast.makeText(context, "Public key copied", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                    ) {
+                        ChuSwitch(
+                            checked = form.authMethod == AuthMethod.KeyWithPassphrase,
+                            onCheckedChange = { checked ->
+                                if (checked) {
+                                    vm.updateAuthMethod(AuthMethod.KeyWithPassphrase)
+                                } else {
+                                    vm.updateAuthMethod(AuthMethod.Key)
+                                    vm.updateKeyPassphrase("")
+                                }
+                            },
+                        )
+                        ChuText("set passphrase", style = typography.label)
+                    }
+                    if (form.authMethod == AuthMethod.KeyWithPassphrase) {
+                        ChuTextField(
+                            value = form.keyPassphrase,
+                            onValueChange = vm::updateKeyPassphrase,
+                            label = "Passphrase",
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            autoFocus = false,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+                AuthMethod.None -> {
+                    ChuText(
+                        "no SSH auth uses Tailscale SSH policy (`tailscale up --ssh`) on the server. connect through Tailscale SSH instead of regular sshd credentials.",
+                        style = typography.bodySmall,
+                        color = colors.textMuted,
+                    )
+                }
             }
-            AuthMethod.None -> {
-                ChuText(
-                    "no SSH auth uses Tailscale SSH policy (`tailscale up --ssh`) on the server. connect through Tailscale SSH instead of regular sshd credentials.",
-                    style = typography.bodySmall,
-                    color = colors.textMuted,
-                )
-            }
-        }
 
-        SectionDivider()
+            SectionDivider()
+        }
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             ChuButton(
@@ -290,8 +335,10 @@ fun AddServerScreen(vm: AddServerViewModel, onBack: () -> Unit, modifier: Modifi
                 )
             }
             SectionDivider()
-            MultiplexerSection(selected = form.multiplexer, onSelect = vm::updateMultiplexer)
-            SectionDivider()
+            if (!isPluginTransport) {
+                MultiplexerSection(selected = form.multiplexer, onSelect = vm::updateMultiplexer)
+                SectionDivider()
+            }
             if (pluginHostSettings.isNotEmpty()) {
                 SectionHeader("PLUGINS")
                 PluginHostSettings(
@@ -303,14 +350,21 @@ fun AddServerScreen(vm: AddServerViewModel, onBack: () -> Unit, modifier: Modifi
                 )
                 SectionDivider()
             }
-            PostConnectActionSection(
-                command = form.postConnectCommand,
-                onCommandChange = vm::updatePostConnectCommand,
-            )
-            SectionDivider()
+            if (!isPluginTransport) {
+                PostConnectActionSection(
+                    command = form.postConnectCommand,
+                    onCommandChange = vm::updatePostConnectCommand,
+                )
+                SectionDivider()
+            }
         }
 
-        val canTest = form.host.isNotBlank() && form.username.isNotBlank()
+        val canTest =
+            if (isPluginTransport) {
+                pluginTransport?.normalizeAddress(form.host) != null
+            } else {
+                form.host.isNotBlank() && form.username.isNotBlank()
+            }
         ChuButton(
             onClick = vm::testConnection,
             enabled = canTest,
@@ -330,6 +384,9 @@ fun AddServerScreen(vm: AddServerViewModel, onBack: () -> Unit, modifier: Modifi
         if (testState.status == ConnectionTestStatus.Error && testState.message != null) {
             ChuText(testState.message ?: "", style = typography.bodySmall, color = colors.error)
         }
+        if (isPluginTransport && testState.status == ConnectionTestStatus.Success && testState.message != null) {
+            ChuText(testState.message ?: "", style = typography.bodySmall, color = colors.textMuted)
+        }
         ChuButton(
             onClick = { vm.save(onBack) },
             enabled = form.canSave(),
@@ -340,6 +397,57 @@ fun AddServerScreen(vm: AddServerViewModel, onBack: () -> Unit, modifier: Modifi
         ) {
             ChuText("save", style = typography.label, color = colors.accent)
         }
+    }
+}
+
+private data class TransportChoice(
+    val transport: Transport,
+    val transportId: String?,
+    val label: String,
+)
+
+@Composable
+private fun PluginTransportSection(
+    provider: TransportProvider?,
+    transportId: String?,
+    address: String,
+    onScan: () -> Unit,
+) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+    if (provider == null) {
+        ChuText(
+            "The '$transportId' transport plugin isn't available. Enable it under Settings › plugins.",
+            style = typography.bodySmall,
+            color = colors.error,
+        )
+        return
+    }
+    provider.hostForm.description?.let { description ->
+        ChuText(description, style = typography.bodySmall, color = colors.textMuted)
+    }
+    if (provider.hostForm.pairing != null) {
+        ChuButton(
+            onClick = onScan,
+            variant = ChuButtonVariant.Outlined,
+            bracketed = true,
+            borderColor = colors.accent,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            ChuText(
+                if (address.isBlank()) "scan pairing qr code" else "scan again",
+                style = typography.label,
+                color = colors.accent,
+            )
+        }
+    }
+    if (address.isNotBlank()) {
+        val normalized = provider.normalizeAddress(address)
+        ChuText(
+            normalized?.let { "connects to $it" } ?: "not a ${provider.displayName} address",
+            style = typography.bodySmall,
+            color = if (normalized == null) colors.error else colors.textMuted,
+        )
     }
 }
 

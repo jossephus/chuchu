@@ -14,9 +14,13 @@ import com.jossephus.chuchu.model.HostProfile
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.multiplexer.MultiplexerRegistry
 import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerSession
+import com.jossephus.chuchu.plugin.api.BrowserGroup
+import com.jossephus.chuchu.plugin.api.HostBrowserState
+import com.jossephus.chuchu.service.terminal.TransportTarget
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
 import com.jossephus.chuchu.service.terminal.HostKeyPrompt
 import com.jossephus.chuchu.service.terminal.SessionState
+import com.jossephus.chuchu.service.terminal.SessionStatus
 import com.jossephus.chuchu.service.terminal.TabSession
 import com.jossephus.chuchu.service.terminal.TabSpec
 import com.jossephus.chuchu.service.terminal.TerminalMouseAction
@@ -43,6 +47,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -158,20 +165,34 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         return PreparedTabOpen(spec = spec, requiresVerification = requiresVerification)
     }
 
+    fun selectTransportTab(hostId: Long, target: String): TabSession? {
+        val existing =
+            sessionRepository.tabs.value.firstOrNull { tab ->
+                tab.spec.hostId == hostId && tab.transportTarget == target
+            } ?: return null
+        sessionRepository.selectTab(existing.id)
+        return existing
+    }
+
     fun duplicateActiveTab(): TabSession? {
         val current = sessionRepository.activeTab.value ?: return null
-        if (current.spec.usesRuntimeMultiplexer) {
-            startMultiplexerDuplicate(current.spec)
-            return null
-        }
-        return openTab(current.spec)
+        return duplicate(current)
     }
 
     fun duplicateTab(tabId: String): TabSession? {
         val tab = sessionRepository.tabs.value.firstOrNull { it.id == tabId } ?: return null
+        return duplicate(tab)
+    }
+
+    private fun duplicate(tab: TabSession): TabSession? {
         if (tab.spec.usesRuntimeMultiplexer) {
             startMultiplexerDuplicate(tab.spec)
             return null
+        }
+        val provider = tab.spec.transportProvider
+        if (provider != null) {
+            val target = provider.duplicateTarget(tab.engine.attachedTarget.value)
+            return openTab(tab.spec.copy(transportTarget = target?.let { TransportTarget(it, creates = true) }))
         }
         return openTab(tab.spec)
     }
@@ -235,9 +256,10 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         val spec = preparedAction.spec
         val label = spec.multiplexer?.label ?: MultiplexerRegistry.defaultType.label
         val reconnectRecovery = preparedAction is PendingMultiplexerAction.Reconnect
-        if (spec.transport == Transport.Mosh) {
+        if (spec.transport == Transport.Mosh || spec.transport == Transport.Plugin) {
+            val transportLabel = spec.transportProvider?.displayName ?: if (spec.transport == Transport.Mosh) "Mosh" else "plugin"
             _multiplexerState.value = MultiplexerUiState(
-                preflightError = "$label is not supported for Mosh connections",
+                preflightError = "$label is not supported for $transportLabel connections",
                 reconnectRecovery = reconnectRecovery,
             )
             return
@@ -777,7 +799,78 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     }
 
     override fun onCleared() {
+        browserWatch?.second?.cancel()
         sessionRepository.detachClient()
+    }
+
+    private var browserWatch: Pair<Long, Job>? = null
+
+    fun watchHostBrowser(spec: TabSpec?) {
+        val hostId = spec?.hostId ?: return
+        val provider = spec.transportProvider ?: return
+        if (!provider.behavior.tabsFollowBrowserGroup) return
+        val factory = provider.hostBrowser ?: return
+        if (browserWatch?.first == hostId && browserWatch?.second?.isActive == true) return
+        browserWatch?.second?.cancel()
+        val job =
+            viewModelScope.launch {
+                val browser = runCatching { factory.open(spec.host) }.getOrNull() ?: return@launch
+                try {
+                    launch { runCatching { browser.start() } }
+                    val watcher = coroutineContext[Job]
+                    launch {
+                        sessionRepository.tabs.first { tabs -> tabs.none { it.spec.hostId == hostId } }
+                        watcher?.cancel()
+                    }
+                    val activeTarget =
+                        sessionRepository.activeTab.flatMapLatest { tab ->
+                            if (tab?.spec?.hostId == hostId) tab.engine.attachedTarget else flowOf(null)
+                        }
+                    combine(browser.state, activeTarget) { state, target -> state to target }
+                        .collect { (state, target) ->
+                            if (state !is HostBrowserState.Ready || target == null) return@collect
+                            state.groups.firstOrNull { group -> group.items.any { it.target == target } }
+                                ?.let { mirrorBrowserGroup(hostId, it) }
+                        }
+                } finally {
+                    browser.close()
+                }
+            }
+        browserWatch = hostId to job
+    }
+
+    private fun mirrorBrowserGroup(hostId: Long, group: BrowserGroup) {
+        val hostTabs =
+            sessionRepository.tabs.value.filter { it.spec.hostId == hostId && it.spec.transport == Transport.Plugin }
+        val template = hostTabs.firstOrNull()?.spec ?: return
+        val activeId = sessionRepository.activeTabId.value
+        val itemTargets = group.items.map { it.target }.toSet()
+        hostTabs
+            .filter { tab -> tab.id != activeId && tab.transportTarget.let { it != null && it !in itemTargets } }
+            .forEach { sessionRepository.closeTab(it.id) }
+        val opening =
+            hostTabs.any { tab ->
+                tab.transportTarget == null &&
+                    tab.sessionState.value.status.let { it == SessionStatus.Connecting || it == SessionStatus.Reconnecting }
+            }
+        val byTarget = hostTabs.filter { it.transportTarget != null }.associateBy { it.transportTarget }
+        val ordered =
+            group.items.mapNotNull { item ->
+                val tab =
+                    byTarget[item.target]
+                        ?: if (opening) {
+                            null
+                        } else {
+                            sessionRepository.openTab(
+                                template.copy(transportTarget = TransportTarget(item.target)),
+                                select = false,
+                                connect = false,
+                            )
+                        }
+                tab?.titleOverride?.value = item.title
+                tab
+            }
+        sessionRepository.arrangeHostTabs(hostId, ordered.map { it.id })
     }
 
     companion object {

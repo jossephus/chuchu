@@ -88,6 +88,8 @@ interface PluginHost {
      */
     fun registerMultiplexer(provider: MultiplexerProvider)
 
+    fun registerTransport(provider: TransportProvider)
+
     /**
      * Publishes [impl] under [type] so other plugins can use it without importing this
      * plugin, the way fizzy plugins meet through `Host` services. The service type

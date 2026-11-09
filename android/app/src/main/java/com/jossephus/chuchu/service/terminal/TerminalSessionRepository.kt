@@ -222,7 +222,7 @@ class TerminalSessionRepository private constructor(application: Application) {
             }
         }
 
-    fun openTab(spec: TabSpec): TabSession {
+    fun openTab(spec: TabSpec, select: Boolean = true, connect: Boolean = true): TabSession {
         val id = UUID.randomUUID().toString()
         val engine =
             TerminalSessionEngine(
@@ -234,31 +234,42 @@ class TerminalSessionRepository private constructor(application: Application) {
             )
         val tab = TabSession(id, spec, engine)
         _tabs.value = _tabs.value + tab
-        _activeTabId.value = id
-        engine.connect(
-            host = spec.host,
-            port = spec.port,
-            username = spec.username,
-            password = spec.password,
-            authMethod = spec.authMethod,
-            publicKeyOpenSsh = spec.publicKeyOpenSsh,
-            privateKeyPem = spec.privateKeyPem,
-            keyPassphrase = spec.keyPassphrase,
-            transport = spec.transport,
-            sessionKey = sessionKeyFor(tab),
-            postConnectCommand = spec.postConnectCommand,
-            multiplexer = spec.multiplexer,
-            multiplexerSessionName = spec.multiplexerSessionName,
-            multiplexerCreateIfMissing = spec.multiplexerCreateIfMissing,
-            hostId = spec.hostId,
-        )
+        if (select) {
+            releaseInactiveTab(_activeTabId.value, next = tab)
+            _activeTabId.value = id
+        }
+        if (connect) reconnectTab(tab)
         return tab
     }
 
     fun selectTab(id: String) {
-        if (_tabs.value.any { it.id == id }) {
-            _activeTabId.value = id
+        val tab = _tabs.value.firstOrNull { it.id == id } ?: return
+        if (_activeTabId.value == id) return
+        releaseInactiveTab(_activeTabId.value, next = tab)
+        _activeTabId.value = id
+        if (tab.spec.connectsOnlyWhileActive && tab.sessionState.value.status == SessionStatus.Disconnected) {
+            reconnectTab(tab)
         }
+    }
+
+    fun closeHostTabs(hostId: Long) {
+        _tabs.value.filter { it.spec.hostId == hostId }.forEach { closeTab(it.id) }
+    }
+
+    fun arrangeHostTabs(hostId: Long, orderedIds: List<String>) {
+        val current = _tabs.value
+        val rank = orderedIds.withIndex().associate { it.value to it.index }
+        val hostTabs = current.filter { it.spec.hostId == hostId }.sortedBy { rank[it.id] ?: Int.MAX_VALUE }
+        if (hostTabs.map { it.id } == current.filter { it.spec.hostId == hostId }.map { it.id }) return
+        val queue = ArrayDeque(hostTabs)
+        _tabs.value = current.map { if (it.spec.hostId == hostId) queue.removeFirst() else it }
+    }
+
+    private fun releaseInactiveTab(previousId: String?, next: TabSession) {
+        val previous = _tabs.value.firstOrNull { it.id == previousId } ?: return
+        if (!previous.spec.connectsOnlyWhileActive || previous.spec.hostId != next.spec.hostId) return
+        if (previous.transportTarget == null) return
+        previous.engine.disconnect()
     }
 
     fun closeTab(id: String) {
@@ -309,6 +320,8 @@ class TerminalSessionRepository private constructor(application: Application) {
             multiplexerSessionName = spec.multiplexerSessionName,
             multiplexerCreateIfMissing = spec.multiplexerCreateIfMissing,
             hostId = spec.hostId,
+            transportId = spec.transportId,
+            transportTarget = spec.transportTarget?.value,
         )
     }
 
@@ -337,10 +350,10 @@ class TerminalSessionRepository private constructor(application: Application) {
         NativeLocalShellService(appContext.filesDir, appContext.cacheDir)
 
     private fun activeSftpEngine(): TerminalSessionEngine? =
-        activeTab.value?.takeIf { it.spec.transport != Transport.LocalShell }?.engine
+        activeTab.value?.takeIf { it.spec.supportsSftp }?.engine
 
     private fun sftpTab(tabId: String): TabSession? =
-        _tabs.value.firstOrNull { it.id == tabId && it.spec.transport != Transport.LocalShell }
+        _tabs.value.firstOrNull { it.id == tabId && it.spec.supportsSftp }
 
     private fun sftpEngineForTab(tabId: String): TerminalSessionEngine? = sftpTab(tabId)?.engine
 

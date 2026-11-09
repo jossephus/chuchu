@@ -19,8 +19,10 @@ import com.jossephus.chuchu.plugin.api.TerminalFactory
 import com.jossephus.chuchu.plugin.api.SettingsSchema
 import com.jossephus.chuchu.plugin.api.SessionViewProvider
 import com.jossephus.chuchu.plugin.api.SessionRegistry
+import com.jossephus.chuchu.plugin.api.TransportProvider
 import com.jossephus.chuchu.service.multiplexer.MultiplexerRegistry
 import com.jossephus.chuchu.service.terminal.TerminalSessionRepository
+import com.jossephus.chuchu.service.transport.TransportRegistry
 import kotlin.reflect.KClass
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineName
@@ -264,6 +266,7 @@ class PluginManager(
                 _sessionViews.value = _sessionViews.value.filterNot { it.pluginId == id }
                 _settings.value = _settings.value.filterNot { it.pluginId == id }
                 MultiplexerRegistry.unregisterOwner(id)
+                TransportRegistry.unregisterOwner(id)
                 publish(PluginRecord(loaded.descriptor, PluginStatus.Failed, "$reason: ${error.describe()}"))
                 loaded
             }
@@ -377,6 +380,13 @@ class PluginManager(
             synchronized(lock) {
                 check(active[pluginId] === loaded) { "plugin '$pluginId' is not active" }
                 MultiplexerRegistry.register(pluginId, provider)
+            }
+        }
+
+        override fun registerTransport(provider: TransportProvider) {
+            synchronized(lock) {
+                check(active[pluginId] === loaded) { "plugin '$pluginId' is not active" }
+                TransportRegistry.register(pluginId, provider)
             }
         }
 

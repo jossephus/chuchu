@@ -25,4 +25,6 @@ data class HostProfile(
     val postConnectCommand: String? = null,
     @ColumnInfo(defaultValue = "NULL")
     val multiplexer: MultiplexerType? = null,
+    @ColumnInfo(defaultValue = "NULL")
+    val transportId: String? = null,
 )

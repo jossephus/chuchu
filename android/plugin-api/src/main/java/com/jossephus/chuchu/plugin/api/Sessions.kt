@@ -18,6 +18,7 @@ enum class SessionTransport {
     TailscaleSsh,
     Mosh,
     LocalShell,
+    Plugin,
 }
 
 /** What a plugin may know about a session's host. Deliberately carries no credentials. */
@@ -33,6 +34,7 @@ data class HostInfo(
     val multiplexer: String?,
     /** Name of the multiplexer session this tab is attached to, when known. */
     val multiplexerSession: String? = null,
+    val transportId: String? = null,
 )
 
 /**

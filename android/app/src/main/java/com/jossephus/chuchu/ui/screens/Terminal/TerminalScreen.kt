@@ -52,6 +52,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -89,7 +90,9 @@ import com.jossephus.chuchu.plugin.PluginManager
 import com.jossephus.chuchu.plugin.RegisteredSessionView
 import com.jossephus.chuchu.plugin.api.LocalPluginTheme
 import com.jossephus.chuchu.plugin.rememberPluginTheme
+import com.jossephus.chuchu.model.connectionTarget
 import com.jossephus.chuchu.service.terminal.SessionStatus
+import com.jossephus.chuchu.service.terminal.TransportTarget
 import com.jossephus.chuchu.service.terminal.TabSpec
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
@@ -235,7 +238,7 @@ private fun NewTabHostPicker(
                                     color = colors.textPrimary,
                                 )
                                 ChuText(
-                                    "${host.username}@${host.host}:${host.port}",
+                                    connectionTarget(host.transport, host.username, host.host, host.port),
                                     style = typography.labelSmall,
                                     color = colors.textMuted,
                                 )
@@ -389,6 +392,7 @@ fun TerminalScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     openLocalShell: Boolean = false,
+    transportTarget: TransportTarget? = null,
 ) {
     val sessionState by vm.sessionState.collectAsStateWithLifecycle()
     val hosts by vm.hosts.collectAsStateWithLifecycle()
@@ -406,7 +410,7 @@ fun TerminalScreen(
             }
         }
     val selectedTab by vm.selectedTab.collectAsStateWithLifecycle()
-    val filesSupported = activeTab?.spec?.transport != Transport.LocalShell
+    val filesSupported = activeTab?.spec?.supportsSftp ?: true
     val fileBrowserState by vm.fileBrowserState.collectAsStateWithLifecycle()
     val hostKeyPrompt by vm.hostKeyPrompt.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -710,12 +714,23 @@ fun TerminalScreen(
         }
     }
 
+    var transportTargetHandled by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(activeTab?.id) { vm.watchHostBrowser(activeTab?.spec) }
     LaunchedEffect(hostId, openLocalShell) {
         showPassphrasePrompt = false
         passphraseInput = ""
         pendingTabSpec = null
         passphraseFromPicker = false
         if (hostId == null || openLocalShell) return@LaunchedEffect
+        if (transportTarget != null) {
+            if (transportTargetHandled) return@LaunchedEffect
+            transportTargetHandled = true
+            if (!transportTarget.creates && vm.selectTransportTab(hostId, transportTarget.value) != null) return@LaunchedEffect
+            val prepared = vm.prepareTabOpenForHost(hostId) ?: return@LaunchedEffect
+            vm.refreshTailscaleStatus()
+            openPreparedTab(prepared.spec.copy(transportTarget = transportTarget), false, false)
+            return@LaunchedEffect
+        }
         val existing = vm.selectTabForHost(hostId)
         if (existing != null) {
             return@LaunchedEffect

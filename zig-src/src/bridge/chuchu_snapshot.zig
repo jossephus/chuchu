@@ -45,6 +45,8 @@ const IMAGE_HEADER_BYTES = 52;
 const MAX_KITTY_IMAGES = 64;
 const MAX_OSC52_CLIPBOARD_BYTES = 1024 * 1024;
 const MAX_OSC7_PWD_BYTES = 4096;
+const KITTY_IMAGE_STORAGE_LIMIT = 64 * 1024 * 1024;
+const MAX_SNAPSHOT_CONTINUATION_BYTES = 1024 * 1024;
 // Kitty Unicode graphics placeholder (U+10EEEE). These cells only mark where an
 // image is composited; we blank them so the raw glyph never shows through a gap
 // the image doesn't fully cover.
@@ -488,7 +490,7 @@ export fn chuchu_create_terminal(cols: c.jint, rows: c.jint, max_scrollback: c.j
         .cols = init_cols,
         .rows = init_rows,
         .max_scrollback_bytes = @intCast(clampI32(max_scrollback, 0, 10000)),
-        .kitty_image_storage_limit = 64 * 1024 * 1024,
+        .kitty_image_storage_limit = KITTY_IMAGE_STORAGE_LIMIT,
         .kitty_image_loading_limits = .{
             .file = false,
             .temporary_file = .{ .enabled = .{ .directory = kittyTempDir() } },
@@ -508,6 +510,14 @@ export fn chuchu_create_terminal(cols: c.jint, rows: c.jint, max_scrollback: c.j
         .cell_height = 1,
     };
 
+    attachStream(terminal);
+    enableGraphemeClusterMode(terminal);
+
+    update_render_state(terminal);
+    return chuchuHandleFromPtr(terminal);
+}
+
+fn attachStream(terminal: *ChuchuTerminal) void {
     var handler = terminal.terminal.vtHandler();
     handler.effects = .readonly;
     handler.effects.write_pty = chuchuWritePty;
@@ -522,10 +532,39 @@ export fn chuchu_create_terminal(cols: c.jint, rows: c.jint, max_scrollback: c.j
         .inner = handler,
     };
     terminal.stream = .init(.{ .handler = &terminal.stream_handler, .allocator = allocator });
-    enableGraphemeClusterMode(terminal);
+}
 
+export fn chuchu_restore_snapshot(handle: c.jlong, data_ptr: [*c]const u8, data_len: usize) callconv(.c) bool {
+    const terminal = chuchuFromHandle(handle) orelse return false;
+    if (data_ptr == null or data_len == 0) return false;
+
+    var reader: std.Io.Reader = .fixed(data_ptr[0..data_len]);
+    var decoded = ghostty.snapshot.decode(allocator, terminal.io, &reader, .{
+        .max_continuation_bytes = MAX_SNAPSHOT_CONTINUATION_BYTES,
+        .compress_history = true,
+        .kitty_image_storage_limit = KITTY_IMAGE_STORAGE_LIMIT,
+    }) catch |err| {
+        logWarn("restore_snapshot failed bytes={} err={}", .{ data_len, err });
+        return false;
+    };
+    defer decoded.deinit(allocator);
+
+    terminal.stream.deinit();
+    terminal.render_state.deinit(allocator);
+    terminal.render_state = .empty;
+    terminal.terminal.deinit(allocator);
+    terminal.terminal = decoded.toOwned();
+    terminal.cols = terminal.terminal.cols;
+    terminal.rows = terminal.terminal.rows;
+    attachStream(terminal);
+
+    switch (decoded.continuation) {
+        .ground => {},
+        .bytes => |bytes| terminal.stream.nextSlice(bytes),
+    }
+    terminal.pty_write_len = 0;
     update_render_state(terminal);
-    return chuchuHandleFromPtr(terminal);
+    return true;
 }
 
 export fn chuchu_destroy_terminal(handle: c.jlong) callconv(.c) void {
@@ -586,6 +625,18 @@ export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeWriteRe
     if (bytes == null) return;
     chuchu_write_remote(handle, @ptrCast(bytes), @intCast(len));
     env.*.*.ReleaseByteArrayElements.?(env, data, bytes, c.JNI_ABORT);
+}
+
+export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeRestoreSnapshot(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, data: c.jbyteArray) callconv(.c) c.jboolean {
+    _ = thiz;
+    if (data == null) return c.JNI_FALSE;
+    const len = env.*.*.GetArrayLength.?(env, data);
+    if (len <= 0) return c.JNI_FALSE;
+    var is_copy: c.jboolean = c.JNI_FALSE;
+    const bytes = env.*.*.GetByteArrayElements.?(env, data, &is_copy);
+    if (bytes == null) return c.JNI_FALSE;
+    defer env.*.*.ReleaseByteArrayElements.?(env, data, bytes, c.JNI_ABORT);
+    return if (chuchu_restore_snapshot(handle, @ptrCast(bytes), @intCast(len))) c.JNI_TRUE else c.JNI_FALSE;
 }
 
 export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeResize(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, cols: c.jint, rows: c.jint, cell_width: c.jint, cell_height: c.jint) callconv(.c) void {

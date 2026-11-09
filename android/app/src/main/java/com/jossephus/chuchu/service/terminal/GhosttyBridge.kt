@@ -24,6 +24,7 @@ class GhosttyBridge {
     external fun nativeCreate(cols: Int, rows: Int, maxScrollback: Int): Long
     external fun nativeDestroy(handle: Long)
     external fun nativeWriteRemote(handle: Long, data: ByteArray)
+    external fun nativeRestoreSnapshot(handle: Long, data: ByteArray): Boolean
     external fun nativeResize(handle: Long, cols: Int, rows: Int, cellW: Int, cellH: Int)
     external fun nativeScroll(handle: Long, delta: Int, x: Float, y: Float)
     external fun nativeScrollToActive(handle: Long)
