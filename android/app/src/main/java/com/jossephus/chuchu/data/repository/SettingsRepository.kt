@@ -57,6 +57,9 @@ class SettingsRepository(context: Context) {
     private val _keepScreenAwake = MutableStateFlow(prefs.getBoolean(KEY_KEEP_SCREEN_AWAKE, false))
     val keepScreenAwake: StateFlow<Boolean> = _keepScreenAwake.asStateFlow()
 
+    private val _hideStatusBar = MutableStateFlow(prefs.getBoolean(KEY_HIDE_STATUS_BAR, false))
+    val hideStatusBar: StateFlow<Boolean> = _hideStatusBar.asStateFlow()
+
     private val _hideScreenContents = MutableStateFlow(prefs.getBoolean(KEY_HIDE_SCREEN_CONTENTS, false))
     val hideScreenContents: StateFlow<Boolean> = _hideScreenContents.asStateFlow()
 
@@ -159,6 +162,11 @@ class SettingsRepository(context: Context) {
         _keepScreenAwake.value = enabled
     }
 
+    fun setHideStatusBar(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_HIDE_STATUS_BAR, enabled).apply()
+        _hideStatusBar.value = enabled
+    }
+
     fun setHideScreenContents(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_HIDE_SCREEN_CONTENTS, enabled).apply()
         _hideScreenContents.value = enabled
@@ -238,6 +246,7 @@ class SettingsRepository(context: Context) {
         private const val KEY_REQUIRE_AUTH_ON_CONNECT = "require_auth_on_connect"
         private const val KEY_LOCAL_SHELL_ENABLED = "local_shell_enabled"
         private const val KEY_KEEP_SCREEN_AWAKE = "keep_screen_awake"
+        private const val KEY_HIDE_STATUS_BAR = "terminal_hide_status_bar"
         private const val KEY_HIDE_SCREEN_CONTENTS = "hide_screen_contents"
         private const val KEY_REMOTE_CLIPBOARD_WRITE_ENABLED = "remote_clipboard_write_enabled"
 
