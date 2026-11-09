@@ -56,7 +56,7 @@ class RexPanePickerTest {
     }
 
     @Test
-    fun containsFindsTerminalsInInactiveWindowsOnly() {
+    fun containsMatchesTerminalBlocksInAnyWindowButNotOtherBlocks() {
         val view =
             view(
                 active = "window:a",
