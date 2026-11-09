@@ -101,7 +101,10 @@ private class RexTransportConnection(private val session: RexTerminalSession) : 
                     when (item) {
                         is RexStreamItem.Snapshot -> emit(TransportFrame.Snapshot(item.bytes))
                         is RexStreamItem.Output -> emit(TransportFrame.Output(item.bytes))
-                        is RexStreamItem.Resize -> emit(TransportFrame.Resize(item.columns, item.rows))
+                        is RexStreamItem.Resize ->
+                            if (session.shouldApplyRemoteResize(item.columns, item.rows)) {
+                                emit(TransportFrame.Resize(item.columns, item.rows))
+                            }
                         is RexStreamItem.ChildExited -> Unit
                     }
                 }

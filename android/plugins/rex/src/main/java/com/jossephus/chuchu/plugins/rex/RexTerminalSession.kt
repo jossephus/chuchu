@@ -47,6 +47,7 @@ class RexTerminalSession(
     private val data = RexDataConnection(http)
     private val writes = Channel<ByteArray>(Channel.UNLIMITED)
     private val resizes = Channel<RexTerminalSize>(Channel.CONFLATED)
+    private val resizeEchoes = RexResizeEchoFilter()
     @Volatile var attachment: RexAttachment? = null
         private set
 
@@ -78,6 +79,9 @@ class RexTerminalSession(
     fun resize(size: RexTerminalSize) {
         if (size.columns > 0 && size.rows > 0) resizes.trySend(size)
     }
+
+    /** False for the server's late echo of a size this session has already resized past. */
+    fun shouldApplyRemoteResize(columns: Int, rows: Int): Boolean = resizeEchoes.shouldApply(columns, rows)
 
     override fun close() {
         writes.close()
@@ -176,6 +180,8 @@ class RexTerminalSession(
         if (size.cellWidthPx > 0 && size.cellHeightPx > 0) {
             args.put("cell_width_px", size.cellWidthPx).put("cell_height_px", size.cellHeightPx)
         }
+        // Recorded before the call so an echo that beats the reply is still recognised.
+        resizeEchoes.onSent(size.columns, size.rows)
         control.call(TERMINAL_RESIZE, target.payload().put("args", args))
     }
 
