@@ -2,6 +2,7 @@ package com.jossephus.chuchu.plugins.rex
 
 import android.util.Log
 import java.io.Closeable
+import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -86,8 +87,9 @@ class RexSessionBrowser(
         }
 
     override fun close() {
-        control.close()
+        // Cancel first so no refresh is still waiting when closing fails its calls.
         scope.cancel()
+        control.close()
     }
 
     private fun handleEvent(event: JSONObject) {
@@ -146,7 +148,9 @@ class RexSessionBrowser(
                     }
                 } catch (e: CancellationException) {
                     throw e
-                } catch (e: RexCallException) {
+                } catch (e: IOException) {
+                    // Covers timeouts and a dropped connection too; a lost connection is
+                    // reported through awaitEnd(), so a refresh only needs to give up.
                     Log.w(TAG, "Rex refresh of $id failed", e)
                 }
             }
@@ -167,7 +171,7 @@ class RexSessionBrowser(
                 publish()
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: RexCallException) {
+            } catch (e: IOException) {
                 Log.w(TAG, "Rex process lookup for $blockId failed", e)
             }
         }

@@ -134,9 +134,9 @@ class RexControlConnection(private val http: OkHttpClient) : Closeable {
     private fun end(cause: Throwable) {
         if (!ended.complete(cause)) return
         welcomed.completeExceptionally(cause)
-        val waiting = pending.values.toList()
-        pending.clear()
-        waiting.forEach { it.completeExceptionally(cause) }
+        // Remove one by one: callers drop their own entry concurrently, and copying
+        // the map with toList() throws if it shrinks between sizing and iterating.
+        for (id in pending.keys) pending.remove(id)?.completeExceptionally(cause)
     }
 
     private companion object {
