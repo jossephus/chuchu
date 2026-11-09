@@ -2,13 +2,7 @@ package com.jossephus.chuchu.plugin.api
 
 import kotlinx.coroutines.flow.Flow
 
-/**
- * One user-editable setting. Chuchu renders these for you (fizzy-style declarative
- * settings), so plugins never hand-roll settings screens and never need database
- * migrations.
- *
- * [key] must be stable across releases: it's where the value is stored.
- */
+/** [key] is where the value is stored; keep it stable across releases. */
 class ToggleField(
     val key: String,
     val title: String,
@@ -23,16 +17,11 @@ class SettingsSchema(val fields: List<ToggleField>) {
     }
 }
 
-/**
- * Current values of this plugin's settings. Reading a field that was never set returns
- * its default. Values written by the settings UI are visible immediately.
- */
 interface PluginSettings {
     operator fun get(field: ToggleField): Boolean
 
-    /** Values of the host-settings schema for one saved host profile ([HostInfo.hostId]). */
     fun forHost(hostId: Long): PluginSettings
 
-    /** Emits the key of each setting that changes, from any source. */
+    /** Keys of changed settings. */
     val changes: Flow<String>
 }

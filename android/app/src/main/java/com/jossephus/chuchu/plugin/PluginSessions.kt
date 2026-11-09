@@ -28,14 +28,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
-/**
- * Exposes [TerminalSessionRepository][com.jossephus.chuchu.service.terminal.TerminalSessionRepository]
- * tabs to plugins.
- *
- * Cost when no plugin is listening matters, because every chuchu user runs this: the only
- * always-on work is one collector on the tab list (which changes rarely). Per-tab state
- * watching for [events] starts only once something collects [events].
- */
+// Per-tab state watching starts only once [events] is collected, so users without plugins pay nothing.
 class PluginSessionRegistry(
     tabs: StateFlow<List<TabSession>>,
     private val scope: CoroutineScope,
@@ -50,7 +43,6 @@ class PluginSessionRegistry(
     private val _sessions = MutableStateFlow<List<PluginSession>>(emptyList())
     override val sessions: StateFlow<List<PluginSession>> = _sessions.asStateFlow()
 
-    // Touched only from the tab-list collector, so no locking.
     private val adapters = LinkedHashMap<String, TabPluginSession>()
     private val watchers = HashMap<String, Job>()
     private val watching = CompletableDeferred<Unit>()
@@ -82,7 +74,6 @@ class PluginSessionRegistry(
 
     private suspend fun watch(session: TabPluginSession) {
         watching.await()
-        // Baseline at watch start: collect's first emission equals it, so no spurious events.
         var previous = session.tab.sessionState.value
         session.tab.sessionState.collect { next ->
             sessionEventsBetween(session, previous, next).forEach(_events::tryEmit)
@@ -91,12 +82,10 @@ class PluginSessionRegistry(
     }
 
     private companion object {
-        // Events are rare (lifecycle, title, bell); this only overflows for a stuck collector.
         const val EVENT_BUFFER = 64
     }
 }
 
-/** Events implied by a session state transition, in a stable order. */
 internal fun sessionEventsBetween(
     session: PluginSession,
     previous: SessionState,
@@ -115,7 +104,6 @@ internal fun sessionEventsBetween(
 internal class TabPluginSession(val tab: TabSession) : PluginSession {
     override val id: String = tab.id
 
-    /** Completed by the registry when the tab closes; ends [output]/[input] collection. */
     val closed = CompletableDeferred<Unit>()
 
     override val host: HostInfo
@@ -127,11 +115,7 @@ internal class TabPluginSession(val tab: TabSession) : PluginSession {
         if (closed.isCompleted) null else tab.engine.openExec(command)
 }
 
-/**
- * A read-only projection of a [StateFlow] that does no work until read or collected.
- * `stateIn` would need a live collector per projection to keep `value` fresh, which every
- * tab would pay for even with no plugins installed.
- */
+// stateIn would need a live collector per tab even with no plugins installed.
 private class DerivedStateFlow<T, R>(
     private val source: StateFlow<T>,
     private val transform: (T) -> R,
@@ -142,7 +126,6 @@ private class DerivedStateFlow<T, R>(
     override val replayCache: List<R>
         get() = listOf(value)
 
-    // The source is a StateFlow, so this never completes, as StateFlow requires.
     override suspend fun collect(collector: FlowCollector<R>): Nothing {
         source.map(transform).distinctUntilChanged().collect(collector)
         error("StateFlow source completed")

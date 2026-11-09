@@ -7,7 +7,6 @@ import com.jossephus.chuchu.plugin.api.PluginHost
 import com.jossephus.chuchu.plugin.api.RemoteMultiplexerSession
 import com.jossephus.chuchu.plugin.api.Shell
 
-/** Built-in plugin contributing tmux session persistence. */
 class TmuxPlugin : ChuchuPlugin {
     override fun register(host: PluginHost) = host.registerMultiplexer(TmuxMultiplexer)
 }

@@ -40,10 +40,6 @@ import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
 
-/**
- * Settings › plugins: built-ins, installed plugin APKs (with enable/consent), each plugin's
- * load status and its app-wide settings.
- */
 @Composable
 internal fun PluginsSettings() {
     val context = LocalContext.current
@@ -52,14 +48,12 @@ internal fun PluginsSettings() {
     val records by manager.plugins.collectAsStateWithLifecycle()
     val settingsEntries by manager.settings.collectAsStateWithLifecycle()
     var discovered by remember { mutableStateOf<List<DiscoveredPlugin>>(emptyList()) }
-    // Bumped after enable/disable so states are re-read from storage.
     var revision by remember { mutableIntStateOf(0) }
     var restartNeeded by remember { mutableStateOf(false) }
     var pendingConsent by remember { mutableStateOf<DiscoveredPlugin?>(null) }
     val colors = ChuColors.current
     val typography = ChuTypography.current
 
-    // Rescan on resume: the user may have just installed or removed a plugin APK.
     LifecycleResumeEffect(external) {
         discovered = external.discover()
         onPauseOrDispose {}
@@ -236,8 +230,7 @@ private fun RestartBanner() {
     }
 }
 
-// Plugins can't be unloaded in place (their classes and composables stay referenced), so
-// applying changes means a fresh process.
+// Plugins can't be unloaded in place, so applying changes needs a fresh process.
 private fun restartApp(context: Context) {
     val intent =
         context.packageManager.getLaunchIntentForPackage(context.packageName)
@@ -280,12 +273,10 @@ private fun PluginCard(record: PluginRecord, schema: SettingsSchema?, manager: P
     }
 }
 
-/** A plugin's app-wide settings, written straight to its store. */
 @Composable
 private fun PluginSettingsForm(pluginId: String, schema: SettingsSchema, manager: PluginManager) {
     val values = remember(pluginId) { manager.settingValues(pluginId) }
-    // Values live in SharedPreferences, not Compose state; bumping this after each write
-    // makes the fields re-read them.
+    // Values live in SharedPreferences, not Compose state; bumping this re-reads them.
     var revision by remember { mutableIntStateOf(0) }
     PluginSettingFields(
         schema = schema,
@@ -300,7 +291,6 @@ private fun PluginSettingsForm(pluginId: String, schema: SettingsSchema, manager
     )
 }
 
-/** Host editor section: each plugin's host settings for the host being edited. */
 @Composable
 internal fun PluginHostSettings(
     entries: List<PluginSettingsEntry>,
@@ -321,7 +311,6 @@ internal fun PluginHostSettings(
     }
 }
 
-/** Renders a plugin's declarative schema; values are raw strings ("true"/"false" for toggles). */
 @Composable
 internal fun PluginSettingFields(
     schema: SettingsSchema,

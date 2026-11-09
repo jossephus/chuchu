@@ -13,7 +13,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SessionEventsTest {
-    // Only identity matters to the diff; none of these members are called.
     private val session = object : PluginSession {
         override val id = "tab-1"
         override val host: HostInfo get() = error("unused")

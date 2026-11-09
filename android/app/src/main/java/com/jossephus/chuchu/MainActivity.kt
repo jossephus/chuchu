@@ -54,7 +54,6 @@ class MainActivity : FragmentActivity() {
         focusPluginSession(intent)
     }
 
-    // A plugin notification names the session it is about; bring that tab to the front.
     private fun focusPluginSession(intent: Intent?) {
         val sessionId = intent?.getStringExtra(PluginNotifier.EXTRA_SESSION_ID) ?: return
         TerminalSessionRepository.getInstance(application).selectTab(sessionId)

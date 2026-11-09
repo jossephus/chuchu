@@ -73,8 +73,6 @@ class NativeSshBridge {
 
     external fun nativeIpcExchange(handle: Long, request: ByteArray): ByteArray?
 
-    // Exec channels: extra channels next to the shell, addressed by id (> 0).
-
     external fun nativeExecOpen(handle: Long, command: String): Int
 
     external fun nativeExecRead(handle: Long, id: Int, stream: Int, maxBytes: Int): ByteArray?

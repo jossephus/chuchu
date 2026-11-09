@@ -1,26 +1,13 @@
 package com.jossephus.chuchu.plugin.api
 
-/**
- * Entry point of a plugin. The host instantiates it through a public no-arg constructor
- * (built-ins directly, external APKs by the class named in `chuchu.plugin.entry`).
- *
- * Plugins never import each other or host internals; everything they contribute goes
- * through [PluginHost] inside [register].
- */
+/** Plugin entry point, created through a public no-arg constructor. */
 interface ChuchuPlugin {
     /**
-     * Called once, on the main thread, right after the plugin is loaded. Register
-     * contributions here and return quickly; do slow work in [PluginHost.scope].
-     *
-     * Throwing disables the plugin and rolls back everything it registered, so a
-     * half-registered plugin never stays active.
+     * Called once on the main thread. Throwing disables the plugin and rolls back everything
+     * it registered.
      */
     fun register(host: PluginHost)
 
-    /**
-     * Called when the host disables the plugin after a failure. [PluginHost.scope] is
-     * already cancelled by then. Release anything the scope
-     * doesn't own (native handles, listeners registered outside the host).
-     */
+    /** Called after a failure disabled the plugin; [PluginHost.scope] is already cancelled. */
     fun onUnload() {}
 }

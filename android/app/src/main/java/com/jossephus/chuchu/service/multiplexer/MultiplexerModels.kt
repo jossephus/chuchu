@@ -3,7 +3,6 @@ package com.jossephus.chuchu.service.multiplexer
 import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.Transport
 
-// Shared with plugins, which parse sessions into this type.
 typealias RemoteMultiplexerSession = com.jossephus.chuchu.plugin.api.RemoteMultiplexerSession
 
 sealed interface MultiplexerAvailability {

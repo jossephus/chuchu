@@ -10,8 +10,7 @@ class ChuchuApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         AppVisibility.install(this)
-        // Load before any activity or session exists, so plugins observing session events
-        // can't miss the first connection.
+        // Before any session exists, so plugins can't miss the first connection.
         val plugins = PluginManager.getInstance(this)
         plugins.load(BuiltinPlugins.entries())
         // After built-ins, so an external plugin can't claim a built-in's id.

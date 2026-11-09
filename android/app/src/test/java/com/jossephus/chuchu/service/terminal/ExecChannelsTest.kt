@@ -17,7 +17,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ExecChannelsTest {
-    /** Scripted remote: queued output per stream, EOF once the scripts drain. */
     private class FakeTransport : ExecTransport {
         val stdout = ArrayDeque<ByteArray>()
         val stderr = ArrayDeque<ByteArray>()
@@ -55,7 +54,6 @@ class ExecChannelsTest {
         }
     }
 
-    // One thread, like the engine's session dispatcher.
     private val executor = Executors.newSingleThreadExecutor()
     private val dispatcher = executor.asCoroutineDispatcher()
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)

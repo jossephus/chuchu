@@ -340,10 +340,6 @@ class TerminalSessionEngine(
         }
     }
 
-    /**
-     * Opens a plugin exec channel on this session's SSH connection, or returns null when
-     * the session isn't a connected SSH session.
-     */
     suspend fun openExec(command: String): ExecChannel? {
         val usable =
             withContext(dispatcher) {
@@ -781,8 +777,7 @@ class TerminalSessionEngine(
             }
             lastActivityMs = System.currentTimeMillis()
             feedRemoteChunk(chunk)
-            // The loop otherwise never suspends while output streams, which would starve
-            // plugin exec channels sharing this single session thread.
+            // Without a yield, streaming output would starve exec channels on this thread.
             yield()
         }
     }
@@ -927,7 +922,6 @@ class TerminalSessionEngine(
     }
 
     private suspend fun establishConnection(params: ConnectionParams, username: String) {
-        // The native session is about to be replaced; its exec channels die with it.
         execChannels.invalidateAll()
         if (handle != 0L) {
             bridge.nativeDestroy(handle)

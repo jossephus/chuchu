@@ -7,7 +7,6 @@ import com.jossephus.chuchu.plugin.api.PluginHost
 import com.jossephus.chuchu.plugin.api.RemoteMultiplexerSession
 import com.jossephus.chuchu.plugin.api.Shell
 
-/** Built-in plugin contributing zmx session persistence. */
 class ZmxPlugin : ChuchuPlugin {
     override fun register(host: PluginHost) = host.registerMultiplexer(ZmxMultiplexer)
 }

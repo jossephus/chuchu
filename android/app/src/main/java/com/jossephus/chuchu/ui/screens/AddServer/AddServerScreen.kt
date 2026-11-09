@@ -571,16 +571,14 @@ private fun KeyAuthSection(
     }
 }
 
-// The segmented control needs a non-null option for "no persistence" (a null
-// MultiplexerType), so options are provider ids with "" standing in for off.
+// "" stands in for no multiplexer: the segmented control needs non-null options.
 private const val MULTIPLEXER_OFF = ""
 
 @Composable
 private fun MultiplexerSection(selected: MultiplexerType?, onSelect: (MultiplexerType?) -> Unit) {
     SectionHeader("SESSION PERSISTENCE")
     val providers by MultiplexerRegistry.providers.collectAsStateWithLifecycle()
-    // A saved id whose plugin isn't loaded stays visible, disabled, so the user sees why
-    // it isn't active instead of it silently reading as "off".
+    // A saved id whose plugin isn't loaded stays visible, disabled, instead of reading as off.
     val missing = selected?.id?.takeIf { id -> providers.none { it.id == id } }
     val options = listOf(MULTIPLEXER_OFF) + providers.map { it.id } + listOfNotNull(missing)
     val labels =

@@ -175,8 +175,7 @@ class AddServerViewModel(application: Application, private val hostId: Long?) :
                 transport = transport,
                 transportId = null,
                 authMethod = nextAuthMethod,
-                // Keep an id whose plugin isn't loaded: reinstalling the plugin restores it,
-                // and TabSpec ignores unsupported multiplexers at connect time.
+                // Keep an id whose plugin isn't loaded: reinstalling the plugin restores it.
                 multiplexer = current.multiplexer.takeIf { transport != Transport.Mosh },
             )
         _testState.value = ConnectionTestState()
@@ -299,15 +298,12 @@ class AddServerViewModel(application: Application, private val hostId: Long?) :
 
     private val pluginManager = PluginManager.getInstance(application)
 
-    /** Plugins that declared per-host settings. */
     val pluginHostSettings: StateFlow<List<PluginSettingsEntry>> =
         pluginManager.settings
             .map { entries -> entries.filter { it.host != null } }
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    // Unsaved plugin host-setting edits, keyed by plugin id then field. Held here rather than
-    // written straight away so "cancel" discards them like the rest of the form, and so a
-    // new host (no id yet) can be configured before its first save.
+    // Held until save so cancel discards them and a new host can be configured before it has an id.
     private val _pluginHostEdits = MutableStateFlow<Map<String, Map<ToggleField, String>>>(emptyMap())
     val pluginHostEdits: StateFlow<Map<String, Map<ToggleField, String>>> = _pluginHostEdits.asStateFlow()
 

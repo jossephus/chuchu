@@ -42,7 +42,6 @@ const NativeSshSession = struct {
     hostkey_copy: ?[]u8 = null,
     last_error: std.ArrayList(u8) = .empty,
     empty_reads: u32 = 0,
-    // Plugin exec channels opened alongside the shell; see "Exec channels" below.
     exec_channels: std.ArrayList(ExecChannel) = .empty,
     next_exec_id: u32 = 1,
 };
@@ -1906,16 +1905,8 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeDerivePubl
     return result;
 }
 
-// Exec channels
-//
-// Extra channels on the already-authenticated session, next to the shell in
-// `session.channel`. Plugins use them to run commands and interactive PTY
-// programs (e.g. one stream per multiplexer pane) without opening another SSH
-// connection per stream. Kotlin gets small integer ids rather than pointers, so
-// a stale id after close is rejected instead of touching freed memory.
-//
-// Like the rest of this file, these must be called from the session's single
-// engine thread: libssh2 sessions are not thread-safe.
+// Exec channels are addressed by small integer ids, so a stale id is rejected
+// instead of touching freed memory.
 
 const ExecChannel = struct {
     id: u32,
@@ -1982,7 +1973,6 @@ fn startExec(session: *NativeSshSession, channel: *c.LIBSSH2_CHANNEL, command: [
     }
 }
 
-/// Opens an exec channel running `command`.
 /// Returns the channel id (> 0), or -1 with the reason in nativeGetLastError.
 export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeExecOpen(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, command: c.jstring) callconv(.c) c.jint {
     _ = thiz;
@@ -2012,7 +2002,6 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeExecOpen(e
     return @intCast(id);
 }
 
-/// Non-blocking read of up to `max_bytes` from stdout (`stream` 0) or stderr (1).
 /// Returns an empty array when nothing is buffered, null on error or unknown id.
 export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeExecRead(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, id: c.jint, stream: c.jint, max_bytes: c.jint) callconv(.c) c.jbyteArray {
     _ = thiz;
@@ -2045,7 +2034,6 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeExecWrite(
     return writeToChannel(session, channel, bytes);
 }
 
-/// True once the remote closed its side (the command finished or closed stdout).
 export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeExecEof(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, id: c.jint) callconv(.c) c.jboolean {
     _ = env;
     _ = thiz;
@@ -2063,7 +2051,6 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeExecExitSt
     return c.libssh2_channel_get_exit_status(channel);
 }
 
-/// Closes and forgets the channel; unknown ids are ignored so double-close is safe.
 export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeExecClose(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, id: c.jint) callconv(.c) void {
     _ = env;
     _ = thiz;

@@ -12,13 +12,7 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 
-/**
- * One plugin's persisted strings. A separate store per plugin keeps plugins from reading
- * each other's values by accident and lets a plugin's data be wiped in one go.
- *
- * Key layout: `s.<key>` app-wide settings, `h.<hostId>.<key>` host settings, `d.<key>`
- * [PluginStorage] data.
- */
+// Keys: `s.<key>` app-wide, `h.<hostId>.<key>` per host.
 interface PluginPrefs {
     fun get(key: String): String?
 
@@ -44,8 +38,7 @@ class SharedPreferencesPluginPrefs(private val prefs: SharedPreferences) : Plugi
 
     override val changes: Flow<String> =
         callbackFlow {
-            // SharedPreferences holds listeners weakly; this local reference keeps it alive
-            // for as long as the flow is collected.
+            // SharedPreferences holds listeners weakly; this reference keeps it alive.
             val listener =
                 SharedPreferences.OnSharedPreferenceChangeListener { _, key -> if (key != null) trySend(key) }
             prefs.registerOnSharedPreferenceChangeListener(listener)
@@ -61,7 +54,6 @@ class SharedPreferencesPluginPrefs(private val prefs: SharedPreferences) : Plugi
     }
 }
 
-/** For tests and previews. */
 class InMemoryPluginPrefs : PluginPrefs {
     private val values = LinkedHashMap<String, String>()
     private val _changes = MutableSharedFlow<String>(extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST)
@@ -78,10 +70,6 @@ class InMemoryPluginPrefs : PluginPrefs {
     override val changes: Flow<String> = _changes
 }
 
-/**
- * Settings values under one key prefix: app-wide (`s.`) or one host's (`h.<id>.`). Also the
- * write side used by chuchu's settings UI, which edits fields as raw strings.
- */
 class PluginSettingValues internal constructor(
     private val prefs: PluginPrefs,
     private val prefix: String,
@@ -93,7 +81,6 @@ class PluginSettingValues internal constructor(
     override val changes: Flow<String> =
         prefs.changes.filter { it.startsWith(prefix) }.map { it.removePrefix(prefix) }
 
-    /** The field's current value as the UI edits it ("true"/"false" for toggles). */
     fun raw(field: ToggleField): String = get(field).toString()
 
     fun set(field: ToggleField, raw: String) = prefs.put(prefix + field.key, raw)

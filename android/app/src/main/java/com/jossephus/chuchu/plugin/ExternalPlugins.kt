@@ -13,37 +13,25 @@ import dalvik.system.PathClassLoader
 import java.io.File
 import java.security.MessageDigest
 
-/** A plugin APK found on the device, whether or not the user enabled it. */
 data class DiscoveredPlugin(
     val descriptor: PluginDescriptor,
     val entryClass: String?,
-    /** SHA-256 of the APK's signing certificate, hex; null if it couldn't be read. */
     val certSha256: String?,
-    /** Why the manifest can't be loaded, or null when it's well-formed. */
     val manifestProblem: String?,
 )
 
 enum class ExternalPluginState {
-    /** Installed but the user hasn't enabled it. */
     Disabled,
 
-    /** Enabled; loads at startup. */
     Enabled,
 
-    /** Enabled for a different signing certificate: an update from someone else, or a re-sign. */
     CertificateChanged,
 
-    /** Chuchu died shortly after loading it last time; the user must re-enable it. */
     Quarantined,
 
-    /** Manifest is missing required meta-data. */
     Invalid,
 }
 
-/**
- * The state a discovered plugin is in, from what the user approved ([enabledCert], the
- * certificate pinned at consent) and whether it was quarantined after a crash.
- */
 internal fun externalPluginState(
     plugin: DiscoveredPlugin,
     enabledCert: String?,
@@ -57,19 +45,10 @@ internal fun externalPluginState(
         else -> ExternalPluginState.Enabled
     }
 
-/**
- * Separately installed plugin APKs: discovery, user consent (pinned to the signing
- * certificate), crash quarantine, and loading into chuchu's process.
- *
- * Plugins run in-process with chuchu's privileges; the consent dialog says so. Nothing here
- * sandboxes them. What it does guarantee: a plugin only loads after the user enabled that
- * exact signer, and a plugin that takes chuchu down at startup doesn't do it twice.
- */
 class ExternalPlugins(
     private val context: Context,
     private val prefs: SharedPreferences,
 ) {
-    /** Plugin APKs currently installed, by intent-filter discovery. */
     fun discover(): List<DiscoveredPlugin> {
         val pm = context.packageManager
         val packages =
@@ -80,7 +59,6 @@ class ExternalPlugins(
     fun state(plugin: DiscoveredPlugin): ExternalPluginState =
         externalPluginState(plugin, enabledCert(plugin.descriptor.id), isQuarantined(plugin.descriptor.id))
 
-    /** Records consent for this exact signer. Takes effect after a restart. */
     fun enable(plugin: DiscoveredPlugin) {
         val cert = requireNotNull(plugin.certSha256) { "plugin has no readable signing certificate" }
         prefs.edit()
@@ -93,11 +71,6 @@ class ExternalPlugins(
         prefs.edit().remove(KEY_ENABLED + pluginId).apply()
     }
 
-    /**
-     * Entries for every enabled, correctly signed plugin, and arms the crash quarantine:
-     * ids are recorded as "launching" until [QUARANTINE_WINDOW_MS] pass without chuchu
-     * dying. Call once at startup, on the main thread.
-     */
     fun startupEntries(): List<PluginEntry> {
         quarantineCrashedLaunch()
         val entries = discover().filter { state(it) == ExternalPluginState.Enabled }.mapNotNull(::entryFor)
@@ -115,8 +88,7 @@ class ExternalPlugins(
 
     private fun isQuarantined(pluginId: String): Boolean = prefs.getBoolean(KEY_QUARANTINED + pluginId, false)
 
-    // Still marked "launching" means the previous process died inside the window, most
-    // likely because of a plugin. We can't tell which one, so all of them are quarantined.
+    // Still "launching" means the last process died inside the window; we cannot tell which plugin did it.
     private fun quarantineCrashedLaunch() {
         val crashed = prefs.getStringSet(KEY_LAUNCHING, null).orEmpty()
         if (crashed.isEmpty()) return
@@ -195,34 +167,23 @@ class ExternalPlugins(
         val signatures =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 val signing = info.signingInfo ?: return null
-                // Multiple signers are unusual; refusing them keeps "the pinned cert" well defined.
                 if (signing.hasMultipleSigners()) return null
                 signing.signingCertificateHistory
             } else {
                 info.signatures
             }
-        // The newest certificate in the rotation history is the one that signed this APK.
         val cert = signatures?.lastOrNull() ?: return null
         return MessageDigest.getInstance("SHA-256").digest(cert.toByteArray()).joinToString("") { "%02x".format(it) }
     }
 
-    /**
-     * Parent of every plugin class loader. It exposes only the packages chuchu deliberately
-     * shares (and keeps intact under R8, see plugin-api/consumer-rules.pro) plus the Android
-     * framework. Anything else a plugin uses, e.g. kotlinx.serialization, resolves from the
-     * plugin's own APK even when chuchu happens to contain the same library: chuchu's copy
-     * may be renamed or stripped by R8, and a different version besides.
-     *
-     * A shared package chuchu doesn't actually contain (say, a Compose library chuchu doesn't
-     * use) falls through to the plugin's copy too.
-     */
+    // Exposes only the packages chuchu shares and keeps under R8 plus the framework; anything
+    // else resolves from the plugin APK, since chuchu's copy may be stripped or a different version.
     private class SharedClassLoader(private val host: ClassLoader) : ClassLoader(FRAMEWORK_LOADER) {
         override fun loadClass(name: String, resolve: Boolean): Class<*> {
             if (SHARED_PACKAGES.any(name::startsWith)) {
                 try {
                     return host.loadClass(name)
                 } catch (_: ClassNotFoundException) {
-                    // Not in chuchu; let the plugin's loader find its own copy.
                 }
             }
             return super.loadClass(name, resolve)
@@ -235,8 +196,7 @@ class ExternalPlugins(
         const val META_ENTRY = "chuchu.plugin.entry"
         const val META_API_VERSION = "chuchu.plugin.apiVersion"
 
-        // Must match the keep rules in plugin-api/consumer-rules.pro: sharing a package R8 may
-        // strip would hand plugins classes with missing members.
+        // Must match plugin-api/consumer-rules.pro.
         private val SHARED_PACKAGES =
             listOf(
                 "com.jossephus.chuchu.plugin.api.",
@@ -248,10 +208,8 @@ class ExternalPlugins(
                 "kotlinx.coroutines.",
             )
 
-        // Android's boot loader: framework (android.*, java.*) classes only.
         private val FRAMEWORK_LOADER: ClassLoader by lazy { requireNotNull(String::class.java.classLoader) }
 
-        // Matches the settings/prefs file naming, where ids become file names.
         private val ID_PATTERN = Regex("^[a-z0-9_]{1,64}$")
         private const val PREFS_NAME = "external_plugins"
         private const val KEY_ENABLED = "enabled."

@@ -55,7 +55,6 @@ class PluginManagerTest {
     }
 
     // Unconfined runs plugin coroutines inline, so scope failures are observable synchronously.
-    // One store per plugin id, like the SharedPreferences-backed factory.
     private val stores = HashMap<String, InMemoryPluginPrefs>()
 
     private val manager =

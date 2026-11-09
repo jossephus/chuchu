@@ -34,10 +34,8 @@ import kotlinx.coroutines.flow.asStateFlow
 enum class PluginStatus {
     Active,
 
-    /** Threw during registration or from its scope; disabled until the next app start. */
     Failed,
 
-    /** Built against an API version outside [PluginApi.isSupported]; never instantiated. */
     Incompatible,
 }
 
@@ -47,17 +45,12 @@ data class PluginRecord(
     val error: String? = null,
 )
 
-/**
- * A [SessionViewProvider] with the plugin that owns it. [context] is the plugin's package
- * context for external plugins, to provide as `LocalContext` around its composables.
- */
 class RegisteredSessionView(
     val pluginId: String,
     val provider: SessionViewProvider,
     val context: Context? = null,
 )
 
-/** Settings schemas one plugin declared; either may be null. */
 data class PluginSettingsEntry(
     val pluginId: String,
     val pluginName: String,
@@ -65,7 +58,6 @@ data class PluginSettingsEntry(
     val host: SettingsSchema?,
 )
 
-/** Log output destination, injectable so the manager runs in JVM unit tests. */
 fun interface PluginLogSink {
     fun log(priority: Int, tag: String, message: String, error: Throwable?)
 }
@@ -75,24 +67,14 @@ private val androidLogSink = PluginLogSink { priority, tag, message, error ->
     Log.println(priority, tag, text)
 }
 
-/**
- * Loads plugins and implements [PluginHost] for each of them.
- *
- * Plugins run in-process, so isolation here is about failure, not security: a plugin that
- * throws (in [ChuchuPlugin.register] or from its scope) is disabled and everything it
- * contributed is rolled back, while chuchu and other plugins keep running. There is no
- * hot unload; a disabled plugin stays down until the next app start.
- */
+/** Isolates plugin failures: a plugin that throws is disabled and its contributions rolled back. */
 class PluginManager(
     private val parentScope: CoroutineScope,
     private val sessions: SessionRegistry,
     private val prefsFactory: PluginPrefsFactory,
     private val terminalFactory: TerminalFactory,
-    /** Context handed to built-in plugins; null only in unit tests. */
     private val appContext: Context? = null,
-    /** Null in unit tests, where notify() reports failure. */
     private val notifier: PluginNotifier? = null,
-    /** Whether any chuchu activity is started; see [ChuchuApplication]. */
     private val appVisible: StateFlow<Boolean> = MutableStateFlow(true),
     private val logSink: PluginLogSink = androidLogSink,
 ) {
@@ -103,40 +85,29 @@ class PluginManager(
         val prefs: PluginPrefs,
         val context: Context?,
     ) {
-        // Terminals this plugin created, released with it: each holds a native emulator.
         val terminals = ArrayList<PluginTerminal>()
     }
 
-    // Guards [active], [services] and the state flows: plugins may look up services from any
-    // thread, and a scope failure disables its plugin from whichever thread it ran on.
+    // A scope failure disables its plugin from whichever thread it ran on.
     private val lock = Any()
     private val active = LinkedHashMap<String, LoadedPlugin>()
     private val _plugins = MutableStateFlow<List<PluginRecord>>(emptyList())
     private val _sessionViews = MutableStateFlow<List<RegisteredSessionView>>(emptyList())
     private val _settings = MutableStateFlow<List<PluginSettingsEntry>>(emptyList())
 
-    /** Every plugin the manager has seen, including ones it refused or disabled. */
     val plugins: StateFlow<List<PluginRecord>> = _plugins.asStateFlow()
 
-    /** Session view providers from active plugins, in registration order. */
     val sessionViews: StateFlow<List<RegisteredSessionView>> = _sessionViews.asStateFlow()
 
-    /** Settings schemas of active plugins, in load order. */
     val settings: StateFlow<List<PluginSettingsEntry>> = _settings.asStateFlow()
 
-    /** App-wide setting values of [pluginId], for the settings UI. */
     fun settingValues(pluginId: String): PluginSettingValues =
         PluginSettingValues.global(prefsFor(pluginId))
 
-    /** [hostId]'s setting values for [pluginId], for the host editor. */
     fun hostSettingValues(pluginId: String, hostId: Long): PluginSettingValues =
         PluginSettingValues.hostValues(prefsFor(pluginId), hostId)
 
-    /**
-     * Drops every plugin's settings for a deleted host, so a later host reusing the id
-     * doesn't inherit them. Covers plugins known this run; values of plugins that aren't
-     * installed right now linger harmlessly until then.
-     */
+    // A later host reusing the id must not inherit the deleted host's settings.
     fun removeHostSettings(hostId: Long) {
         val ids = synchronized(lock) { _plugins.value.map { it.descriptor.id } }
         ids.forEach { PluginSettingValues.removeHost(prefsFor(it), hostId) }
@@ -145,15 +116,9 @@ class PluginManager(
     private fun prefsFor(pluginId: String): PluginPrefs =
         synchronized(lock) { active[pluginId]?.prefs } ?: prefsFactory.open(pluginId)
 
-    /** The registry plugins see, so host UI can map tab ids to [PluginSession]s. */
     val sessionRegistry: SessionRegistry
         get() = sessions
 
-    /**
-     * Every one of [views] that claims [session], outermost first; empty means chuchu's
-     * stock terminal. A provider whose [SessionViewProvider.claims] throws is disabled and
-     * skipped.
-     */
     fun sessionViewsFor(session: PluginSession, views: List<RegisteredSessionView>): List<RegisteredSessionView> =
         views.filter { view ->
             val isActive = synchronized(lock) { view.pluginId in active }
@@ -166,10 +131,6 @@ class PluginManager(
                 }
         }
 
-    /**
-     * Loads [entries] in order. Ids already known to the manager are skipped, which makes
-     * repeated calls (e.g. re-running discovery) harmless.
-     */
     fun load(entries: List<PluginEntry>) {
         entries.forEach(::loadOne)
     }
@@ -248,7 +209,6 @@ class PluginManager(
         }
     }
 
-    /** Inserts or replaces the record for the descriptor's id, preserving load order. */
     private fun publish(record: PluginRecord) {
         synchronized(lock) {
             val current = _plugins.value
@@ -308,7 +268,6 @@ class PluginManager(
                 check(_sessionViews.value.none { it.pluginId == pluginId && it.provider.id == provider.id }) {
                     "plugin '$pluginId' already registered session view '${provider.id}'"
                 }
-                // Built-ins share chuchu's context, so only external plugins need an override.
                 val pluginContext = loaded.context.takeIf { loaded.descriptor.source == PluginSource.External }
                 _sessionViews.value = _sessionViews.value + RegisteredSessionView(pluginId, provider, pluginContext)
             }

@@ -139,8 +139,6 @@ fun SettingsScreen(
             }
 
             item {
-                // Natural-width tabs: equal weights squeezed "terminal" onto two lines
-                // once a fourth category existed. Scrolls on screens too narrow for all.
                 Row(
                     modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),

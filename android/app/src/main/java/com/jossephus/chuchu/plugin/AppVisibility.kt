@@ -7,10 +7,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/**
- * Whether chuchu has a started activity, for plugins ([PluginHost.appVisible]). Counted from
- * activity callbacks rather than lifecycle-process so it adds no dependency.
- */
 object AppVisibility : Application.ActivityLifecycleCallbacks {
     private var started = 0
     private val _visible = MutableStateFlow(false)

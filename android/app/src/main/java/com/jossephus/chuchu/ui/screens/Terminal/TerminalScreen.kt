@@ -1421,7 +1421,6 @@ fun TerminalScreen(
                                 }
                             }
                         } else {
-                            // Stock terminal area; plugin session views may replace or wrap it.
                             val defaultTerminal: @Composable () -> Unit = {
                                 Box(modifier = Modifier.fillMaxSize()) {
                                         TerminalCanvas(
@@ -1780,14 +1779,11 @@ fun TerminalScreen(
                             Box(modifier = Modifier.weight(1f)) {
                                 val pluginSession = activePluginSession
                                 if (pluginSession != null && claimedSessionViews.isNotEmpty()) {
-                                    // Nest claiming providers outermost-first: each one's defaultTerminal
-                                    // renders the next, ending at chuchu's own terminal.
                                     val chained =
                                         claimedSessionViews.foldRight<RegisteredSessionView, @Composable () -> Unit>(
                                             defaultTerminal,
                                         ) { view, inner ->
                                             {
-                                                // External plugins resolve their own resources.
                                                 CompositionLocalProvider(
                                                     LocalContext provides (view.context ?: context),
                                                     LocalPluginTheme provides pluginTheme,

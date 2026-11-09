@@ -15,15 +15,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 
-/** Native operations on one connection's exec channels; a seam so the pump is testable. */
 interface ExecTransport {
-    /** Returns the new channel's id; throws on failure. */
     fun open(command: String): Int
 
-    /** Buffered bytes of stdout (0) or stderr (1), empty when none; throws on failure. */
     fun read(id: Int, stream: Int, maxBytes: Int): ByteArray
 
-    /** Bytes accepted (may be 0 while the window is full); throws on failure. */
     fun write(id: Int, data: ByteArray): Int
 
     fun isEof(id: Int): Boolean
@@ -47,16 +43,8 @@ class NativeExecTransport(private val ssh: NativeSshService) : ExecTransport {
     override fun close(id: Int) = ssh.execClose(id)
 }
 
-/**
- * Plugin exec channels on one engine's SSH connection.
- *
- * Every native call runs on [dispatcher], the engine's single session thread, because
- * libssh2 sessions are not thread-safe; that also makes [open] and the pumps race-free
- * without locks. Channel ids restart at 1 on every new native session, so each channel
- * remembers the connection [generation] it was opened on and stops touching the transport
- * once [invalidateAll] moves past it; otherwise a stale handle could reach a new,
- * unrelated channel that reused its id.
- */
+// Every native call runs on [dispatcher] because libssh2 sessions aren't thread-safe. Channel ids
+// restart at 1 per native session, so each channel remembers its [generation] to ignore stale handles.
 class ExecChannels(
     private val transport: ExecTransport,
     private val dispatcher: CoroutineDispatcher,
@@ -74,10 +62,7 @@ class ExecChannels(
             exec
         }
 
-    /**
-     * The connection is being closed or replaced, so its native channels are gone. Call
-     * on [dispatcher] before the native session is closed or reconnected.
-     */
+    /** Call on [dispatcher] before the native session is closed or replaced. */
     fun invalidateAll() {
         generation++
         open.toList().forEach { it.finish(exitCode = null, closeNative = false) }
@@ -97,8 +82,7 @@ class ExecChannels(
             get() = !finished && openedIn == generation
 
         suspend fun runPump() {
-            // A chunk read but not yet accepted by a full stream buffer; while one is
-            // pending that stream isn't read, which is what applies SSH flow control.
+            // While a chunk is pending its stream isn't read, which is what applies SSH flow control.
             val pending = arrayOfNulls<ByteArray>(2)
             var lastProgressAt = clock()
             var eofAt: Long? = null
@@ -112,8 +96,7 @@ class ExecChannels(
                     }
                     if (pending.all { it == null } && transport.isEof(id)) {
                         val since = eofAt ?: clock().also { eofAt = it }
-                        // The exit-status message can trail EOF by a packet; keep reading
-                        // briefly so libssh2 processes it before we ask.
+                        // The exit status can trail EOF by a packet.
                         if (clock() - since >= EXIT_STATUS_GRACE_MS) {
                             finish(transport.exitStatus(id), closeNative = true)
                             return
@@ -128,7 +111,6 @@ class ExecChannels(
             }
         }
 
-        /** Moves data from the transport into the stream buffers; true if anything moved. */
         private fun pumpStreams(pending: Array<ByteArray?>): Boolean {
             var progressed = false
             for (stream in 0..1) {
@@ -171,7 +153,6 @@ class ExecChannels(
                         stalled = 0
                         continue
                     }
-                    // Window full: suspend so the pump can read and the remote can drain.
                     check(++stalled <= MAX_STALLED_WRITES) { "exec channel write stalled" }
                     delay(WRITE_RETRY_DELAY_MS)
                 }
@@ -186,15 +167,13 @@ class ExecChannels(
     }
 
     private companion object {
-        // Per stream, in chunks of up to READ_CHUNK_BYTES: bounds memory per channel.
         const val STREAM_BUFFER_CHUNKS = 16
         const val READ_CHUNK_BYTES = 32 * 1024
         const val EXIT_STATUS_GRACE_MS = 100L
         const val WRITE_RETRY_DELAY_MS = 4L
-        // ~2 s of a full window before giving up, matching the shell writer's patience.
+        // ~2 s of a full window.
         const val MAX_STALLED_WRITES = 500
 
-        // Same shape as the shell read loop: snappy while data flows, backing off when idle.
         fun idleDelayMs(idleForMs: Long): Long =
             when {
                 idleForMs < 50 -> 2L

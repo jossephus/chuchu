@@ -2,18 +2,11 @@ package com.jossephus.chuchu.model
 
 import com.jossephus.chuchu.service.multiplexer.MultiplexerRegistry
 
-/**
- * A host's chosen multiplexer, identified by the stable id its provider registered
- * (`MultiplexerProvider.id`). Deliberately open rather than an enum: plugins add
- * multiplexers at runtime, and a host keeps its id even while the providing plugin is
- * missing, so reinstalling the plugin restores it.
- */
+// Not an enum: plugins add multiplexers at runtime, and a host keeps its id while the plugin is missing.
 data class MultiplexerType(val id: String) {
-    /** Provider's display name, or the raw id when no loaded plugin provides it. */
     val label: String
         get() = MultiplexerRegistry.forType(this)?.displayName ?: id
 
-    /** Whether a loaded plugin can actually run this multiplexer. */
     val runtimeSupported: Boolean
         get() = MultiplexerRegistry.forType(this) != null
 

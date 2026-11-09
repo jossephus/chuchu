@@ -25,6 +25,7 @@ interface TransportProvider {
 
     suspend fun connect(request: TransportConnectRequest): TransportConnection
 
+    /** Target for a duplicated tab, given the current tab's attached target. */
     fun duplicateTarget(target: String?): String? = null
 }
 
@@ -41,8 +42,11 @@ class PairingPrompt(
 )
 
 class TransportBehavior(
+    /** Drop the local emulator's replies to terminal queries. */
     val remoteAnswersQueries: Boolean = false,
+    /** Keep only the selected tab of a host connected. */
     val activeTabOnly: Boolean = false,
+    /** Mirror the browser group holding the active tab's target as tabs. */
     val tabsFollowBrowserGroup: Boolean = false,
 )
 
@@ -54,6 +58,7 @@ class TransportConnectRequest(
 )
 
 interface TransportConnection : AutoCloseable {
+    /** What this connection attached to; passed back as the target on reconnect. */
     val target: String?
 
     val frames: Flow<TransportFrame>
@@ -73,6 +78,7 @@ sealed interface TransportFrame {
     data class Resize(val cols: Int, val rows: Int) : TransportFrame
 }
 
+/** Thrown from [TransportConnection.frames] to end the tab with [message] instead of reconnecting. */
 class TransportEndedException(message: String) : IOException(message)
 
 fun interface HostBrowserFactory {

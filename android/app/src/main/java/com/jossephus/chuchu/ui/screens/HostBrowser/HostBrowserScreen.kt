@@ -49,7 +49,6 @@ import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
 
-// Matches the 28dp header row in the design so "+" and the chevron sit level with the divider.
 private val HEADER_ACTION_SIZE = 28.dp
 
 @Composable
@@ -147,7 +146,6 @@ fun HostBrowserScreen(
                         NewSessionRow(
                             enabled = actionsEnabled,
                             onClick = { onOpen(TransportTarget(newGroupTarget, creates = true)) },
-                            // Sits one gap further out so it reads as the start of the next session group.
                             modifier = Modifier.padding(top = 8.dp),
                         )
                     }
@@ -243,7 +241,6 @@ private fun PaneCard(item: BrowserItem, isOpen: Boolean, onClick: () -> Unit) {
     }
 }
 
-/** Dashed row that closes the list, standing in for the session it creates. */
 @Composable
 private fun NewSessionRow(enabled: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val colors = ChuColors.current

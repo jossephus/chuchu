@@ -284,7 +284,6 @@ class NativeSshService(
         }
     }
 
-    /** Opens an exec channel on this connection; returns its id. Throws on failure. */
     fun execOpen(command: String): Int {
         check(handle != 0L) { "Not connected" }
         val id = bridge.nativeExecOpen(handle, command)
@@ -294,14 +293,12 @@ class NativeSshService(
         return id
     }
 
-    /** Buffered bytes from stdout (0) or stderr (1); empty when none. Throws on failure. */
     fun execRead(id: Int, stream: Int, maxBytes: Int): ByteArray {
         check(handle != 0L) { "Not connected" }
         return bridge.nativeExecRead(handle, id, stream, maxBytes)
             ?: throw IllegalStateException(bridge.nativeGetLastError(handle) ?: "Native SSH exec read failed")
     }
 
-    /** Bytes accepted, which may be fewer than [data] when the channel window is full. */
     fun execWrite(id: Int, data: ByteArray): Int {
         check(handle != 0L) { "Not connected" }
         val written = bridge.nativeExecWrite(handle, id, data)

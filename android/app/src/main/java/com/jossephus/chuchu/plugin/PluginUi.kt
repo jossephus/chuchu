@@ -18,7 +18,6 @@ import com.jossephus.chuchu.plugin.api.PluginTheme
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
 
-/** Chuchu's current theme as the plugin-facing [PluginTheme]. */
 @Composable
 fun rememberPluginTheme(): PluginTheme {
     val colors = ChuColors.current
@@ -44,11 +43,7 @@ fun rememberPluginTheme(): PluginTheme {
     }
 }
 
-/**
- * Posts plugin notifications on one "plugins" channel with chuchu's icon. A plugin can't
- * reliably do this itself: the small icon and channel must belong to chuchu, whose process
- * the plugin runs in.
- */
+// The channel and small icon must belong to chuchu, whose process the plugin runs in.
 class PluginNotifier(private val context: Context) {
     fun post(pluginId: String, pluginName: String, notification: PluginNotification): Boolean {
         val manager = NotificationManagerCompat.from(context)
@@ -98,7 +93,6 @@ class PluginNotifier(private val context: Context) {
     }
 
     companion object {
-        /** Intent extra naming the session (tab) a plugin notification belongs to. */
         const val EXTRA_SESSION_ID = "chuchu.plugin.session_id"
         private const val CHANNEL_ID = "chuchu_plugins"
     }

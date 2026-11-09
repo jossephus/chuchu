@@ -12,7 +12,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MultiplexerModelsTest {
-    // The registry is global; each test registers under its own owner and cleans up.
     private val owner = "multiplexer-models-test"
 
     @After

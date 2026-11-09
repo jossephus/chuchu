@@ -49,22 +49,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 
-/**
- * The plugin terminal holding the keyboard, if any. chuchu's own input (accessory bar keys,
- * paste, custom actions) goes there instead of the tab's shell, because a plugin view that
- * shows its own terminals (e.g. multiplexer panes) is where the user is typing.
- */
+// chuchu's own input (accessory keys, paste, custom actions) goes to this terminal instead of the shell.
 object PluginInputFocus {
     @Volatile
     var target: GhosttyPluginTerminal? = null
         internal set
 }
 
-/**
- * [TerminalFactory] backed by Ghostty. All plugin terminals share one emulator thread: each
- * Ghostty handle must be used from a single thread, and a thread per pane would waste
- * memory when a multiplexer plugin opens many.
- */
+// One shared emulator thread: Ghostty handles are single-threaded, and a thread per pane wastes memory.
 class GhosttyTerminalFactory : TerminalFactory {
     private val dispatcher =
         Executors.newSingleThreadExecutor { runnable ->
@@ -82,7 +74,6 @@ class GhosttyPluginTerminal internal constructor(
 ) : PluginTerminal {
     private val bridge = GhosttyBridge()
 
-    // Only touched on [dispatcher].
     private var handle = 0L
     private var lastSnapshotAtMs = 0L
     private var snapshotScheduled = false
@@ -132,8 +123,7 @@ class GhosttyPluginTerminal internal constructor(
         inputChannel.trySend(text.toByteArray(Charsets.UTF_8))
     }
 
-    // Mirrors TerminalViewModel.onHardwareKey so plugin terminals encode keys like the
-    // main terminal (text keys carry their UTF-8 unless Ctrl/Alt/Super are held).
+    // Mirrors TerminalViewModel.onHardwareKey.
     fun typeKey(key: Int, codepoint: Int, mods: Int, action: Int, charCode: Int) {
         val isRelease = action == GhosttyKeyAction.Release
         val hasNonTextModifier = mods and NON_TEXT_MODIFIERS != 0
@@ -148,7 +138,6 @@ class GhosttyPluginTerminal internal constructor(
         }
     }
 
-    /** Bracketed when the program enabled bracketed paste, like the stock terminal. */
     fun paste(text: String) {
         if (text.isEmpty()) return
         onEmulator {
@@ -224,8 +213,7 @@ class GhosttyPluginTerminal internal constructor(
         }
     }
 
-    // Same throttle as the session engine: at most one snapshot per frame, with a trailing
-    // snapshot so the last burst of output is always shown.
+    // At most one snapshot per frame, plus a trailing one so the last output always shows.
     private fun requestSnapshot(force: Boolean = false) {
         val now = System.currentTimeMillis()
         val elapsed = now - lastSnapshotAtMs
@@ -279,7 +267,6 @@ class GhosttyPluginTerminal internal constructor(
             }
         }
 
-        // Skip the initial composition: only real focus changes are reported.
         val lastFocused = remember { booleanArrayOf(focused) }
         LaunchedEffect(focused) {
             if (lastFocused[0] != focused) reportFocus(focused)
@@ -287,9 +274,7 @@ class GhosttyPluginTerminal internal constructor(
         }
 
         val current by snapshot.collectAsStateWithLifecycle()
-        // The input view stays in the tree, like the stock terminal's: Android only honours
-        // a focus request for a view that is already attached and laid out, so creating it
-        // on focus and requesting in the same pass silently fails.
+        // Android only honours a focus request for an attached, laid-out view, so it stays in the tree.
         var inputView by remember { mutableStateOf<TerminalInputView?>(null) }
         LaunchedEffect(focused, inputView) {
             val view = inputView ?: return@LaunchedEffect
@@ -314,8 +299,6 @@ class GhosttyPluginTerminal internal constructor(
                     onScroll = ::scroll,
                 )
             }
-            // A 1dp input view receives IME input for this terminal, the same way the main
-            // terminal does; it only takes focus while [focused].
             AndroidView(
                 factory = { viewContext ->
                     TerminalInputView(viewContext).apply {
@@ -341,7 +324,6 @@ class GhosttyPluginTerminal internal constructor(
         const val SNAPSHOT_INTERVAL_MS = 16L
         const val MAX_PTY_DRAINS = 8
 
-        // Ctrl, Alt, Super bits in Ghostty's modifier mask; see TerminalViewModel.onHardwareKey.
         const val NON_TEXT_MODIFIERS = (1 shl 1) or (1 shl 2) or (1 shl 3)
     }
 }
