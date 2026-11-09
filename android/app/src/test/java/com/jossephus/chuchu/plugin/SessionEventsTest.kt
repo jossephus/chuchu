@@ -21,9 +21,10 @@ class SessionEventsTest {
     }
 
     @Test
-    fun snapshotOnlyChangesProduceNoEvents() {
-        val base = SessionState(status = SessionStatus.Connected, title = "vim")
-        assertTrue(sessionEventsBetween(session, base, base.copy(bellCount = 0)).isEmpty())
+    fun nonStatusChangesProduceNoEvents() {
+        val base = SessionState(status = SessionStatus.Connected, title = "vim", pwd = "/src")
+        val next = base.copy(title = "htop", pwd = "/tmp", bellCount = 2)
+        assertTrue(sessionEventsBetween(session, base, next).isEmpty())
     }
 
     @Test

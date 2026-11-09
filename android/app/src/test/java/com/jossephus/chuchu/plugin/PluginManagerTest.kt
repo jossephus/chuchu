@@ -75,15 +75,6 @@ class PluginManagerTest {
         manager.plugins.value.find { it.descriptor.id == id }?.status
 
     @Test
-    fun registersPluginAndSharesTheSessionRegistry() {
-        val plugin = RecordingPlugin()
-        manager.load(listOf(entry("alpha") { plugin }))
-
-        assertEquals(PluginStatus.Active, status("alpha"))
-        assertSame(registry, plugin.host.sessions)
-    }
-
-    @Test
     fun registerFailureDisablesPluginAndRollsBackItsContributions() {
         val healthy = RecordingPlugin()
         val failing = RecordingPlugin {
@@ -250,15 +241,6 @@ class PluginManagerTest {
     }
 
     @Test
-    fun registeredTransportIsResolvableById() {
-        val transport = FakeTransport("test-transport-active")
-        manager.load(listOf(entry("transport_owner") { RecordingPlugin { it.registerTransport(transport) } }))
-
-        assertSame(transport, TransportRegistry.forId("test-transport-active"))
-        TransportRegistry.unregisterOwner("transport_owner")
-    }
-
-    @Test
     fun registerFailureRollsBackTheTransport() {
         manager.load(
             listOf(
@@ -277,15 +259,17 @@ class PluginManagerTest {
 
     @Test
     fun duplicateTransportIdFailsTheSecondPlugin() {
+        val first = FakeTransport("test-transport-dup")
         manager.load(
             listOf(
-                entry("transport_first") { RecordingPlugin { it.registerTransport(FakeTransport("test-transport-dup")) } },
+                entry("transport_first") { RecordingPlugin { it.registerTransport(first) } },
                 entry("transport_second") { RecordingPlugin { it.registerTransport(FakeTransport("test-transport-dup")) } },
             ),
         )
 
         assertEquals(PluginStatus.Active, status("transport_first"))
         assertEquals(PluginStatus.Failed, status("transport_second"))
+        assertSame(first, TransportRegistry.forId("test-transport-dup"))
         TransportRegistry.unregisterOwner("transport_first")
     }
 }

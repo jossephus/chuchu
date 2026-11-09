@@ -49,7 +49,6 @@ class ExecChannels(
     private val transport: ExecTransport,
     private val dispatcher: CoroutineDispatcher,
     private val scope: CoroutineScope,
-    private val clock: () -> Long = System::currentTimeMillis,
 ) {
     private val open = ArrayList<Exec>()
     private var generation = 0
@@ -84,25 +83,25 @@ class ExecChannels(
         suspend fun runPump() {
             // While a chunk is pending its stream isn't read, which is what applies SSH flow control.
             val pending = arrayOfNulls<ByteArray>(2)
-            var lastProgressAt = clock()
+            var lastProgressAt = System.currentTimeMillis()
             var eofAt: Long? = null
             try {
                 while (live) {
                     if (pumpStreams(pending)) {
-                        lastProgressAt = clock()
+                        lastProgressAt = System.currentTimeMillis()
                         eofAt = null
                         yield()
                         continue
                     }
                     if (pending.all { it == null } && transport.isEof(id)) {
-                        val since = eofAt ?: clock().also { eofAt = it }
+                        val since = eofAt ?: System.currentTimeMillis().also { eofAt = it }
                         // The exit status can trail EOF by a packet.
-                        if (clock() - since >= EXIT_STATUS_GRACE_MS) {
+                        if (System.currentTimeMillis() - since >= EXIT_STATUS_GRACE_MS) {
                             finish(transport.exitStatus(id), closeNative = true)
                             return
                         }
                     }
-                    delay(idleDelayMs(clock() - lastProgressAt))
+                    delay(idleDelayMs(System.currentTimeMillis() - lastProgressAt))
                 }
             } catch (e: CancellationException) {
                 throw e
