@@ -27,6 +27,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -103,7 +105,7 @@ class TerminalSessionRepository private constructor(application: Application) {
                 if (tabs.isEmpty()) {
                     flowOf(emptyList())
                 } else {
-                    combine(tabs.map { tab -> tab.sessionState.map { state -> tab to state } }) {
+                    combine(tabs.map { tab -> tab.statusUpdates().map { status -> tab to status } }) {
                         it.toList()
                     }
                 }
@@ -111,11 +113,7 @@ class TerminalSessionRepository private constructor(application: Application) {
             .map { pairs ->
                 pairs
                     .asSequence()
-                    .filter { (_, state) ->
-                        state.status == SessionStatus.Connecting ||
-                            state.status == SessionStatus.Connected ||
-                            state.status == SessionStatus.Reconnecting
-                    }
+                    .filter { (_, status) -> status.isAlive() }
                     .mapNotNull { (tab, _) -> tab.spec.hostId }
                     .toSet()
             }
@@ -132,18 +130,11 @@ class TerminalSessionRepository private constructor(application: Application) {
                     if (tabs.isEmpty()) {
                         flowOf(emptyList())
                     } else {
-                        combine(tabs.map { tab -> tab.sessionState.map { tab to it } }) {
-                            it.toList()
-                        }
+                        combine(tabs.map { tab -> tab.statusUpdates() }) { it.toList() }
                     }
                 }
-                .collect { pairs ->
-                    val anyAlive =
-                        pairs.any { (_, state) ->
-                            state.status == SessionStatus.Connecting ||
-                                state.status == SessionStatus.Connected ||
-                                state.status == SessionStatus.Reconnecting
-                        }
+                .collect { statuses ->
+                    val anyAlive = statuses.any { it.isAlive() }
                     val label = if (anyAlive) currentNotificationLabel() else null
                     if (anyAlive && (!foregroundServiceRunning || foregroundNotificationLabel != label)) {
                         SessionForegroundService.start(appContext, label ?: "Active session")
@@ -165,6 +156,13 @@ class TerminalSessionRepository private constructor(application: Application) {
     fun detachClient() {
         attachedClients = (attachedClients - 1).coerceAtLeast(0)
     }
+
+    // Session state changes on every frame of terminal output; these watchers only
+    // care whether a tab is alive, so follow its status alone.
+    private fun TabSession.statusUpdates(): Flow<SessionStatus> = sessionState.map { it.status }.distinctUntilChanged()
+
+    private fun SessionStatus.isAlive(): Boolean =
+        this == SessionStatus.Connecting || this == SessionStatus.Connected || this == SessionStatus.Reconnecting
 
     private fun currentNotificationLabel(): String {
         val tabs = _tabs.value

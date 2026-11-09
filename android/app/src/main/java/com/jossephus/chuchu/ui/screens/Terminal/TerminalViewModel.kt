@@ -43,6 +43,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -80,6 +81,24 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     val activeTabId: StateFlow<String?> = sessionRepository.activeTabId
     val activeTab: StateFlow<TabSession?> = sessionRepository.activeTab
     val sessionState: StateFlow<SessionState> = sessionRepository.sessionState
+
+    /**
+     * The session without its terminal snapshot. The snapshot changes on every frame of
+     * output and every resize, so screen chrome that reads [sessionState] recomposed the
+     * whole terminal screen per frame; only the viewport reads the snapshot itself.
+     */
+    val sessionChrome: StateFlow<SessionState> =
+        sessionState
+            .map { it.copy(snapshot = null) }
+            .distinctUntilChanged()
+            .stateIn(viewModelScope, SharingStarted.Eagerly, sessionState.value.copy(snapshot = null))
+
+    /** Whether the terminal has drawn anything yet, without following each new snapshot. */
+    val hasSnapshot: StateFlow<Boolean> =
+        sessionState
+            .map { it.snapshot != null }
+            .distinctUntilChanged()
+            .stateIn(viewModelScope, SharingStarted.Eagerly, sessionState.value.snapshot != null)
     val hostKeyPrompt: StateFlow<HostKeyPrompt?> = sessionRepository.hostKeyPrompt
     val hosts: StateFlow<List<HostProfile>> =
         hostRepository.observeAll().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())

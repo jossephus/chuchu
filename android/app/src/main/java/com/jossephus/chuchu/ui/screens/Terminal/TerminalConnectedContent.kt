@@ -29,7 +29,6 @@ import com.jossephus.chuchu.R
 import com.jossephus.chuchu.service.terminal.SessionState
 import com.jossephus.chuchu.service.terminal.SessionStatus
 import com.jossephus.chuchu.service.terminal.TabSession
-import com.jossephus.chuchu.service.terminal.TerminalSnapshot
 import com.jossephus.chuchu.ui.screens.Files.ConnectionTab
 import com.jossephus.chuchu.ui.screens.Files.FileBrowserUiState
 import com.jossephus.chuchu.ui.terminal.AccessoryAction
@@ -50,7 +49,6 @@ internal fun TerminalConnectedContent(
     vm: TerminalViewModel,
     ui: TerminalScreenUiState,
     sessionState: SessionState,
-    snapshot: TerminalSnapshot,
     tabs: List<TabSession>,
     tabsForHost: List<TabSession>,
     activeTabId: String?,
@@ -210,10 +208,9 @@ internal fun TerminalConnectedContent(
         Column(
             modifier =
                 Modifier.fillMaxSize()
-                    .blur(
-                        if (ui.showTabSheet || ui.showGlobalTabManager) 10.dp
-                        else 0.dp,
-                    )
+                    // Only when a sheet is open: even a 0dp blur keeps the whole screen in
+                    // its own graphics layer, re-recorded on every frame.
+                    .then(if (ui.showTabSheet || ui.showGlobalTabManager) Modifier.blur(10.dp) else Modifier)
                     .imePadding(),
         ) {
             if (tabMode == TerminalTabMode.Strip) {
@@ -241,7 +238,6 @@ internal fun TerminalConnectedContent(
                     vm = vm,
                     ui = ui,
                     sessionState = sessionState,
-                    snapshot = snapshot,
                     ghosttyTheme = ghosttyTheme,
                     isReconnecting = sessionState.status == SessionStatus.Reconnecting,
                     duplicateLoading = multiplexerState.duplicateLoading,
