@@ -234,6 +234,12 @@
     <string name="mux_new">新建</string>
     <string name="mux_attached">已挂载</string>
     <string name="mux_attach">挂载</string>
+    <string name="session_browser_connecting">正在连接 %1$s…</string>
+    <string name="session_browser_empty">还没有会话。</string>
+    <string name="session_browser_new">新建会话</string>
+    <string name="session_browser_retry">重试</string>
+    <string name="session_browser_refresh">刷新</string>
+    <string name="session_browser_host_missing">该服务器已不存在</string>
 
     <!-- Terminal session -->
     <string name="terminal_new_session_on">在 %1$s 上新建会话</string>
@@ -350,6 +356,10 @@
     <string name="settings_tab_interface">标签页样式</string>
     <string name="settings_tab_mode_palette">命令面板</string>
     <string name="settings_tab_mode_strip">顶部标签条</string>
+    <string name="settings_session_picker">会话选择器</string>
+    <string name="settings_session_picker_hint">打开主机时选择 tmux 和 zmx 会话的方式</string>
+    <string name="settings_session_picker_panel">面板</string>
+    <string name="settings_session_picker_browser">浏览器</string>
     <string name="settings_accessory_keys">辅助键</string>
     <string name="settings_no_keys_enabled">未启用任何按键</string>
     <plurals name="settings_keys_enabled">

@@ -2,6 +2,7 @@ package com.jossephus.chuchu.data.repository
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.jossephus.chuchu.ui.screens.SessionBrowser.SessionPickerStyle
 import com.jossephus.chuchu.ui.screens.Terminal.TerminalTabMode
 import com.jossephus.chuchu.ui.terminal.BuiltinShortcutStore
 import com.jossephus.chuchu.ui.terminal.TerminalAccessoryLayoutStore
@@ -70,6 +71,11 @@ class SettingsRepository(context: Context) {
     )
     val terminalTabMode: StateFlow<TerminalTabMode> = _terminalTabMode.asStateFlow()
 
+    private val _sessionPickerStyle = MutableStateFlow(
+        parseSessionPickerStyle(prefs.getString(KEY_SESSION_PICKER_STYLE, null)),
+    )
+    val sessionPickerStyle: StateFlow<SessionPickerStyle> = _sessionPickerStyle.asStateFlow()
+
     private val _themeMode = MutableStateFlow(parseThemeMode(prefs.getString(KEY_THEME_MODE, DEFAULT_THEME_MODE.name)))
     val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
 
@@ -126,6 +132,11 @@ class SettingsRepository(context: Context) {
     fun setTerminalTabMode(mode: TerminalTabMode) {
         prefs.edit().putString(KEY_TAB_MODE, mode.name).apply()
         _terminalTabMode.value = mode
+    }
+
+    fun setSessionPickerStyle(style: SessionPickerStyle) {
+        prefs.edit().putString(KEY_SESSION_PICKER_STYLE, style.name).apply()
+        _sessionPickerStyle.value = style
     }
 
     fun setAppLockEnabled(enabled: Boolean) {
@@ -222,6 +233,7 @@ class SettingsRepository(context: Context) {
         private const val KEY_BUILTIN_SHORTCUTS = "builtin_shortcuts"
         private const val KEY_ACCESSORY_BAR_SINGLE_ROW = "terminal_accessory_bar_single_row"
         private const val KEY_TAB_MODE = "terminal_tab_mode"
+        private const val KEY_SESSION_PICKER_STYLE = "session_picker_style"
         private const val KEY_APP_LOCK_ENABLED = "app_lock_enabled"
         private const val KEY_REQUIRE_AUTH_ON_CONNECT = "require_auth_on_connect"
         private const val KEY_LOCAL_SHELL_ENABLED = "local_shell_enabled"
@@ -254,6 +266,9 @@ class SettingsRepository(context: Context) {
 
         private fun parseThemeMode(value: String?): ThemeMode =
             ThemeMode.entries.find { it.name == value } ?: DEFAULT_THEME_MODE
+
+        private fun parseSessionPickerStyle(value: String?): SessionPickerStyle =
+            SessionPickerStyle.entries.find { it.name == value } ?: SessionPickerStyle.Panel
 
         private fun parseTabMode(value: String?): TerminalTabMode =
             try {

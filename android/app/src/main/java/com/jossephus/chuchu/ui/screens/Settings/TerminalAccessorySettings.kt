@@ -35,6 +35,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import com.jossephus.chuchu.R
+import com.jossephus.chuchu.ui.screens.SessionBrowser.SessionPickerStyle
 import com.jossephus.chuchu.ui.screens.Terminal.TerminalTabMode
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
@@ -63,6 +64,7 @@ import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuCard
+import com.jossephus.chuchu.ui.components.ChuSegmentedControl
 import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.components.ChuSwitch
 import com.jossephus.chuchu.ui.components.ChuTextField
@@ -94,6 +96,8 @@ internal fun TerminalSettings(
     onEditChuchuCommands: () -> Unit = {},
     currentTabMode: TerminalTabMode = TerminalTabMode.Classic,
     onTabModeChanged: (TerminalTabMode) -> Unit = {},
+    currentSessionPickerStyle: SessionPickerStyle = SessionPickerStyle.Panel,
+    onSessionPickerStyleChanged: (SessionPickerStyle) -> Unit = {},
     localShellEnabled: Boolean = false,
     onLocalShellEnabledChanged: (Boolean) -> Unit = {},
     keepScreenAwake: Boolean = false,
@@ -242,6 +246,30 @@ internal fun TerminalSettings(
                         }
                     }
                 }
+            }
+        }
+
+        ChuCard(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                ChuText(stringResource(R.string.settings_session_picker), style = typography.label)
+                ChuText(
+                    stringResource(R.string.settings_session_picker_hint),
+                    style = typography.bodySmall,
+                    color = colors.textMuted,
+                )
+                ChuSegmentedControl(
+                    options = SessionPickerStyle.entries,
+                    labels =
+                        mapOf(
+                            SessionPickerStyle.Panel to stringResource(R.string.settings_session_picker_panel),
+                            SessionPickerStyle.Browser to stringResource(R.string.settings_session_picker_browser),
+                        ),
+                    selected = currentSessionPickerStyle,
+                    onSelect = onSessionPickerStyleChanged,
+                )
             }
         }
 
