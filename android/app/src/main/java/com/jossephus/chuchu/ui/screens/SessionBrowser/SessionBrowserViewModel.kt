@@ -36,6 +36,7 @@ data class SessionBrowserUiState(
     val loaded: Boolean = false,
     val loading: Boolean = true,
     val error: String? = null,
+    val updatesLive: Boolean = false,
 )
 
 class SessionBrowserViewModel(
@@ -70,6 +71,7 @@ class SessionBrowserViewModel(
                 val profile = loadHost() ?: return@launch
                 val opened = openBrowser(profile) ?: return@launch
                 browser = opened
+                _state.value = _state.value.copy(updatesLive = opened.updatesLive)
                 launch { opened.state.collect(::apply) }
                 try {
                     opened.start()

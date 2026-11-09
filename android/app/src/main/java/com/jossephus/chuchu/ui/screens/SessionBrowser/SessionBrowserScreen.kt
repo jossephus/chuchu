@@ -103,14 +103,17 @@ fun SessionBrowserScreen(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            ChuButton(
-                onClick = vm::refresh,
-                enabled = !state.loading,
-                variant = ChuButtonVariant.Ghost,
-                bracketed = true,
-                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
-            ) {
-                ChuText(stringResource(R.string.session_browser_refresh), style = typography.labelSmall, color = colors.textMuted)
+            // A live list (Rex) changes as the host does; failures keep the error card's retry.
+            if (!state.updatesLive) {
+                ChuButton(
+                    onClick = vm::refresh,
+                    enabled = !state.loading,
+                    variant = ChuButtonVariant.Ghost,
+                    bracketed = true,
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                ) {
+                    ChuText(stringResource(R.string.session_browser_refresh), style = typography.labelSmall, color = colors.textMuted)
+                }
             }
         }
 

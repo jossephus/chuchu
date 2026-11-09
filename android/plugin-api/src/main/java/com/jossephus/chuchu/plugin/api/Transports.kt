@@ -69,6 +69,21 @@ interface TransportConnection : AutoCloseable {
 
     fun resize(size: PtySize)
 
+    /**
+     * The user touched this connection's terminal. Multi-client transports use it to
+     * take the terminal back from another client (e.g. so their size applies again);
+     * the default does nothing.
+     */
+    fun onUserInteraction() {}
+
+    /**
+     * Whether this connection's terminal is the one on screen. A host may keep a few
+     * neighbouring tabs connected so switching to them is instant; a multi-client
+     * transport should only claim its terminal (and apply this device's size) while
+     * active, so preloading never takes a pane from another client. Starts inactive.
+     */
+    fun setActive(active: Boolean) {}
+
     override fun close()
 }
 
@@ -89,6 +104,10 @@ fun interface HostBrowserFactory {
 
 interface HostBrowser : AutoCloseable {
     val state: StateFlow<HostBrowserState>
+
+    /** True when [state] follows the host on its own, so the list needs no refresh button. */
+    val updatesLive: Boolean
+        get() = false
 
     suspend fun start()
 

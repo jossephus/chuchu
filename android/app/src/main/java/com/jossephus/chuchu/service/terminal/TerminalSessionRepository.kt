@@ -308,7 +308,7 @@ class TerminalSessionRepository private constructor(application: Application) {
         val tab = TabSession(id, spec, engine)
         _tabs.value = _tabs.value + tab
         if (select) {
-            releaseInactiveTab(_activeTabId.value, next = tab)
+            activate(_activeTabId.value, next = tab)
             _activeTabId.value = id
         }
         if (connect) reconnectTab(tab)
@@ -318,7 +318,7 @@ class TerminalSessionRepository private constructor(application: Application) {
     fun selectTab(id: String) {
         val tab = _tabs.value.firstOrNull { it.id == id } ?: return
         if (_activeTabId.value == id) return
-        releaseInactiveTab(_activeTabId.value, next = tab)
+        activate(_activeTabId.value, next = tab)
         _activeTabId.value = id
         reconnectIfReleased(tab)
     }
@@ -350,11 +350,36 @@ class TerminalSessionRepository private constructor(application: Application) {
         _tabs.value = current.map { if (it.spec.hostId == hostId) queue.removeFirst() else it }
     }
 
-    private fun releaseInactiveTab(previousId: String?, next: TabSession) {
-        val previous = _tabs.value.firstOrNull { it.id == previousId } ?: return
-        if (!previous.connectsOnlyWhileActive() || previous.spec.hostId != next.spec.hostId) return
-        if (previous.target == null) return
-        previous.engine.disconnect()
+    /**
+     * Makes [next] the tab on screen. For transports that connect only while active,
+     * the tabs on either side of it stay connected too, like the official Rex client,
+     * so swiping to a neighbour shows it at once; tabs further away are released.
+     * Only the active tab claims its terminal (see TransportConnection.setActive).
+     */
+    private fun activate(previousId: String?, next: TabSession) {
+        _tabs.value.firstOrNull { it.id == previousId && it !== next }?.engine?.setActive(false)
+        next.fitCanvas()
+        next.engine.setActive(true)
+        warmNeighbours(next)
+    }
+
+    private fun warmNeighbours(next: TabSession) {
+        if (!next.connectsOnlyWhileActive()) return
+        val hostTabs = tabsForHost(next.spec.hostId).filter { it.connectsOnlyWhileActive() }
+        val index = hostTabs.indexOf(next)
+        val warm = hostTabs.subList(maxOf(0, index - WARM_NEIGHBOURS), minOf(hostTabs.size, index + WARM_NEIGHBOURS + 1)).toSet()
+        for (tab in hostTabs) {
+            when {
+                tab === next -> Unit
+                tab in warm ->
+                    if (tab.sessionState.value.status == SessionStatus.Disconnected) {
+                        tab.fitCanvas()
+                        reconnectIfReleased(tab)
+                    }
+                // A tab without a target would reopen a different pane, so it is never released.
+                tab.target != null && tab.sessionState.value.status != SessionStatus.Disconnected -> tab.engine.disconnect()
+            }
+        }
     }
 
     private fun TabSession.connectsOnlyWhileActive(): Boolean =
@@ -425,6 +450,8 @@ class TerminalSessionRepository private constructor(application: Application) {
                 tab
             }
         arrangeHostTabs(hostId, ordered.map { it.id })
+        // The mirrored tabs appear after the opened one, so its neighbours exist only now.
+        activeTab.value?.takeIf { it.spec.hostId == hostId }?.let(::warmNeighbours)
     }
 
     fun closeTab(id: String) = closeTabs(setOf(id))
@@ -437,6 +464,7 @@ class TerminalSessionRepository private constructor(application: Application) {
         val active = closing.firstOrNull { it.id == _activeTabId.value }
         if (active != null) {
             val next = remaining.firstOrNull { it.spec.hostId == active.spec.hostId } ?: remaining.firstOrNull()
+            next?.let { activate(previousId = null, next = it) }
             _activeTabId.value = next?.id
             next?.let(::reconnectIfReleased)
         }
@@ -563,11 +591,34 @@ class TerminalSessionRepository private constructor(application: Application) {
         screenWidth: Int,
         screenHeight: Int,
     ) {
+        canvasSize = CanvasSize(cols, rows, cellWidth, cellHeight, screenWidth, screenHeight)
         activeEngine()?.resize(cols, rows, cellWidth, cellHeight, screenWidth, screenHeight)
+    }
+
+    private data class CanvasSize(
+        val cols: Int,
+        val rows: Int,
+        val cellWidth: Int,
+        val cellHeight: Int,
+        val screenWidth: Int,
+        val screenHeight: Int,
+    )
+
+    // The canvas is shared by all tabs and only reports a change, so a tab that was
+    // never on screen (a preloaded neighbour) gets the size from here.
+    @Volatile private var canvasSize: CanvasSize? = null
+
+    private fun TabSession.fitCanvas() {
+        val size = canvasSize ?: return
+        engine.resize(size.cols, size.rows, size.cellWidth, size.cellHeight, size.screenWidth, size.screenHeight)
     }
 
     fun scroll(delta: Int, x: Float, y: Float) {
         activeEngine()?.scroll(delta, x, y)
+    }
+
+    fun onUserInteraction() {
+        activeEngine()?.onUserInteraction()
     }
 
     fun scrollToActive() {
@@ -659,6 +710,8 @@ class TerminalSessionRepository private constructor(application: Application) {
 
     companion object {
         private const val SFTP_RECONNECT_TIMEOUT_MS = 20_000L
+        // Tabs kept connected on each side of the active one for active-only transports.
+        private const val WARM_NEIGHBOURS = 1
         private const val SFTP_DROP_DETECTION_MS = 1_000L
 
         @Volatile private var instance: TerminalSessionRepository? = null

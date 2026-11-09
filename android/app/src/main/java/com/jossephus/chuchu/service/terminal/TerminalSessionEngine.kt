@@ -456,6 +456,19 @@ class TerminalSessionEngine(
         }
     }
 
+    fun onUserInteraction() {
+        pluginConnection?.onUserInteraction()
+    }
+
+    // Read on the connect path, written from the repository when the selected tab changes.
+    @Volatile private var isActive = false
+
+    /** Marks this tab as the one on screen (or not); see TransportConnection.setActive. */
+    fun setActive(active: Boolean) {
+        isActive = active
+        pluginConnection?.setActive(active)
+    }
+
     fun scroll(delta: Int, x: Float, y: Float) {
         scope.launch(dispatcher) {
             if (handle == 0L || delta == 0) {
@@ -949,6 +962,7 @@ class TerminalSessionEngine(
         pluginProvider = provider
         pinnedTarget = PinnedTarget(connection.target)
         _attachedTarget.value = connection.target
+        connection.setActive(isActive)
     }
 
     private fun pluginPtySize(): PtySize =

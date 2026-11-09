@@ -1473,7 +1473,10 @@ fun TerminalScreen(
                                     terminalHandle = sessionState.handle,
                                     modifier = Modifier.fillMaxSize(),
                                     onResize = vm::onCanvasSizeChanged,
-                                    onTap = requestInputFocus,
+                                    onTap = {
+                                        vm.onTerminalTap()
+                                        requestInputFocus()
+                                    },
                                     onPrimaryClick = vm::onPrimaryMouseClick,
                                     onAppSelectionDrag = vm::onAppSelectionDrag,
                                     onScroll = vm::onScroll,
