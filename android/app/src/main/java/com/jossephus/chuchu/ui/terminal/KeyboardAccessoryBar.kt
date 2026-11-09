@@ -32,12 +32,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -130,15 +132,14 @@ fun KeyboardAccessoryBar(
             return
         }
 
-        FlowRow(
+        TwoRowAccessoryLayout(
+            keyCount = entries.size,
+            spacing = 6.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = horizontalPadding, vertical = verticalPadding),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-            maxLines = 2,
-        ) {
-            entries.forEach { entry ->
+            key = { index ->
+                val entry = entries[index]
                 AccessoryEntry(
                     entry = entry,
                     expanded = expandedGroupId == entry.id,
@@ -150,19 +151,89 @@ fun KeyboardAccessoryBar(
                     buttonHeight = buttonHeight,
                     buttonPadding = buttonPadding,
                 )
+            },
+            trailing = {
+                FilesButton(
+                    onChuchuKey = onChuchuKey,
+                    chuchuKeyActive = chuchuKeyActive,
+                    onOpenFiles = onOpenFiles,
+                    buttonHeight = buttonHeight,
+                    buttonPadding = buttonPadding,
+                )
+                SettingsButton(
+                    onSettings = onSettings,
+                    buttonHeight = buttonHeight,
+                    buttonPadding = buttonPadding,
+                )
+            },
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun TwoRowAccessoryLayout(
+    keyCount: Int,
+    spacing: Dp,
+    key: @Composable (Int) -> Unit,
+    trailing: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    SubcomposeLayout(modifier = modifier) { constraints ->
+        val spacingPx = spacing.roundToPx()
+        val unbounded = Constraints()
+        val keyWidths = List(keyCount) { index ->
+            subcompose("measure-key-$index") { key(index) }.sumOf { it.measure(unbounded).width }
+        }
+        val trailingWidths = subcompose("measure-trailing", trailing).map { it.measure(unbounded).width }
+        val fits = AccessoryBarRows.fitsInTwoLines(keyWidths + trailingWidths, spacingPx, constraints.maxWidth)
+        val trailingWidth =
+            if (trailingWidths.isEmpty()) 0 else trailingWidths.sum() + spacingPx * (trailingWidths.size - 1)
+        val firstRowCount =
+            if (fits) keyCount
+            else AccessoryBarRows.firstRowKeyCount(keyWidths, trailingWidth, spacingPx, constraints.maxWidth)
+
+        val placeables = subcompose("content") {
+            if (fits) {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(spacing),
+                    verticalArrangement = Arrangement.spacedBy(spacing),
+                ) {
+                    repeat(keyCount) { key(it) }
+                    trailing()
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(spacing)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(spacing),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Row(
+                            modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(spacing),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            for (index in 0 until firstRowCount) key(index)
+                        }
+                        trailing()
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(spacing),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        for (index in firstRowCount until keyCount) key(index)
+                    }
+                }
             }
-            FilesButton(
-                onChuchuKey = onChuchuKey,
-                chuchuKeyActive = chuchuKeyActive,
-                onOpenFiles = onOpenFiles,
-                buttonHeight = buttonHeight,
-                buttonPadding = buttonPadding,
-            )
-            SettingsButton(
-                onSettings = onSettings,
-                buttonHeight = buttonHeight,
-                buttonPadding = buttonPadding,
-            )
+        }.map { it.measure(constraints.copy(minHeight = 0)) }
+
+        val width = placeables.maxOfOrNull { it.width } ?: 0
+        val height = placeables.maxOfOrNull { it.height } ?: 0
+        layout(width, height) {
+            placeables.forEach { it.place(0, 0) }
         }
     }
 }
