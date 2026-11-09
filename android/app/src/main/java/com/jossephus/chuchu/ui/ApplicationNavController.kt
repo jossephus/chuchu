@@ -149,6 +149,7 @@ fun ApplicationNavController() {
             val sessionPickerStyle by settingsRepo.sessionPickerStyle.collectAsStateWithLifecycle()
             val localShellEnabled by settingsRepo.localShellEnabled.collectAsStateWithLifecycle()
             val keepScreenAwake by settingsRepo.keepScreenAwake.collectAsStateWithLifecycle()
+            val hideStatusBar by settingsRepo.hideStatusBar.collectAsStateWithLifecycle()
             val hideScreenContents by settingsRepo.hideScreenContents.collectAsStateWithLifecycle()
             val disableAutocorrect by settingsRepo.disableAutocorrect.collectAsStateWithLifecycle()
             val remoteClipboardWriteEnabled by
@@ -163,6 +164,7 @@ fun ApplicationNavController() {
                 requireAuthOnConnect = requireAuthOnConnect,
                 localShellEnabled = localShellEnabled,
                 keepScreenAwake = keepScreenAwake,
+                hideStatusBar = hideStatusBar,
                 hideScreenContents = hideScreenContents,
                 disableAutocorrect = disableAutocorrect,
                 remoteClipboardWriteEnabled = remoteClipboardWriteEnabled,
@@ -187,6 +189,7 @@ fun ApplicationNavController() {
                 onRequireAuthOnConnectChanged = settingsRepo::setRequireAuthOnConnect,
                 onLocalShellEnabledChanged = settingsRepo::setLocalShellEnabled,
                 onKeepScreenAwakeChanged = settingsRepo::setKeepScreenAwake,
+                onHideStatusBarChanged = settingsRepo::setHideStatusBar,
                 onHideScreenContentsChanged = settingsRepo::setHideScreenContents,
                 onDisableAutocorrectChanged = settingsRepo::setDisableAutocorrect,
                 onRemoteClipboardWriteEnabledChanged = settingsRepo::setRemoteClipboardWriteEnabled,

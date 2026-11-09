@@ -102,6 +102,8 @@ internal fun TerminalSettings(
     onLocalShellEnabledChanged: (Boolean) -> Unit = {},
     keepScreenAwake: Boolean = false,
     onKeepScreenAwakeChanged: (Boolean) -> Unit = {},
+    hideStatusBar: Boolean = false,
+    onHideStatusBarChanged: (Boolean) -> Unit = {},
     hideScreenContents: Boolean = false,
     onHideScreenContentsChanged: (Boolean) -> Unit = {},
     disableAutocorrect: Boolean = false,
@@ -600,6 +602,33 @@ internal fun TerminalSettings(
                 ChuSwitch(
                     checked = keepScreenAwake,
                     onCheckedChange = onKeepScreenAwakeChanged,
+                )
+            }
+        }
+
+        ChuCard(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .defaultMinSize(minHeight = 48.dp)
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    ChuText("hide status bar", style = typography.label)
+                    ChuText(
+                        "full screen terminal; swipe down from the top to peek at it",
+                        style = typography.bodySmall,
+                        color = colors.textMuted,
+                    )
+                }
+                ChuSwitch(
+                    checked = hideStatusBar,
+                    onCheckedChange = onHideStatusBarChanged,
                 )
             }
         }

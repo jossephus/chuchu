@@ -40,6 +40,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -237,7 +240,22 @@ fun TerminalScreen(
     val settingsFontSize by settingsRepo.terminalFontSize.collectAsStateWithLifecycle()
     val keepScreenAwake by settingsRepo.keepScreenAwake.collectAsStateWithLifecycle()
     val disableAutocorrect by settingsRepo.disableAutocorrect.collectAsStateWithLifecycle()
+    val hideStatusBar by settingsRepo.hideStatusBar.collectAsStateWithLifecycle()
     val keepAwakeView = LocalView.current
+    DisposableEffect(hideStatusBar, keepAwakeView) {
+        val window = (keepAwakeView.context as? Activity)?.window
+        val controller = window?.let { WindowCompat.getInsetsController(it, keepAwakeView) }
+        if (hideStatusBar && controller != null) {
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.statusBars())
+        }
+        onDispose {
+            if (hideStatusBar) {
+                controller?.show(WindowInsetsCompat.Type.statusBars())
+            }
+        }
+    }
     DisposableEffect(keepScreenAwake, keepAwakeView) {
         val window = (keepAwakeView.context as? Activity)?.window
         if (keepScreenAwake) {
