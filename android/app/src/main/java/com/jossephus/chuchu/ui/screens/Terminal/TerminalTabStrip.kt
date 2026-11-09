@@ -17,16 +17,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -77,8 +76,7 @@ fun TerminalTabStrip(
     val typography = ChuTypography.current
     val scrollState = rememberScrollState()
     val trailingActionWidth = if (tabs.isNotEmpty()) 72.dp else 40.dp
-    val tabOffsets = remember { mutableStateMapOf<String, Int>() }
-    val rowRootLeft = remember { mutableStateOf(0) }
+    val tabBounds = remember { mutableStateMapOf<String, IntRange>() }
     val titles = tabs.map { tab ->
         val title by remember(tab) {
             combine(tab.sessionState.map { it.title?.takeIf(String::isNotBlank) }, tab.titleOverride) { terminal, override ->
@@ -92,10 +90,11 @@ fun TerminalTabStrip(
         .groupingBy { it.take(TAB_TITLE_COLLISION_PREFIX_LENGTH) }
         .eachCount()
 
-    val activeTabOffset = activeTabId?.let { tabOffsets[it] }
+    val activeTabBounds = activeTabId?.let { tabBounds[it] }
 
-    LaunchedEffect(activeTabId, activeTabOffset) {
-        val target = activeTabOffset ?: return@LaunchedEffect
+    LaunchedEffect(activeTabId, activeTabBounds) {
+        val bounds = activeTabBounds ?: return@LaunchedEffect
+        val target = scrollToReveal(bounds, scrollState.value, scrollState.viewportSize) ?: return@LaunchedEffect
         scrollState.animateScrollTo(target)
     }
 
@@ -109,10 +108,7 @@ fun TerminalTabStrip(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(end = trailingActionWidth)
-                .horizontalScroll(scrollState)
-                .onGloballyPositioned { coords ->
-                    rowRootLeft.value = coords.localToRoot(Offset.Zero).x.roundToInt()
-                },
+                .horizontalScroll(scrollState),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
@@ -129,7 +125,8 @@ fun TerminalTabStrip(
                 Box(
                     modifier = Modifier
                         .onGloballyPositioned { coords ->
-                            tabOffsets[tab.id] = coords.localToRoot(Offset.Zero).x.roundToInt() - rowRootLeft.value + scrollState.value
+                            val start = coords.positionInParent().x.roundToInt()
+                            tabBounds[tab.id] = start until start + coords.size.width
                         }
                         .semantics { contentDescription = label }
                         .defaultMinSize(minHeight = 32.dp)
@@ -200,3 +197,10 @@ fun TerminalTabStrip(
         }
     }
 }
+
+internal fun scrollToReveal(bounds: IntRange, scroll: Int, viewport: Int): Int? =
+    when {
+        bounds.first < scroll -> bounds.first
+        bounds.last + 1 > scroll + viewport -> bounds.last + 1 - viewport
+        else -> null
+    }
