@@ -201,7 +201,8 @@ fun TerminalScreen(
     multiplexerSession: String? = null,
     createMultiplexerSession: Boolean = false,
 ) {
-    val sessionState by vm.sessionState.collectAsStateWithLifecycle()
+    val sessionState by vm.sessionChrome.collectAsStateWithLifecycle()
+    val hasSnapshot by vm.hasSnapshot.collectAsStateWithLifecycle()
     val hosts by vm.hosts.collectAsStateWithLifecycle()
     val tabs by vm.tabs.collectAsStateWithLifecycle()
     val activeTabId by vm.activeTabId.collectAsStateWithLifecycle()
@@ -702,13 +703,11 @@ fun TerminalScreen(
         SessionStatus.Connected,
         SessionStatus.Reconnecting -> {
             val isReconnecting = sessionState.status == SessionStatus.Reconnecting
-            val snapshot = sessionState.snapshot
-            if (snapshot != null) {
+            if (hasSnapshot) {
                 TerminalConnectedContent(
                     vm = vm,
                     ui = ui,
                     sessionState = sessionState,
-                    snapshot = snapshot,
                     tabs = tabs,
                     tabsForHost = tabsForHost,
                     activeTabId = activeTabId,
