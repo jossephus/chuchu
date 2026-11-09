@@ -1,7 +1,7 @@
 .PHONY: build app
 
 build:
-	cd zig-src && zig build -Doptimize=ReleaseSmall jni
+	cd zig-src && zig build -Doptimize=small -Dandroid-ndk="$${ANDROID_NDK_HOME:-$$ANDROID_NDK_ROOT}" jni
 
 app:
 	cd android && ./gradlew assembleDebug

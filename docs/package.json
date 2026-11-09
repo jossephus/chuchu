@@ -11,5 +11,8 @@
   "devDependencies": {
     "@nuxtjs/tailwindcss": "^6.12.2",
     "nuxt": "^3.14.1592"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["@parcel/watcher", "esbuild"]
   }
 }

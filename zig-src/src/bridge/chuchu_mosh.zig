@@ -3,10 +3,7 @@
 const std = @import("std");
 const mosh = @import("mosh");
 
-const c = @cImport({
-    @cInclude("android/log.h");
-    @cInclude("jni.h");
-});
+const c = @import("c");
 
 const allocator = std.heap.c_allocator;
 const LOG_TAG = "ChuMoshJNI";

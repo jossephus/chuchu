@@ -1,9 +1,7 @@
 //! Zig wrapper around zigimg PNG decoding.
 const std = @import("std");
 const zigimg = @import("zigimg");
-const c = @cImport({
-    @cInclude("android/log.h");
-});
+const c = @import("c");
 
 comptime {
     _ = @import("chuchu_snapshot.zig");

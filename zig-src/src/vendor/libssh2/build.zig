@@ -41,10 +41,13 @@ pub fn build(b: *std.Build) void {
     // Get optional libc file path from parent (as LazyPath)
     const libc_file = b.option(std.Build.LazyPath, "libc_file", "Path to libc configuration file");
 
+    const android_ndk = b.option([]const u8, "android-ndk", "Android NDK root forwarded to openssl");
+
     // Build openssl with libc_file option (parent should pass this)
     const openssl_dep = b.dependency("openssl", .{
         .target = target,
         .optimize = optimize,
+        .@"android-ndk" = android_ndk,
     });
 
     const config_header = b.addConfigHeader(.{
@@ -52,15 +55,11 @@ pub fn build(b: *std.Build) void {
         .include_path = "libssh2_config.h",
     }, .{
         .LIBSSH2_API = "",
-        .LIBSSH2_HAVE_ZLIB = false,
         .HAVE_SYS_UIO_H = true,
-        .HAVE_WRITEV = true,
         .HAVE_SYS_SOCKET_H = true,
         .HAVE_NETINET_IN_H = true,
         .HAVE_ARPA_INET_H = true,
-        .HAVE_SYS_TYPES_H = true,
         .HAVE_INTTYPES_H = true,
-        .HAVE_STDINT_H = true,
     });
 
     const lib = b.addLibrary(.{
@@ -85,16 +84,16 @@ pub fn build(b: *std.Build) void {
 
     lib.root_module.addConfigHeader(config_header);
     lib.root_module.addIncludePath(upstream.path("include"));
-    lib.addIncludePath(openssl_dep.path("include"));
-    lib.addIncludePath(openssl_dep.path("include_gen"));
+    lib.root_module.addIncludePath(openssl_dep.path("include"));
+    lib.root_module.addIncludePath(openssl_dep.path("include_gen"));
     lib.root_module.addCMacro("OPENSSL_NO_BF", "1");
     lib.root_module.addCMacro("HAVE_CONFIG_H", "1");
     lib.root_module.addCMacro("LIBSSH2_OPENSSL", "1");
-    lib.addCSourceFiles(.{
+    lib.root_module.addCSourceFiles(.{
         .files = libssh2_src,
         .root = upstream.path(""),
     });
-    lib.linkLibrary(openssl_dep.artifact("crypto"));
+    lib.root_module.linkLibrary(openssl_dep.artifact("crypto"));
 
     // Ensure openssl is built before libssh2
     lib.step.dependOn(&openssl_dep.artifact("crypto").step);

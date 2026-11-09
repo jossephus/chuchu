@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Chuchu orb resume: fast sanity checks that the Nix toolchain snapshot is
+# still reachable, and that the nix daemon is running after a wake. No installs
+# — anything heavier belongs in .agents/setup.
+set -euo pipefail
+
+NIX_PROFILE_SH="/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh"
+[[ -f /etc/profile.d/nix.sh && ! -f "$NIX_PROFILE_SH" ]] && NIX_PROFILE_SH="/etc/profile.d/nix.sh"
+NIX_BIN="/nix/var/nix/profiles/default/bin"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# shellcheck disable=SC1091
+[[ -f "$NIX_PROFILE_SH" ]] && source "$NIX_PROFILE_SH"
+
+if ! systemctl is-active --quiet nix-daemon.socket 2>/dev/null; then
+  # The socket unit is enabled in the snapshot; a wake that did not boot
+  # systemd units cleanly gets repaired here.
+  sudo systemctl enable --now nix-daemon.socket >/dev/null 2>&1
+fi
+
+[[ -x "$NIX_BIN/nix" ]] || { echo "nix missing from snapshot" >&2; exit 1; }
+# Eval the flake environment and check the toolchain it provides (~1s warm).
+env_output="$("$NIX_BIN/nix" print-dev-env "$REPO_ROOT")" || {
+  echo "flake environment failed to evaluate" >&2; exit 1;
+}
+CHUCHU_NIX_ENV=1 eval "$env_output"
+command -v zig  >/dev/null || { echo "zig missing from nix env" >&2; exit 1; }
+command -v java >/dev/null || { echo "java missing from nix env" >&2; exit 1; }
+[[ -n "${ANDROID_NDK_HOME:-}" ]] || { echo "ANDROID_NDK_HOME missing from nix env" >&2; exit 1; }
+
+echo "chuchu orb environment OK"
