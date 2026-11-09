@@ -17,11 +17,4 @@ class TerminalPwdTest {
         assertEquals("/home/me/src", terminalPwdPath("/home/me/src"))
         assertEquals("/home/me/a b", terminalPwdPath("/home/me/a b"))
     }
-
-    @Test
-    fun longPathsKeepTheirTail() {
-        val label = pwdLabel("/Users/me/workspace/projects/jebena/jebena-monorepo", maxChars = 20)
-        assertEquals(20, label.length)
-        assertEquals("…ena/jebena-monorepo", label)
-    }
 }

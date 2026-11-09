@@ -88,7 +88,6 @@ import com.jossephus.chuchu.model.HostProfile
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.terminal.SessionStatus
 import com.jossephus.chuchu.service.terminal.TabSpec
-import com.jossephus.chuchu.service.terminal.pwdLabel
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuDialog
@@ -1003,7 +1002,6 @@ fun TerminalScreen(
                     }
 
                     val titleText = sessionState.title?.takeIf { it.isNotBlank() }
-                    val pwdText = sessionState.pwd?.takeIf { it.isNotBlank() }
                     val inputMethodManager = remember {
                         context.getSystemService(InputMethodManager::class.java)
                     }
@@ -1512,14 +1510,6 @@ fun TerminalScreen(
                                             text = stringResource(R.string.terminal_preparing_mux),
                                             style = typography.labelSmall,
                                             color = colors.textMuted,
-                                        )
-                                    }
-                                    if (pwdText != null) {
-                                        ChuText(
-                                            text = pwdLabel(pwdText),
-                                            maxLines = 1,
-                                            style = typography.labelSmall,
-                                            color = colors.textPrimary.copy(alpha = 0.7f),
                                         )
                                     }
                                 }
