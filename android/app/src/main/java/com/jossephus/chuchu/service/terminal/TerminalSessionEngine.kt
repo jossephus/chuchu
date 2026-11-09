@@ -1417,7 +1417,7 @@ class TerminalSessionEngine(
                 title = nextTitle
             }
             if (nextPwd != null) {
-                pwd = nextPwd
+                pwd = terminalPwdPath(nextPwd)
             }
             if (nextClipboard != null) {
                 publishClipboard(nextClipboard.toString(Charsets.UTF_8))

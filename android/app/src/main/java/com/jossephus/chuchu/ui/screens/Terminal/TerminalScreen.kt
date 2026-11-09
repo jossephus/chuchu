@@ -998,7 +998,6 @@ fun TerminalScreen(
                     }
 
                     val titleText = sessionState.title?.takeIf { it.isNotBlank() }
-                    val pwdText = sessionState.pwd?.takeIf { it.isNotBlank() }
                     val inputMethodManager = remember {
                         context.getSystemService(InputMethodManager::class.java)
                     }
@@ -1517,13 +1516,6 @@ fun TerminalScreen(
                                             text = stringResource(R.string.terminal_preparing_mux),
                                             style = typography.labelSmall,
                                             color = colors.textMuted,
-                                        )
-                                    }
-                                    if (pwdText != null) {
-                                        ChuText(
-                                            text = pwdText,
-                                            style = typography.labelSmall,
-                                            color = colors.textPrimary.copy(alpha = 0.7f),
                                         )
                                     }
                                 }
