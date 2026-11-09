@@ -140,6 +140,8 @@ fun ApplicationNavController() {
             val accessoryLayoutIds by settingsRepo.accessoryLayoutIds.collectAsStateWithLifecycle()
             val accessoryBarSingleRow by
                 settingsRepo.accessoryBarSingleRow.collectAsStateWithLifecycle()
+            val accessoryBarOnlyWithKeyboard by
+                settingsRepo.accessoryBarOnlyWithKeyboard.collectAsStateWithLifecycle()
             val customKeyGroups by
                 settingsRepo.terminalCustomKeyGroups.collectAsStateWithLifecycle()
             val showCustomActionsFab by
@@ -170,6 +172,7 @@ fun ApplicationNavController() {
                 remoteClipboardWriteEnabled = remoteClipboardWriteEnabled,
                 currentAccessoryLayoutIds = accessoryLayoutIds,
                 accessoryBarSingleRow = accessoryBarSingleRow,
+                accessoryBarOnlyWithKeyboard = accessoryBarOnlyWithKeyboard,
                 currentTerminalCustomKeyGroups = customKeyGroups,
                 showCustomActionsFab = showCustomActionsFab,
                 onShowCustomActionsFabChanged = settingsRepo::setShowCustomActionsFab,
@@ -195,6 +198,7 @@ fun ApplicationNavController() {
                 onRemoteClipboardWriteEnabledChanged = settingsRepo::setRemoteClipboardWriteEnabled,
                 onAccessoryLayoutChanged = settingsRepo::setAccessoryLayoutIds,
                 onAccessoryBarSingleRowChanged = settingsRepo::setAccessoryBarSingleRow,
+                onAccessoryBarOnlyWithKeyboardChanged = settingsRepo::setAccessoryBarOnlyWithKeyboard,
                 currentTerminalFontSize = terminalFontSize,
                 onTerminalFontSizeChanged = settingsRepo::setTerminalFontSize,
                 onTerminalCustomActionsChanged = settingsRepo::setTerminalCustomKeyGroups,
