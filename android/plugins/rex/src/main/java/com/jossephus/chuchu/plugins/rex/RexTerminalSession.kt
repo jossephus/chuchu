@@ -14,7 +14,6 @@ import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.async
-import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import org.json.JSONArray
 import org.json.JSONObject
@@ -266,8 +265,8 @@ class RexTerminalSession(
     }
 
     private suspend fun pumpResizes(target: Target, ownership: RexBlockOwnership) {
-        for (first in resizes) {
-            val size = settledSize(first)
+        // The host already waits for the size to settle before resizing a transport.
+        for (size in resizes) {
             try {
                 // Resize first: a non-owner's size is stored, and taking the block then
                 // applies it once instead of applying our previous size and then this one.
@@ -278,19 +277,6 @@ class RexTerminalSession(
             } catch (e: Exception) {
                 Log.w(TAG, "Rex resize failed", e)
             }
-        }
-    }
-
-    /**
-     * Waits for the size to stop changing. The keyboard animates the canvas through a
-     * size per frame; the official clients send one resize per open or close, and each
-     * extra one makes the shell redraw its prompt at a size that is about to change.
-     */
-    private suspend fun settledSize(first: RexTerminalSize): RexTerminalSize {
-        var latest = first
-        while (true) {
-            val next = withTimeoutOrNull(RESIZE_SETTLE_MS) { resizes.receiveCatching() } ?: return latest
-            latest = next.getOrNull() ?: return latest
         }
     }
 
@@ -306,8 +292,6 @@ class RexTerminalSession(
         private const val TERMINAL_WRITE = "com.superlogical.terminal.write"
         private const val TERMINAL_RESIZE = "com.superlogical.terminal.resize"
         private const val MAX_WRITE_BYTES = 32 * 1024
-        // Longer than the gap between animation frames, short enough not to feel late.
-        private const val RESIZE_SETTLE_MS = 150L
 
         private fun shellLayout(): JSONObject =
             JSONObject().put("block", JSONObject().put("flavor", SHELL_FLAVOR))
