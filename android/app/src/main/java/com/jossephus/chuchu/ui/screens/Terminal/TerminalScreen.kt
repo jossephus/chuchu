@@ -644,7 +644,8 @@ fun TerminalScreen(
             Toast.makeText(context, preflightError, Toast.LENGTH_LONG).show()
         }
     }
-    val isReattaching = sessionState.status == SessionStatus.Connecting && sessionState.snapshot != null
+    // sessionState here leaves the snapshot out (see TerminalViewModel.sessionChrome).
+    val isReattaching = sessionState.status == SessionStatus.Connecting && hasSnapshot
     val displaySessionStatus =
         when {
             multiplexerState.preflightLoading -> SessionStatus.Connecting
