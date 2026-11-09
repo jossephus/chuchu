@@ -25,9 +25,6 @@ android {
 dependencies {
     implementation(project(":plugin-api"))
     implementation(libs.okhttp)
-    compileOnly(platform(libs.androidx.compose.bom))
-    compileOnly(libs.androidx.compose.runtime)
-    compileOnly(libs.androidx.compose.ui)
     testImplementation(libs.junit)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.robolectric)
