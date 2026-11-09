@@ -1,6 +1,8 @@
 package com.jossephus.chuchu.ui.screens.Settings
 
 import android.app.Application
+import android.content.Context
+import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,22 +11,32 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jossephus.chuchu.R
+import com.jossephus.chuchu.plugin.DiscoveredPlugin
+import com.jossephus.chuchu.plugin.ExternalPluginState
+import com.jossephus.chuchu.plugin.ExternalPlugins
 import com.jossephus.chuchu.plugin.PluginManager
 import com.jossephus.chuchu.plugin.PluginRecord
 import com.jossephus.chuchu.plugin.PluginSettingsEntry
+import com.jossephus.chuchu.plugin.PluginSource
 import com.jossephus.chuchu.plugin.PluginStatus
 import com.jossephus.chuchu.plugin.api.SettingsSchema
 import com.jossephus.chuchu.plugin.api.ToggleField
+import com.jossephus.chuchu.ui.components.ChuButton
+import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuCard
+import com.jossephus.chuchu.ui.components.ChuDialog
 import com.jossephus.chuchu.ui.components.ChuSwitch
 import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.theme.ChuColors
@@ -34,15 +46,199 @@ import com.jossephus.chuchu.ui.theme.ChuTypography
 internal fun PluginsSettings() {
     val context = LocalContext.current
     val manager = remember(context) { PluginManager.getInstance(context.applicationContext as Application) }
+    val external = remember(context) { ExternalPlugins.getInstance(context) }
     val records by manager.plugins.collectAsStateWithLifecycle()
     val settingsEntries by manager.settings.collectAsStateWithLifecycle()
+    var discovered by remember { mutableStateOf<List<DiscoveredPlugin>>(emptyList()) }
+    var revision by remember { mutableIntStateOf(0) }
+    var restartNeeded by remember { mutableStateOf(false) }
+    var pendingConsent by remember { mutableStateOf<DiscoveredPlugin?>(null) }
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+
+    LifecycleResumeEffect(external) {
+        discovered = external.discover()
+        onPauseOrDispose {}
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        records.forEach { record ->
+        if (restartNeeded) RestartBanner()
+        ChuText(stringResource(R.string.plugins_builtin), style = typography.label, color = colors.textMuted)
+        records.filter { it.descriptor.source == PluginSource.Builtin }.forEach { record ->
             val schema = settingsEntries.firstOrNull { it.pluginId == record.descriptor.id }?.global
             PluginCard(record, schema, manager)
         }
+        ChuText(stringResource(R.string.plugins_installed), style = typography.label, color = colors.textMuted)
+        if (discovered.isEmpty()) {
+            ChuText(stringResource(R.string.plugins_none_installed), style = typography.body, color = colors.textMuted)
+        }
+        discovered.forEach { plugin ->
+            val state = remember(plugin, revision) { external.state(plugin) }
+            val record = records.firstOrNull { it.descriptor.packageName == plugin.descriptor.packageName }
+            val schema = settingsEntries.firstOrNull { it.pluginId == plugin.descriptor.id }?.global
+            ExternalPluginCard(
+                plugin = plugin,
+                state = state,
+                record = record,
+                schema = schema,
+                manager = manager,
+                onEnabledChange = { enabled ->
+                    if (enabled) {
+                        pendingConsent = plugin
+                    } else {
+                        external.disable(plugin.descriptor.id)
+                        revision++
+                        restartNeeded = true
+                    }
+                },
+            )
+        }
     }
+
+    pendingConsent?.let { plugin ->
+        ConsentDialog(
+            plugin = plugin,
+            onConfirm = {
+                external.enable(plugin)
+                pendingConsent = null
+                revision++
+                restartNeeded = true
+            },
+            onDismiss = { pendingConsent = null },
+        )
+    }
+}
+
+@Composable
+private fun ExternalPluginCard(
+    plugin: DiscoveredPlugin,
+    state: ExternalPluginState,
+    record: PluginRecord?,
+    schema: SettingsSchema?,
+    manager: PluginManager,
+    onEnabledChange: (Boolean) -> Unit,
+) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+    ChuCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    ChuText(plugin.descriptor.name, style = typography.label)
+                    ChuText(
+                        "${plugin.descriptor.packageName} · ${plugin.descriptor.version}",
+                        style = typography.bodySmall,
+                        color = colors.textMuted,
+                    )
+                }
+                ChuSwitch(
+                    checked = state == ExternalPluginState.Enabled,
+                    onCheckedChange = onEnabledChange,
+                    enabled = state != ExternalPluginState.Invalid,
+                )
+            }
+            val (text, color) = externalStatus(plugin, state, record)
+            ChuText(text, style = typography.bodySmall, color = color)
+            if (schema != null && record?.status == PluginStatus.Active) {
+                PluginSettingsForm(plugin.descriptor.id, schema, manager)
+            }
+        }
+    }
+}
+
+@Composable
+private fun externalStatus(
+    plugin: DiscoveredPlugin,
+    state: ExternalPluginState,
+    record: PluginRecord?,
+): Pair<String, Color> {
+    val colors = ChuColors.current
+    return when (state) {
+        ExternalPluginState.Invalid ->
+            stringResource(R.string.plugins_status_invalid, plugin.manifestProblem ?: stringResource(R.string.plugins_unreadable_certificate)) to colors.error
+        ExternalPluginState.Quarantined ->
+            stringResource(R.string.plugins_status_quarantined) to colors.warning
+        ExternalPluginState.CertificateChanged ->
+            stringResource(R.string.plugins_status_certificate_changed) to colors.warning
+        ExternalPluginState.Disabled -> stringResource(R.string.label_off) to colors.textMuted
+        ExternalPluginState.Enabled ->
+            when (record?.status) {
+                PluginStatus.Active -> stringResource(R.string.plugins_status_active) to colors.success
+                PluginStatus.Failed -> stringResource(R.string.plugins_status_failed, record.error.orEmpty()) to colors.error
+                PluginStatus.Incompatible -> stringResource(R.string.plugins_status_incompatible, record.error.orEmpty()) to colors.warning
+                null -> stringResource(R.string.plugins_status_pending_restart) to colors.textSecondary
+            }
+    }
+}
+
+@Composable
+private fun ConsentDialog(plugin: DiscoveredPlugin, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+    ChuDialog(
+        title = stringResource(R.string.plugins_consent_title, plugin.descriptor.name),
+        confirmLabel = stringResource(R.string.plugins_consent_confirm),
+        onConfirm = onConfirm,
+        onDismiss = onDismiss,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            ChuText(
+                stringResource(R.string.plugins_consent_warning),
+                style = typography.body,
+            )
+            ChuText(stringResource(R.string.plugins_consent_package, plugin.descriptor.packageName.orEmpty()), style = typography.bodySmall, color = colors.textSecondary)
+            ChuText(
+                stringResource(R.string.plugins_consent_certificate, plugin.certSha256?.chunked(4)?.joinToString(" ").orEmpty()),
+                style = typography.bodySmall,
+                color = colors.textSecondary,
+            )
+            ChuText(
+                stringResource(R.string.plugins_consent_update_note),
+                style = typography.bodySmall,
+                color = colors.textMuted,
+            )
+        }
+    }
+}
+
+@Composable
+private fun RestartBanner() {
+    val context = LocalContext.current
+    val typography = ChuTypography.current
+    val colors = ChuColors.current
+    ChuCard(modifier = Modifier.fillMaxWidth(), border = colors.accent) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ChuText(
+                stringResource(R.string.plugins_restart_banner),
+                style = typography.bodySmall,
+                modifier = Modifier.weight(1f),
+            )
+            ChuButton(onClick = { restartApp(context) }, variant = ChuButtonVariant.Outlined, bracketed = true) {
+                ChuText(stringResource(R.string.plugins_restart), style = typography.label, color = colors.accent)
+            }
+        }
+    }
+}
+
+// Plugins can't be unloaded in place, so applying changes needs a fresh process.
+private fun restartApp(context: Context) {
+    val intent =
+        context.packageManager.getLaunchIntentForPackage(context.packageName)
+            ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            ?: return
+    context.startActivity(intent)
+    Runtime.getRuntime().exit(0)
 }
 
 @Composable
@@ -61,12 +257,14 @@ private fun PluginCard(record: PluginRecord, schema: SettingsSchema?, manager: P
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 ChuText(descriptor.name, style = typography.label)
-                ChuText(stringResource(R.string.plugins_builtin), style = typography.bodySmall, color = colors.textMuted)
+                val source = if (descriptor.source == PluginSource.Builtin) stringResource(R.string.plugins_builtin) else descriptor.version
+                ChuText(source, style = typography.bodySmall, color = colors.textMuted)
             }
             val (statusText, statusColor) =
                 when (record.status) {
                     PluginStatus.Active -> stringResource(R.string.plugins_status_active) to colors.success
                     PluginStatus.Failed -> stringResource(R.string.plugins_status_failed, record.error.orEmpty()) to colors.error
+                    PluginStatus.Incompatible -> stringResource(R.string.plugins_status_incompatible, record.error.orEmpty()) to colors.warning
                 }
             ChuText(statusText, style = typography.bodySmall, color = statusColor)
             if (schema != null && record.status == PluginStatus.Active) {
