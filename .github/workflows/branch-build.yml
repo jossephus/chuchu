@@ -1,25 +1,24 @@
 # Builds a signed APK from any branch for testing on a device. Unlike Nightly and
 # Release, it never moves a tag or publishes a release: the APK is attached to the
-# workflow run as an artifact.
+# workflow run as an artifact. Manual only, so pushes to a PR don't each build one.
 #
 #   gh workflow run branch-build.yml --ref <branch>
 #   gh run download <run-id> -n <artifact-name>
 on:
   workflow_dispatch:
-  pull_request:
 
 name: Branch build
 
 concurrency:
-  group: branch-build-${{ github.head_ref || github.ref_name }}
+  group: branch-build-${{ github.ref_name }}
   cancel-in-progress: true
 
 jobs:
   apk:
-    # Pull requests from forks get no secrets, so they cannot be signed.
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read
+      # To comment the APK link on the branch's open pull request.
+      pull-requests: write
     runs-on: ubuntu-latest
 
     steps:
@@ -38,7 +37,7 @@ jobs:
       - name: resolve branch version
         id: version
         env:
-          BRANCH: ${{ github.head_ref || github.ref_name }}
+          BRANCH: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           SHORT_SHA="$(git rev-parse --short=7 HEAD)"
@@ -110,6 +109,7 @@ jobs:
           echo "name=${NAME}" >> "$GITHUB_OUTPUT"
 
       - name: upload APK
+        id: upload
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.apk.outputs.name }}
@@ -117,12 +117,41 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: comment on the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.ref_name }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          APK_NAME: ${{ steps.apk.outputs.name }}
+          VERSION_NAME: ${{ steps.version.outputs.version_name }}
+          SHORT_SHA: ${{ steps.version.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+          PR="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --state open --json number --jq '.[0].number // empty')"
+          if [ -z "$PR" ]; then
+            echo "No open pull request for ${BRANCH}; skipping the comment."
+            exit 0
+          fi
+          # One comment per pull request, updated on every build, found by this marker.
+          MARKER='<!-- branch-build-apk -->'
+          BODY="$(printf '%s\n📦 **APK for `%s`** (`%s`) · versionName `%s`\n\n[Download %s](%s): a zip, for signed-in GitHub users, kept for 14 days. [Build log](%s/%s/actions/runs/%s)\n' \
+            "$MARKER" "$BRANCH" "$SHORT_SHA" "$VERSION_NAME" "$APK_NAME" "$ARTIFACT_URL" \
+            "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")"
+          EXISTING="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" --paginate \
+            --jq ".[] | select(.body | startswith(\"${MARKER}\")) | .id" | head -n1)"
+          if [ -n "$EXISTING" ]; then
+            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${EXISTING}" -f body="$BODY" >/dev/null
+            echo "Updated the APK comment on #${PR}."
+          else
+            gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body "$BODY"
+          fi
+
       - name: summary
         run: |
           {
             echo "### Branch build"
             echo
-            echo "- **branch:** \`${{ github.head_ref || github.ref_name }}\`"
+            echo "- **branch:** \`${{ github.ref_name }}\`"
             echo "- **versionName:** \`${{ steps.version.outputs.version_name }}\`"
             echo "- **versionCode:** \`${{ steps.version.outputs.version_code }}\`"
             echo "- **APK:** \`${{ steps.apk.outputs.name }}\` in this run's artifacts"
