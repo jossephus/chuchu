@@ -86,6 +86,8 @@ internal fun TerminalSettings(
     onEditAccessoryLayout: () -> Unit,
     accessoryBarSingleRow: Boolean,
     onAccessoryBarSingleRowChanged: (Boolean) -> Unit,
+    accessoryBarOnlyWithKeyboard: Boolean = false,
+    onAccessoryBarOnlyWithKeyboardChanged: (Boolean) -> Unit = {},
     currentTerminalFontSize: Float = 14f,
     onTerminalFontSizeChanged: (Float) -> Unit = {},
     currentTerminalCustomKeyGroups: List<TerminalCustomKeyGroup>,
@@ -102,6 +104,8 @@ internal fun TerminalSettings(
     onLocalShellEnabledChanged: (Boolean) -> Unit = {},
     keepScreenAwake: Boolean = false,
     onKeepScreenAwakeChanged: (Boolean) -> Unit = {},
+    hideStatusBar: Boolean = false,
+    onHideStatusBarChanged: (Boolean) -> Unit = {},
     hideScreenContents: Boolean = false,
     onHideScreenContentsChanged: (Boolean) -> Unit = {},
     disableAutocorrect: Boolean = false,
@@ -385,6 +389,28 @@ internal fun TerminalSettings(
                     )
                 }
 
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        ChuText(stringResource(R.string.settings_bar_only_with_keyboard), style = typography.label)
+                        ChuText(
+                            stringResource(R.string.settings_bar_only_with_keyboard_hint),
+                            style = typography.bodySmall,
+                            color = colors.textMuted,
+                        )
+                    }
+                    ChuSwitch(
+                        checked = accessoryBarOnlyWithKeyboard,
+                        onCheckedChange = onAccessoryBarOnlyWithKeyboardChanged,
+                    )
+                }
+
                 if (selectedEntries.isEmpty()) {
                     ChuText(
                         stringResource(R.string.settings_choose_keys_hint),
@@ -600,6 +626,33 @@ internal fun TerminalSettings(
                 ChuSwitch(
                     checked = keepScreenAwake,
                     onCheckedChange = onKeepScreenAwakeChanged,
+                )
+            }
+        }
+
+        ChuCard(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .defaultMinSize(minHeight = 48.dp)
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    ChuText(stringResource(R.string.settings_hide_status_bar), style = typography.label)
+                    ChuText(
+                        stringResource(R.string.settings_hide_status_bar_hint),
+                        style = typography.bodySmall,
+                        color = colors.textMuted,
+                    )
+                }
+                ChuSwitch(
+                    checked = hideStatusBar,
+                    onCheckedChange = onHideStatusBarChanged,
                 )
             }
         }

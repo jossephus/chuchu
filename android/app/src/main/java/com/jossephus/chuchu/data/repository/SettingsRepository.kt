@@ -45,6 +45,10 @@ class SettingsRepository(context: Context) {
     private val _accessoryBarSingleRow = MutableStateFlow(prefs.getBoolean(KEY_ACCESSORY_BAR_SINGLE_ROW, false))
     val accessoryBarSingleRow: StateFlow<Boolean> = _accessoryBarSingleRow.asStateFlow()
 
+    private val _accessoryBarOnlyWithKeyboard =
+        MutableStateFlow(prefs.getBoolean(KEY_ACCESSORY_BAR_ONLY_WITH_KEYBOARD, false))
+    val accessoryBarOnlyWithKeyboard: StateFlow<Boolean> = _accessoryBarOnlyWithKeyboard.asStateFlow()
+
     private val _appLockEnabled = MutableStateFlow(prefs.getBoolean(KEY_APP_LOCK_ENABLED, false))
     val appLockEnabled: StateFlow<Boolean> = _appLockEnabled.asStateFlow()
 
@@ -56,6 +60,9 @@ class SettingsRepository(context: Context) {
 
     private val _keepScreenAwake = MutableStateFlow(prefs.getBoolean(KEY_KEEP_SCREEN_AWAKE, false))
     val keepScreenAwake: StateFlow<Boolean> = _keepScreenAwake.asStateFlow()
+
+    private val _hideStatusBar = MutableStateFlow(prefs.getBoolean(KEY_HIDE_STATUS_BAR, false))
+    val hideStatusBar: StateFlow<Boolean> = _hideStatusBar.asStateFlow()
 
     private val _hideScreenContents = MutableStateFlow(prefs.getBoolean(KEY_HIDE_SCREEN_CONTENTS, false))
     val hideScreenContents: StateFlow<Boolean> = _hideScreenContents.asStateFlow()
@@ -129,6 +136,11 @@ class SettingsRepository(context: Context) {
         _accessoryBarSingleRow.value = enabled
     }
 
+    fun setAccessoryBarOnlyWithKeyboard(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_ACCESSORY_BAR_ONLY_WITH_KEYBOARD, enabled).apply()
+        _accessoryBarOnlyWithKeyboard.value = enabled
+    }
+
     fun setTerminalTabMode(mode: TerminalTabMode) {
         prefs.edit().putString(KEY_TAB_MODE, mode.name).apply()
         _terminalTabMode.value = mode
@@ -157,6 +169,11 @@ class SettingsRepository(context: Context) {
     fun setKeepScreenAwake(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_KEEP_SCREEN_AWAKE, enabled).apply()
         _keepScreenAwake.value = enabled
+    }
+
+    fun setHideStatusBar(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_HIDE_STATUS_BAR, enabled).apply()
+        _hideStatusBar.value = enabled
     }
 
     fun setHideScreenContents(enabled: Boolean) {
@@ -232,12 +249,14 @@ class SettingsRepository(context: Context) {
         private const val KEY_SHOW_CUSTOM_ACTIONS_FAB = "show_custom_actions_fab"
         private const val KEY_BUILTIN_SHORTCUTS = "builtin_shortcuts"
         private const val KEY_ACCESSORY_BAR_SINGLE_ROW = "terminal_accessory_bar_single_row"
+        private const val KEY_ACCESSORY_BAR_ONLY_WITH_KEYBOARD = "terminal_accessory_bar_only_with_keyboard"
         private const val KEY_TAB_MODE = "terminal_tab_mode"
         private const val KEY_SESSION_PICKER_STYLE = "session_picker_style"
         private const val KEY_APP_LOCK_ENABLED = "app_lock_enabled"
         private const val KEY_REQUIRE_AUTH_ON_CONNECT = "require_auth_on_connect"
         private const val KEY_LOCAL_SHELL_ENABLED = "local_shell_enabled"
         private const val KEY_KEEP_SCREEN_AWAKE = "keep_screen_awake"
+        private const val KEY_HIDE_STATUS_BAR = "terminal_hide_status_bar"
         private const val KEY_HIDE_SCREEN_CONTENTS = "hide_screen_contents"
         private const val KEY_REMOTE_CLIPBOARD_WRITE_ENABLED = "remote_clipboard_write_enabled"
 
