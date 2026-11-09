@@ -49,7 +49,6 @@ interface PluginTerminal : AutoCloseable {
      */
     fun setGridSize(cols: Int, rows: Int)
 
-    val title: StateFlow<String?>
 
     /**
      * Renders the terminal. Tapping calls [onTap]; while [focused] is true the soft keyboard

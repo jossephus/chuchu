@@ -86,10 +86,6 @@ class PluginNotifier(private val context: Context) {
         }
     }
 
-    fun cancel(pluginId: String, key: String) {
-        NotificationManagerCompat.from(context).cancel(notificationId(pluginId, key))
-    }
-
     private fun notificationId(pluginId: String, key: String): Int = "plugin:$pluginId:$key".hashCode()
 
     private fun ensureChannel() {

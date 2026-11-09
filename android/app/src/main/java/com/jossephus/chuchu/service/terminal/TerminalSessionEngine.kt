@@ -63,10 +63,6 @@ data class SessionState(
     val title: String? = null,
     val pwd: String? = null,
     val bellCount: Int = 0,
-    // Running total of bells since the session started. Unlike [bellCount], which is the
-    // per-snapshot drain and is copied forward by unrelated state updates, this only grows,
-    // so observers can diff it without double-counting.
-    val bellTotal: Long = 0,
     val nativeVersion: String? = null,
     val reconnectAttempt: Int = 0,
     val error: String? = null,
@@ -172,12 +168,6 @@ class TerminalSessionEngine(
 
     private val _state = MutableStateFlow(SessionState(nativeVersion = nativeVersion))
     val state: StateFlow<SessionState> = _state.asStateFlow()
-
-    /** Bytes as fed into Ghostty, for plugins. See [ByteTap]. */
-    val outputTap = ByteTap()
-
-    /** User-originated bytes (keys, text, paste) after encoding, for plugins. */
-    val inputTap = ByteTap()
 
     data class DefaultColors(
         val fg: IntArray?,
@@ -336,7 +326,6 @@ class TerminalSessionEngine(
             if (encoded.isEmpty()) return@launch
             try {
                 writeRemote(encoded)
-                inputTap.emit(encoded)
             } catch (_: Exception) {}
         }
     }
@@ -346,9 +335,7 @@ class TerminalSessionEngine(
             if (handle == 0L) return@launch
             if (text.isEmpty()) return@launch
             try {
-                val bytes = text.toByteArray(Charsets.UTF_8)
-                writeRemote(bytes)
-                inputTap.emit(bytes)
+                writeRemote(text.toByteArray(Charsets.UTF_8))
             } catch (_: Exception) {}
         }
     }
@@ -357,7 +344,7 @@ class TerminalSessionEngine(
      * Opens a plugin exec channel on this session's SSH connection, or returns null when
      * the session isn't a connected SSH session.
      */
-    suspend fun openExec(command: String, pty: PtySize?): ExecChannel? {
+    suspend fun openExec(command: String): ExecChannel? {
         val usable =
             withContext(dispatcher) {
                 val transport = lastConnectionParams?.transport
@@ -365,18 +352,7 @@ class TerminalSessionEngine(
                     _state.value.status == SessionStatus.Connected &&
                     (transport == Transport.SSH || transport == Transport.TailscaleSSH)
             }
-        return if (usable) execChannels.open(command, pty) else null
-    }
-
-    /** Writes raw bytes on behalf of a plugin; deliberately not reported on [inputTap]. */
-    fun writeBytes(data: ByteArray) {
-        scope.launch(dispatcher) {
-            if (handle == 0L) return@launch
-            if (data.isEmpty()) return@launch
-            try {
-                writeRemote(data)
-            } catch (_: Exception) {}
-        }
+        return if (usable) execChannels.open(command) else null
     }
 
     fun writePaste(text: String) {
@@ -387,7 +363,6 @@ class TerminalSessionEngine(
             if (encoded.isEmpty()) return@launch
             try {
                 writeRemote(encoded)
-                inputTap.emit(encoded)
             } catch (_: Exception) {}
         }
     }
@@ -864,7 +839,6 @@ class TerminalSessionEngine(
 
     private fun feedRemoteChunk(chunk: ByteArray) {
         if (handle == 0L) return
-        outputTap.emit(chunk)
         val wasImageLoading = bridge.nativeIsImageLoading(handle)
         flushPtyWrites(fromRemoteOutput = true)
         bridge.nativeWriteRemote(handle, chunk)
@@ -1452,7 +1426,6 @@ class TerminalSessionEngine(
                     title = title,
                     pwd = pwd,
                     bellCount = bellCount,
-                    bellTotal = _state.value.bellTotal + bellCount,
                     nativeVersion = nativeVersion,
                     handle = handle,
                 )

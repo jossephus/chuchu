@@ -75,16 +75,7 @@ class NativeSshBridge {
 
     // Exec channels: extra channels next to the shell, addressed by id (> 0).
 
-    external fun nativeExecOpen(
-        handle: Long,
-        command: String,
-        withPty: Boolean,
-        cols: Int,
-        rows: Int,
-        widthPx: Int,
-        heightPx: Int,
-        term: String,
-    ): Int
+    external fun nativeExecOpen(handle: Long, command: String): Int
 
     external fun nativeExecRead(handle: Long, id: Int, stream: Int, maxBytes: Int): ByteArray?
 
@@ -93,17 +84,6 @@ class NativeSshBridge {
     external fun nativeExecEof(handle: Long, id: Int): Boolean
 
     external fun nativeExecExitStatus(handle: Long, id: Int): Int
-
-    external fun nativeExecSendEof(handle: Long, id: Int): Boolean
-
-    external fun nativeExecResize(
-        handle: Long,
-        id: Int,
-        cols: Int,
-        rows: Int,
-        widthPx: Int,
-        heightPx: Int,
-    ): Boolean
 
     external fun nativeExecClose(handle: Long, id: Int)
 

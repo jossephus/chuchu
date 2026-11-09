@@ -4,16 +4,13 @@ import android.app.Application
 import android.content.Context
 import android.util.Log
 import com.jossephus.chuchu.plugin.api.ChuchuPlugin
-import com.jossephus.chuchu.plugin.api.CommandContext
 import com.jossephus.chuchu.plugin.api.MultiplexerProvider
 import com.jossephus.chuchu.plugin.api.PluginApi
-import com.jossephus.chuchu.plugin.api.PluginCommand
 import com.jossephus.chuchu.plugin.api.PluginHost
 import com.jossephus.chuchu.plugin.api.PluginLogger
 import com.jossephus.chuchu.plugin.api.PluginNotification
 import com.jossephus.chuchu.plugin.api.PluginSession
 import com.jossephus.chuchu.plugin.api.PluginSettings
-import com.jossephus.chuchu.plugin.api.PluginStorage
 import com.jossephus.chuchu.plugin.api.PluginTerminal
 import com.jossephus.chuchu.plugin.api.TerminalFactory
 import com.jossephus.chuchu.plugin.api.SettingsSchema
@@ -23,7 +20,6 @@ import com.jossephus.chuchu.plugin.api.TransportProvider
 import com.jossephus.chuchu.service.multiplexer.MultiplexerRegistry
 import com.jossephus.chuchu.service.terminal.TerminalSessionRepository
 import com.jossephus.chuchu.service.transport.TransportRegistry
-import kotlin.reflect.KClass
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
@@ -50,12 +46,6 @@ data class PluginRecord(
     val status: PluginStatus,
     val error: String? = null,
 )
-
-/** A [PluginCommand] with the plugin that owns it. */
-class RegisteredCommand(val pluginId: String, val command: PluginCommand) {
-    val qualifiedId: String
-        get() = "$pluginId.${command.id}"
-}
 
 /**
  * A [SessionViewProvider] with the plugin that owns it. [context] is the plugin's package
@@ -117,23 +107,16 @@ class PluginManager(
         val terminals = ArrayList<PluginTerminal>()
     }
 
-    private class ServiceBinding(val ownerId: String, val impl: Any)
-
     // Guards [active], [services] and the state flows: plugins may look up services from any
     // thread, and a scope failure disables its plugin from whichever thread it ran on.
     private val lock = Any()
     private val active = LinkedHashMap<String, LoadedPlugin>()
-    private val services = HashMap<KClass<*>, ServiceBinding>()
     private val _plugins = MutableStateFlow<List<PluginRecord>>(emptyList())
-    private val _commands = MutableStateFlow<List<RegisteredCommand>>(emptyList())
     private val _sessionViews = MutableStateFlow<List<RegisteredSessionView>>(emptyList())
     private val _settings = MutableStateFlow<List<PluginSettingsEntry>>(emptyList())
 
     /** Every plugin the manager has seen, including ones it refused or disabled. */
     val plugins: StateFlow<List<PluginRecord>> = _plugins.asStateFlow()
-
-    /** Commands from active plugins, in registration order. */
-    val commands: StateFlow<List<RegisteredCommand>> = _commands.asStateFlow()
 
     /** Session view providers from active plugins, in registration order. */
     val sessionViews: StateFlow<List<RegisteredSessionView>> = _sessionViews.asStateFlow()
@@ -182,20 +165,6 @@ class PluginManager(
                     false
                 }
         }
-
-    /**
-     * Invokes [registered] for the tab [activeTabId]. A command that throws disables its
-     * plugin; a command from an already-disabled plugin is ignored.
-     */
-    fun runCommand(registered: RegisteredCommand, activeTabId: String?) {
-        synchronized(lock) { if (registered.pluginId !in active) return }
-        val session = sessions.sessions.value.firstOrNull { it.id == activeTabId }
-        try {
-            registered.command.run(CommandContext(session))
-        } catch (e: Throwable) {
-            disable(registered.pluginId, "command '${registered.command.id}' failed", e)
-        }
-    }
 
     /**
      * Loads [entries] in order. Ids already known to the manager are skipped, which makes
@@ -261,8 +230,6 @@ class PluginManager(
         val loaded =
             synchronized(lock) {
                 val loaded = active.remove(id) ?: return
-                services.entries.removeAll { it.value.ownerId == id }
-                _commands.value = _commands.value.filterNot { it.pluginId == id }
                 _sessionViews.value = _sessionViews.value.filterNot { it.pluginId == id }
                 _settings.value = _settings.value.filterNot { it.pluginId == id }
                 MultiplexerRegistry.unregisterOwner(id)
@@ -293,23 +260,16 @@ class PluginManager(
     }
 
     private inner class HostImpl(private val loaded: LoadedPlugin) : PluginHost {
-        override val apiVersion: Int = PluginApi.VERSION
-        override val pluginId: String = loaded.descriptor.id
-        override val context: Context
-            get() = loaded.context ?: error("no context available (unit test host?)")
+        private val pluginId: String = loaded.descriptor.id
         override val scope: CoroutineScope = loaded.scope
         override val log: PluginLogger = LoggerImpl("$TAG:$pluginId")
         override val sessions: SessionRegistry = this@PluginManager.sessions
         override val settings: PluginSettings = PluginSettingValues.global(loaded.prefs)
-        override val storage: PluginStorage = PluginStorageImpl(loaded.prefs)
         override val appVisible: StateFlow<Boolean> = this@PluginManager.appVisible
 
         override fun notify(notification: PluginNotification): Boolean =
             notifier?.post(pluginId, loaded.descriptor.name, notification) ?: false
 
-        override fun cancelNotification(key: String) {
-            notifier?.cancel(pluginId, key)
-        }
         override val terminals: TerminalFactory =
             TerminalFactory { options ->
                 synchronized(lock) { check(active[pluginId] === loaded) { "plugin '$pluginId' is not active" } }
@@ -342,28 +302,6 @@ class PluginManager(
             }
         }
 
-        override fun <T : Any> provideService(type: KClass<T>, impl: T) {
-            synchronized(lock) {
-                // A disabled plugin keeps its host reference; don't let it re-publish.
-                check(active[pluginId] === loaded) { "plugin '$pluginId' is not active" }
-                val existing = services[type]
-                check(existing == null) {
-                    "service ${type.qualifiedName} is already provided by '${existing?.ownerId}'"
-                }
-                services[type] = ServiceBinding(pluginId, impl)
-            }
-        }
-
-        override fun registerCommand(command: PluginCommand) {
-            synchronized(lock) {
-                check(active[pluginId] === loaded) { "plugin '$pluginId' is not active" }
-                check(_commands.value.none { it.pluginId == pluginId && it.command.id == command.id }) {
-                    "plugin '$pluginId' already registered command '${command.id}'"
-                }
-                _commands.value = _commands.value + RegisteredCommand(pluginId, command)
-            }
-        }
-
         override fun registerSessionView(provider: SessionViewProvider) {
             synchronized(lock) {
                 check(active[pluginId] === loaded) { "plugin '$pluginId' is not active" }
@@ -389,9 +327,6 @@ class PluginManager(
                 TransportRegistry.register(pluginId, provider)
             }
         }
-
-        override fun <T : Any> service(type: KClass<T>): T? =
-            synchronized(lock) { services[type]?.impl }?.let { type.javaObjectType.cast(it) }
     }
 
     private inner class LoggerImpl(private val tag: String) : PluginLogger {

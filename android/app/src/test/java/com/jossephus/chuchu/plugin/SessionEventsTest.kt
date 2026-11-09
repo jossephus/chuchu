@@ -1,15 +1,12 @@
 package com.jossephus.chuchu.plugin
 
-import com.jossephus.chuchu.plugin.api.ByteStreamEvent
 import com.jossephus.chuchu.plugin.api.ExecChannel
-import com.jossephus.chuchu.plugin.api.PtySize
 import com.jossephus.chuchu.plugin.api.HostInfo
 import com.jossephus.chuchu.plugin.api.PluginSession
 import com.jossephus.chuchu.plugin.api.SessionEvent
 import com.jossephus.chuchu.plugin.api.SessionStatus as ApiSessionStatus
 import com.jossephus.chuchu.service.terminal.SessionState
 import com.jossephus.chuchu.service.terminal.SessionStatus
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -21,13 +18,7 @@ class SessionEventsTest {
         override val id = "tab-1"
         override val host: HostInfo get() = error("unused")
         override val status: StateFlow<ApiSessionStatus> get() = error("unused")
-        override val title: StateFlow<String?> get() = error("unused")
-        override val pwd: StateFlow<String?> get() = error("unused")
-        override fun output(capacity: Int): Flow<ByteStreamEvent> = error("unused")
-        override fun input(capacity: Int): Flow<ByteStreamEvent> = error("unused")
-        override fun write(bytes: ByteArray) = Unit
-        override fun writeText(text: String) = Unit
-        override suspend fun exec(command: String, pty: PtySize?): ExecChannel? = null
+        override suspend fun exec(command: String): ExecChannel? = null
     }
 
     @Test
@@ -62,31 +53,5 @@ class SessionEventsTest {
             listOf(SessionEvent.StatusChanged(session, ApiSessionStatus.Reconnecting, null, 2)),
             events,
         )
-    }
-
-    @Test
-    fun titleAndPwdChangesAreReportedInOrder() {
-        val events =
-            sessionEventsBetween(
-                session,
-                SessionState(title = "zsh", pwd = "/home"),
-                SessionState(title = "vim", pwd = "/src"),
-            )
-        assertEquals(
-            listOf(SessionEvent.TitleChanged(session, "vim"), SessionEvent.PwdChanged(session, "/src")),
-            events,
-        )
-    }
-
-    @Test
-    fun bellsCountFromTheRunningTotalNotThePerSnapshotDrain() {
-        val afterBells = SessionState(bellCount = 2, bellTotal = 2)
-        assertEquals(
-            listOf(SessionEvent.Bell(session, 2)),
-            sessionEventsBetween(session, SessionState(), afterBells),
-        )
-        // A later status update copies bellCount forward; it must not ring again.
-        val statusUpdate = afterBells.copy(status = SessionStatus.Connected)
-        assertTrue(sessionEventsBetween(session, afterBells, statusUpdate).none { it is SessionEvent.Bell })
     }
 }

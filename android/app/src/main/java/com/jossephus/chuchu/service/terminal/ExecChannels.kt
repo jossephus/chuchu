@@ -1,7 +1,6 @@
 package com.jossephus.chuchu.service.terminal
 
 import com.jossephus.chuchu.plugin.api.ExecChannel
-import com.jossephus.chuchu.plugin.api.PtySize
 import com.jossephus.chuchu.service.ssh.NativeSshService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -19,7 +18,7 @@ import kotlinx.coroutines.yield
 /** Native operations on one connection's exec channels; a seam so the pump is testable. */
 interface ExecTransport {
     /** Returns the new channel's id; throws on failure. */
-    fun open(command: String, pty: PtySize?): Int
+    fun open(command: String): Int
 
     /** Buffered bytes of stdout (0) or stderr (1), empty when none; throws on failure. */
     fun read(id: Int, stream: Int, maxBytes: Int): ByteArray
@@ -31,16 +30,11 @@ interface ExecTransport {
 
     fun exitStatus(id: Int): Int
 
-    fun sendEof(id: Int): Boolean
-
-    fun resize(id: Int, size: PtySize): Boolean
-
     fun close(id: Int)
 }
 
 class NativeExecTransport(private val ssh: NativeSshService) : ExecTransport {
-    override fun open(command: String, pty: PtySize?): Int =
-        ssh.execOpen(command, pty != null, pty?.cols ?: 0, pty?.rows ?: 0, pty?.widthPx ?: 0, pty?.heightPx ?: 0)
+    override fun open(command: String): Int = ssh.execOpen(command)
 
     override fun read(id: Int, stream: Int, maxBytes: Int): ByteArray = ssh.execRead(id, stream, maxBytes)
 
@@ -49,11 +43,6 @@ class NativeExecTransport(private val ssh: NativeSshService) : ExecTransport {
     override fun isEof(id: Int): Boolean = ssh.execEof(id)
 
     override fun exitStatus(id: Int): Int = ssh.execExitStatus(id)
-
-    override fun sendEof(id: Int): Boolean = ssh.execSendEof(id)
-
-    override fun resize(id: Int, size: PtySize): Boolean =
-        ssh.execResize(id, size.cols, size.rows, size.widthPx, size.heightPx)
 
     override fun close(id: Int) = ssh.execClose(id)
 }
@@ -77,9 +66,9 @@ class ExecChannels(
     private val open = ArrayList<Exec>()
     private var generation = 0
 
-    suspend fun open(command: String, pty: PtySize?): ExecChannel =
+    suspend fun open(command: String): ExecChannel =
         withContext(dispatcher) {
-            val exec = Exec(transport.open(command, pty), generation)
+            val exec = Exec(transport.open(command), generation)
             open += exec
             exec.pump = scope.launch(dispatcher) { exec.runPump() }
             exec
@@ -187,14 +176,6 @@ class ExecChannels(
                     delay(WRITE_RETRY_DELAY_MS)
                 }
             }
-
-        override suspend fun sendEof() {
-            withContext(dispatcher) { if (live) transport.sendEof(id) }
-        }
-
-        override suspend fun resize(size: PtySize) {
-            withContext(dispatcher) { if (live) transport.resize(id, size) }
-        }
 
         override fun close() {
             scope.launch(dispatcher) {

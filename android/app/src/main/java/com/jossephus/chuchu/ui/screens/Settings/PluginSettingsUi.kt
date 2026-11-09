@@ -29,19 +29,14 @@ import com.jossephus.chuchu.plugin.PluginRecord
 import com.jossephus.chuchu.plugin.PluginSettingsEntry
 import com.jossephus.chuchu.plugin.PluginSource
 import com.jossephus.chuchu.plugin.PluginStatus
-import com.jossephus.chuchu.plugin.api.ChoiceField
-import com.jossephus.chuchu.plugin.api.SettingField
 import com.jossephus.chuchu.plugin.api.SettingsSchema
-import com.jossephus.chuchu.plugin.api.TextField
 import com.jossephus.chuchu.plugin.api.ToggleField
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuCard
 import com.jossephus.chuchu.ui.components.ChuDialog
-import com.jossephus.chuchu.ui.components.ChuSegmentedControl
 import com.jossephus.chuchu.ui.components.ChuSwitch
 import com.jossephus.chuchu.ui.components.ChuText
-import com.jossephus.chuchu.ui.components.ChuTextField
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
 
@@ -309,8 +304,8 @@ private fun PluginSettingsForm(pluginId: String, schema: SettingsSchema, manager
 @Composable
 internal fun PluginHostSettings(
     entries: List<PluginSettingsEntry>,
-    valueOf: (pluginId: String, field: SettingField) -> String,
-    onChange: (pluginId: String, field: SettingField, raw: String) -> Unit,
+    valueOf: (pluginId: String, field: ToggleField) -> String,
+    onChange: (pluginId: String, field: ToggleField, raw: String) -> Unit,
 ) {
     val typography = ChuTypography.current
     entries.forEach { entry ->
@@ -330,48 +325,23 @@ internal fun PluginHostSettings(
 @Composable
 internal fun PluginSettingFields(
     schema: SettingsSchema,
-    valueOf: (SettingField) -> String,
-    onChange: (SettingField, String) -> Unit,
+    valueOf: (ToggleField) -> String,
+    onChange: (ToggleField, String) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         schema.fields.forEach { field ->
-            when (field) {
-                is ToggleField ->
-                    FieldRow(field) {
-                        ChuSwitch(
-                            checked = valueOf(field).toBooleanStrictOrNull() ?: field.default,
-                            onCheckedChange = { onChange(field, it.toString()) },
-                        )
-                    }
-                is TextField -> {
-                    FieldLabel(field)
-                    ChuTextField(
-                        value = valueOf(field),
-                        onValueChange = { onChange(field, it) },
-                        label = field.title,
-                        placeholder = field.placeholder,
-                        showLabel = false,
-                        singleLine = true,
-                        autoFocus = false,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                is ChoiceField -> {
-                    FieldLabel(field)
-                    ChuSegmentedControl(
-                        options = field.options.map { it.value },
-                        labels = field.options.associate { it.value to it.label },
-                        selected = valueOf(field),
-                        onSelect = { onChange(field, it) },
-                    )
-                }
+            FieldRow(field) {
+                ChuSwitch(
+                    checked = valueOf(field).toBooleanStrictOrNull() ?: field.default,
+                    onCheckedChange = { onChange(field, it.toString()) },
+                )
             }
         }
     }
 }
 
 @Composable
-private fun FieldRow(field: SettingField, control: @Composable () -> Unit) {
+private fun FieldRow(field: ToggleField, control: @Composable () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -383,7 +353,7 @@ private fun FieldRow(field: SettingField, control: @Composable () -> Unit) {
 }
 
 @Composable
-private fun FieldLabel(field: SettingField) {
+private fun FieldLabel(field: ToggleField) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {

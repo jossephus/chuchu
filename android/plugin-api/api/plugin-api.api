@@ -34,45 +34,6 @@ public final class com/jossephus/chuchu/plugin/api/BrowserItem {
 	public fun toString ()Ljava/lang/String;
 }
 
-public abstract interface class com/jossephus/chuchu/plugin/api/ByteStreamEvent {
-}
-
-public final class com/jossephus/chuchu/plugin/api/ByteStreamEvent$Data : com/jossephus/chuchu/plugin/api/ByteStreamEvent {
-	public static final field $stable I
-	public fun <init> ([B)V
-	public final fun getBytes ()[B
-}
-
-public final class com/jossephus/chuchu/plugin/api/ByteStreamEvent$Gap : com/jossephus/chuchu/plugin/api/ByteStreamEvent {
-	public static final field $stable I
-	public fun <init> (J)V
-	public final fun component1 ()J
-	public final fun copy (J)Lcom/jossephus/chuchu/plugin/api/ByteStreamEvent$Gap;
-	public static synthetic fun copy$default (Lcom/jossephus/chuchu/plugin/api/ByteStreamEvent$Gap;JILjava/lang/Object;)Lcom/jossephus/chuchu/plugin/api/ByteStreamEvent$Gap;
-	public fun equals (Ljava/lang/Object;)Z
-	public final fun getDroppedBytes ()J
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class com/jossephus/chuchu/plugin/api/ChoiceField : com/jossephus/chuchu/plugin/api/SettingField {
-	public static final field $stable I
-	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/lang/String;)V
-	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun getDefault ()Ljava/lang/String;
-	public fun getDescription ()Ljava/lang/String;
-	public fun getKey ()Ljava/lang/String;
-	public final fun getOptions ()Ljava/util/List;
-	public fun getTitle ()Ljava/lang/String;
-}
-
-public final class com/jossephus/chuchu/plugin/api/ChoiceField$Option {
-	public static final field $stable I
-	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
-	public final fun getLabel ()Ljava/lang/String;
-	public final fun getValue ()Ljava/lang/String;
-}
-
 public abstract interface class com/jossephus/chuchu/plugin/api/ChuchuPlugin {
 	public abstract fun onUnload ()V
 	public abstract fun register (Lcom/jossephus/chuchu/plugin/api/PluginHost;)V
@@ -82,19 +43,11 @@ public final class com/jossephus/chuchu/plugin/api/ChuchuPlugin$DefaultImpls {
 	public static fun onUnload (Lcom/jossephus/chuchu/plugin/api/ChuchuPlugin;)V
 }
 
-public final class com/jossephus/chuchu/plugin/api/CommandContext {
-	public static final field $stable I
-	public fun <init> (Lcom/jossephus/chuchu/plugin/api/PluginSession;)V
-	public final fun getSession ()Lcom/jossephus/chuchu/plugin/api/PluginSession;
-}
-
 public abstract interface class com/jossephus/chuchu/plugin/api/ExecChannel : java/lang/AutoCloseable {
 	public abstract fun close ()V
 	public abstract fun getExitCode ()Lkotlinx/coroutines/Deferred;
 	public abstract fun getStderr ()Lkotlinx/coroutines/flow/Flow;
 	public abstract fun getStdout ()Lkotlinx/coroutines/flow/Flow;
-	public abstract fun resize (Lcom/jossephus/chuchu/plugin/api/PtySize;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public abstract fun sendEof (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun write ([BLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
@@ -220,38 +173,19 @@ public final class com/jossephus/chuchu/plugin/api/PluginApi {
 	public final fun isSupported (I)Z
 }
 
-public final class com/jossephus/chuchu/plugin/api/PluginCommand {
-	public static final field $stable I
-	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Character;Ljava/lang/String;Lkotlin/jvm/functions/Function1;)V
-	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Character;Ljava/lang/String;Lkotlin/jvm/functions/Function1;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun getAccessoryLabel ()Ljava/lang/String;
-	public final fun getId ()Ljava/lang/String;
-	public final fun getKey ()Ljava/lang/Character;
-	public final fun getRun ()Lkotlin/jvm/functions/Function1;
-	public final fun getTitle ()Ljava/lang/String;
-}
-
 public abstract interface class com/jossephus/chuchu/plugin/api/PluginHost {
-	public abstract fun cancelNotification (Ljava/lang/String;)V
-	public abstract fun getApiVersion ()I
 	public abstract fun getAppVisible ()Lkotlinx/coroutines/flow/StateFlow;
-	public abstract fun getContext ()Landroid/content/Context;
 	public abstract fun getLog ()Lcom/jossephus/chuchu/plugin/api/PluginLogger;
-	public abstract fun getPluginId ()Ljava/lang/String;
 	public abstract fun getScope ()Lkotlinx/coroutines/CoroutineScope;
 	public abstract fun getSessions ()Lcom/jossephus/chuchu/plugin/api/SessionRegistry;
 	public abstract fun getSettings ()Lcom/jossephus/chuchu/plugin/api/PluginSettings;
-	public abstract fun getStorage ()Lcom/jossephus/chuchu/plugin/api/PluginStorage;
 	public abstract fun getTerminals ()Lcom/jossephus/chuchu/plugin/api/TerminalFactory;
 	public abstract fun notify (Lcom/jossephus/chuchu/plugin/api/PluginNotification;)Z
-	public abstract fun provideService (Lkotlin/reflect/KClass;Ljava/lang/Object;)V
-	public abstract fun registerCommand (Lcom/jossephus/chuchu/plugin/api/PluginCommand;)V
 	public abstract fun registerHostSettings (Lcom/jossephus/chuchu/plugin/api/SettingsSchema;)V
 	public abstract fun registerMultiplexer (Lcom/jossephus/chuchu/plugin/api/MultiplexerProvider;)V
 	public abstract fun registerSessionView (Lcom/jossephus/chuchu/plugin/api/SessionViewProvider;)V
 	public abstract fun registerSettings (Lcom/jossephus/chuchu/plugin/api/SettingsSchema;)V
 	public abstract fun registerTransport (Lcom/jossephus/chuchu/plugin/api/TransportProvider;)V
-	public abstract fun service (Lkotlin/reflect/KClass;)Ljava/lang/Object;
 }
 
 public abstract interface class com/jossephus/chuchu/plugin/api/PluginLogger {
@@ -277,43 +211,16 @@ public final class com/jossephus/chuchu/plugin/api/PluginNotification {
 }
 
 public abstract interface class com/jossephus/chuchu/plugin/api/PluginSession {
-	public static final field Companion Lcom/jossephus/chuchu/plugin/api/PluginSession$Companion;
-	public static final field DEFAULT_INPUT_CAPACITY I
-	public static final field DEFAULT_OUTPUT_CAPACITY I
-	public abstract fun exec (Ljava/lang/String;Lcom/jossephus/chuchu/plugin/api/PtySize;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun exec (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun getHost ()Lcom/jossephus/chuchu/plugin/api/HostInfo;
 	public abstract fun getId ()Ljava/lang/String;
-	public abstract fun getPwd ()Lkotlinx/coroutines/flow/StateFlow;
 	public abstract fun getStatus ()Lkotlinx/coroutines/flow/StateFlow;
-	public abstract fun getTitle ()Lkotlinx/coroutines/flow/StateFlow;
-	public abstract fun input (I)Lkotlinx/coroutines/flow/Flow;
-	public abstract fun output (I)Lkotlinx/coroutines/flow/Flow;
-	public abstract fun write ([B)V
-	public abstract fun writeText (Ljava/lang/String;)V
-}
-
-public final class com/jossephus/chuchu/plugin/api/PluginSession$Companion {
-	public static final field DEFAULT_INPUT_CAPACITY I
-	public static final field DEFAULT_OUTPUT_CAPACITY I
-}
-
-public final class com/jossephus/chuchu/plugin/api/PluginSession$DefaultImpls {
-	public static synthetic fun exec$default (Lcom/jossephus/chuchu/plugin/api/PluginSession;Ljava/lang/String;Lcom/jossephus/chuchu/plugin/api/PtySize;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public static synthetic fun input$default (Lcom/jossephus/chuchu/plugin/api/PluginSession;IILjava/lang/Object;)Lkotlinx/coroutines/flow/Flow;
-	public static synthetic fun output$default (Lcom/jossephus/chuchu/plugin/api/PluginSession;IILjava/lang/Object;)Lkotlinx/coroutines/flow/Flow;
 }
 
 public abstract interface class com/jossephus/chuchu/plugin/api/PluginSettings {
 	public abstract fun forHost (J)Lcom/jossephus/chuchu/plugin/api/PluginSettings;
-	public abstract fun get (Lcom/jossephus/chuchu/plugin/api/ChoiceField;)Ljava/lang/String;
-	public abstract fun get (Lcom/jossephus/chuchu/plugin/api/TextField;)Ljava/lang/String;
 	public abstract fun get (Lcom/jossephus/chuchu/plugin/api/ToggleField;)Z
 	public abstract fun getChanges ()Lkotlinx/coroutines/flow/Flow;
-}
-
-public abstract interface class com/jossephus/chuchu/plugin/api/PluginStorage {
-	public abstract fun get (Ljava/lang/String;)Ljava/lang/String;
-	public abstract fun put (Ljava/lang/String;Ljava/lang/String;)V
 }
 
 public abstract interface class com/jossephus/chuchu/plugin/api/PluginTerminal : java/lang/AutoCloseable {
@@ -322,7 +229,6 @@ public abstract interface class com/jossephus/chuchu/plugin/api/PluginTerminal :
 	public abstract fun feed ([B)V
 	public abstract fun getInput ()Lkotlinx/coroutines/flow/Flow;
 	public abstract fun getSize ()Lkotlinx/coroutines/flow/StateFlow;
-	public abstract fun getTitle ()Lkotlinx/coroutines/flow/StateFlow;
 	public abstract fun setGridSize (II)V
 }
 
@@ -383,20 +289,6 @@ public abstract interface class com/jossephus/chuchu/plugin/api/SessionEvent {
 	public abstract fun getSession ()Lcom/jossephus/chuchu/plugin/api/PluginSession;
 }
 
-public final class com/jossephus/chuchu/plugin/api/SessionEvent$Bell : com/jossephus/chuchu/plugin/api/SessionEvent {
-	public static final field $stable I
-	public fun <init> (Lcom/jossephus/chuchu/plugin/api/PluginSession;I)V
-	public final fun component1 ()Lcom/jossephus/chuchu/plugin/api/PluginSession;
-	public final fun component2 ()I
-	public final fun copy (Lcom/jossephus/chuchu/plugin/api/PluginSession;I)Lcom/jossephus/chuchu/plugin/api/SessionEvent$Bell;
-	public static synthetic fun copy$default (Lcom/jossephus/chuchu/plugin/api/SessionEvent$Bell;Lcom/jossephus/chuchu/plugin/api/PluginSession;IILjava/lang/Object;)Lcom/jossephus/chuchu/plugin/api/SessionEvent$Bell;
-	public fun equals (Ljava/lang/Object;)Z
-	public final fun getCount ()I
-	public fun getSession ()Lcom/jossephus/chuchu/plugin/api/PluginSession;
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
 public final class com/jossephus/chuchu/plugin/api/SessionEvent$Closed : com/jossephus/chuchu/plugin/api/SessionEvent {
 	public static final field $stable I
 	public fun <init> (Lcom/jossephus/chuchu/plugin/api/PluginSession;)V
@@ -404,32 +296,6 @@ public final class com/jossephus/chuchu/plugin/api/SessionEvent$Closed : com/jos
 	public final fun copy (Lcom/jossephus/chuchu/plugin/api/PluginSession;)Lcom/jossephus/chuchu/plugin/api/SessionEvent$Closed;
 	public static synthetic fun copy$default (Lcom/jossephus/chuchu/plugin/api/SessionEvent$Closed;Lcom/jossephus/chuchu/plugin/api/PluginSession;ILjava/lang/Object;)Lcom/jossephus/chuchu/plugin/api/SessionEvent$Closed;
 	public fun equals (Ljava/lang/Object;)Z
-	public fun getSession ()Lcom/jossephus/chuchu/plugin/api/PluginSession;
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class com/jossephus/chuchu/plugin/api/SessionEvent$Opened : com/jossephus/chuchu/plugin/api/SessionEvent {
-	public static final field $stable I
-	public fun <init> (Lcom/jossephus/chuchu/plugin/api/PluginSession;)V
-	public final fun component1 ()Lcom/jossephus/chuchu/plugin/api/PluginSession;
-	public final fun copy (Lcom/jossephus/chuchu/plugin/api/PluginSession;)Lcom/jossephus/chuchu/plugin/api/SessionEvent$Opened;
-	public static synthetic fun copy$default (Lcom/jossephus/chuchu/plugin/api/SessionEvent$Opened;Lcom/jossephus/chuchu/plugin/api/PluginSession;ILjava/lang/Object;)Lcom/jossephus/chuchu/plugin/api/SessionEvent$Opened;
-	public fun equals (Ljava/lang/Object;)Z
-	public fun getSession ()Lcom/jossephus/chuchu/plugin/api/PluginSession;
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class com/jossephus/chuchu/plugin/api/SessionEvent$PwdChanged : com/jossephus/chuchu/plugin/api/SessionEvent {
-	public static final field $stable I
-	public fun <init> (Lcom/jossephus/chuchu/plugin/api/PluginSession;Ljava/lang/String;)V
-	public final fun component1 ()Lcom/jossephus/chuchu/plugin/api/PluginSession;
-	public final fun component2 ()Ljava/lang/String;
-	public final fun copy (Lcom/jossephus/chuchu/plugin/api/PluginSession;Ljava/lang/String;)Lcom/jossephus/chuchu/plugin/api/SessionEvent$PwdChanged;
-	public static synthetic fun copy$default (Lcom/jossephus/chuchu/plugin/api/SessionEvent$PwdChanged;Lcom/jossephus/chuchu/plugin/api/PluginSession;Ljava/lang/String;ILjava/lang/Object;)Lcom/jossephus/chuchu/plugin/api/SessionEvent$PwdChanged;
-	public fun equals (Ljava/lang/Object;)Z
-	public final fun getPwd ()Ljava/lang/String;
 	public fun getSession ()Lcom/jossephus/chuchu/plugin/api/PluginSession;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
@@ -449,20 +315,6 @@ public final class com/jossephus/chuchu/plugin/api/SessionEvent$StatusChanged : 
 	public final fun getReconnectAttempt ()I
 	public fun getSession ()Lcom/jossephus/chuchu/plugin/api/PluginSession;
 	public final fun getStatus ()Lcom/jossephus/chuchu/plugin/api/SessionStatus;
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class com/jossephus/chuchu/plugin/api/SessionEvent$TitleChanged : com/jossephus/chuchu/plugin/api/SessionEvent {
-	public static final field $stable I
-	public fun <init> (Lcom/jossephus/chuchu/plugin/api/PluginSession;Ljava/lang/String;)V
-	public final fun component1 ()Lcom/jossephus/chuchu/plugin/api/PluginSession;
-	public final fun component2 ()Ljava/lang/String;
-	public final fun copy (Lcom/jossephus/chuchu/plugin/api/PluginSession;Ljava/lang/String;)Lcom/jossephus/chuchu/plugin/api/SessionEvent$TitleChanged;
-	public static synthetic fun copy$default (Lcom/jossephus/chuchu/plugin/api/SessionEvent$TitleChanged;Lcom/jossephus/chuchu/plugin/api/PluginSession;Ljava/lang/String;ILjava/lang/Object;)Lcom/jossephus/chuchu/plugin/api/SessionEvent$TitleChanged;
-	public fun equals (Ljava/lang/Object;)Z
-	public fun getSession ()Lcom/jossephus/chuchu/plugin/api/PluginSession;
-	public final fun getTitle ()Ljava/lang/String;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
@@ -500,12 +352,6 @@ public abstract interface class com/jossephus/chuchu/plugin/api/SessionViewProvi
 	public abstract fun getId ()Ljava/lang/String;
 }
 
-public abstract interface class com/jossephus/chuchu/plugin/api/SettingField {
-	public abstract fun getDescription ()Ljava/lang/String;
-	public abstract fun getKey ()Ljava/lang/String;
-	public abstract fun getTitle ()Ljava/lang/String;
-}
-
 public final class com/jossephus/chuchu/plugin/api/SettingsSchema {
 	public static final field $stable I
 	public fun <init> (Ljava/util/List;)V
@@ -535,25 +381,14 @@ public final class com/jossephus/chuchu/plugin/api/TerminalsKt {
 	public static final fun create (Lcom/jossephus/chuchu/plugin/api/TerminalFactory;)Lcom/jossephus/chuchu/plugin/api/PluginTerminal;
 }
 
-public final class com/jossephus/chuchu/plugin/api/TextField : com/jossephus/chuchu/plugin/api/SettingField {
-	public static final field $stable I
-	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
-	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun getDefault ()Ljava/lang/String;
-	public fun getDescription ()Ljava/lang/String;
-	public fun getKey ()Ljava/lang/String;
-	public final fun getPlaceholder ()Ljava/lang/String;
-	public fun getTitle ()Ljava/lang/String;
-}
-
-public final class com/jossephus/chuchu/plugin/api/ToggleField : com/jossephus/chuchu/plugin/api/SettingField {
+public final class com/jossephus/chuchu/plugin/api/ToggleField {
 	public static final field $stable I
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Z)V
 	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun getDefault ()Z
-	public fun getDescription ()Ljava/lang/String;
-	public fun getKey ()Ljava/lang/String;
-	public fun getTitle ()Ljava/lang/String;
+	public final fun getDescription ()Ljava/lang/String;
+	public final fun getKey ()Ljava/lang/String;
+	public final fun getTitle ()Ljava/lang/String;
 }
 
 public final class com/jossephus/chuchu/plugin/api/TransportBehavior {

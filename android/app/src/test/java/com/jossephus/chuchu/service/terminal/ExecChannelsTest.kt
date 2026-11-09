@@ -1,6 +1,5 @@
 package com.jossephus.chuchu.service.terminal
 
-import com.jossephus.chuchu.plugin.api.PtySize
 import java.util.concurrent.Executors
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -31,7 +30,7 @@ class ExecChannelsTest {
         var stdoutReads = 0
         var nextId = 1
 
-        @Synchronized override fun open(command: String, pty: PtySize?): Int = nextId++
+        @Synchronized override fun open(command: String): Int = nextId++
 
         @Synchronized override fun read(id: Int, stream: Int, maxBytes: Int): ByteArray {
             if (stream == 0) stdoutReads++
@@ -50,10 +49,6 @@ class ExecChannelsTest {
             eofWhenDrained && !infiniteStdout && stdout.isEmpty() && stderr.isEmpty()
 
         @Synchronized override fun exitStatus(id: Int) = exitStatus
-
-        override fun sendEof(id: Int) = true
-
-        override fun resize(id: Int, size: PtySize) = true
 
         @Synchronized override fun close(id: Int) {
             closed += id
@@ -79,7 +74,7 @@ class ExecChannelsTest {
         transport.stderr += "warn".toByteArray()
         transport.exitStatus = 3
 
-        val exec = channels.open("echo", pty = null)
+        val exec = channels.open("echo")
         val out = withTimeout(2_000) { exec.stdout.toList() }
         val err = withTimeout(2_000) { exec.stderr.toList() }
 
@@ -92,7 +87,7 @@ class ExecChannelsTest {
     @Test
     fun uncollectedStreamStopsReadingInsteadOfBufferingForever() = runBlocking {
         transport.infiniteStdout = true
-        val exec = channels.open("yes", pty = null)
+        val exec = channels.open("yes")
 
         delay(300)
         val reads = withContext(dispatcher) { transport.stdoutReads }
@@ -106,7 +101,7 @@ class ExecChannelsTest {
     fun writeRetriesUntilPartialWritesComplete() = runBlocking {
         transport.eofWhenDrained = false
         transport.maxWritePerCall = 2
-        val exec = channels.open("cat", pty = null)
+        val exec = channels.open("cat")
 
         exec.write("abcde".toByteArray())
 
@@ -117,7 +112,7 @@ class ExecChannelsTest {
     @Test
     fun closeReleasesTheNativeChannelOnceWithNullExitCode() = runBlocking {
         transport.eofWhenDrained = false
-        val exec = channels.open("sleep", pty = null)
+        val exec = channels.open("sleep")
 
         exec.close()
         exec.close()
@@ -129,7 +124,7 @@ class ExecChannelsTest {
     @Test
     fun reconnectInvalidatesChannelsWithoutClosingReusedIds() = runBlocking {
         transport.eofWhenDrained = false
-        val stale = channels.open("tail -f log", pty = null)
+        val stale = channels.open("tail -f log")
 
         withContext(dispatcher) { channels.invalidateAll() }
         // The new native session hands out id 1 again; the stale handle must not close it.

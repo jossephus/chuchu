@@ -10,8 +10,8 @@ package com.jossephus.chuchu.plugin.api
  * doesn't have. Additive changes don't bump [VERSION]; removals or signature changes do.
  */
 object PluginApi {
-    const val VERSION: Int = 1
-    const val MIN_SUPPORTED_VERSION: Int = 1
+    const val VERSION: Int = 2
+    const val MIN_SUPPORTED_VERSION: Int = 2
 
     fun isSupported(apiVersion: Int): Boolean = apiVersion in MIN_SUPPORTED_VERSION..VERSION
 }

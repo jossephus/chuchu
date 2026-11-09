@@ -37,21 +37,6 @@ data class HostInfo(
     val transportId: String? = null,
 )
 
-/**
- * One chunk of a byte stream from [PluginSession.output] or [PluginSession.input].
- *
- * Streams never block the terminal: each subscriber has a bounded buffer, and when it falls
- * behind the oldest chunks are dropped. The subscriber then receives a [Gap] before the next
- * [Data], so parsers can resynchronize instead of silently misreading the stream.
- */
-sealed interface ByteStreamEvent {
-    /** Bytes owned by this subscriber; safe to keep or mutate. */
-    class Data(val bytes: ByteArray) : ByteStreamEvent
-
-    /** [droppedBytes] bytes were lost between the previous [Data] and the next one. */
-    data class Gap(val droppedBytes: Long) : ByteStreamEvent
-}
-
 /** A terminal tab's session, as seen by plugins. */
 interface PluginSession {
     /** Stable for the lifetime of the tab. */
@@ -61,51 +46,20 @@ interface PluginSession {
     val host: HostInfo
 
     val status: StateFlow<SessionStatus>
-    val title: StateFlow<String?>
-    val pwd: StateFlow<String?>
-
-    /**
-     * Raw bytes exactly as fed into the terminal emulator (after transport decoding, so the
-     * same for SSH, Mosh and local shells). Starts at subscription time; there is no replay.
-     * Completes when the tab closes.
-     *
-     * [capacity] is the number of chunks buffered for this subscriber before the oldest are
-     * dropped (see [ByteStreamEvent.Gap]). Chunks are typically up to 64 KiB.
-     */
-    fun output(capacity: Int = DEFAULT_OUTPUT_CAPACITY): Flow<ByteStreamEvent>
-
-    /**
-     * Bytes produced by the user (keys, text, paste) after terminal encoding, as sent to the
-     * remote. Excludes terminal query replies and writes made by plugins. Observe-only.
-     * Completes when the tab closes.
-     */
-    fun input(capacity: Int = DEFAULT_INPUT_CAPACITY): Flow<ByteStreamEvent>
-
-    /** Sends raw bytes to the remote as if typed. Not echoed to [input]. */
-    fun write(bytes: ByteArray)
-
-    /** Sends [text] as UTF-8. Not paste-encoded; use it for commands, not user pastes. */
-    fun writeText(text: String)
 
     /**
      * Runs [command] on the session's existing SSH connection, in its own channel next to
-     * the shell (no second login). Pass [pty] for interactive programs that need a
-     * terminal, e.g. streaming a multiplexer pane into a terminal from `TerminalFactory`.
+     * the shell (no second login).
      *
      * Returns null when the session isn't SSH (Mosh, local shell) or isn't connected.
      * Throws if the server refuses the channel. Every open channel is closed when the
      * session disconnects or reconnects; reopen after [SessionEvent.StatusChanged] to
      * [SessionStatus.Connected].
      */
-    suspend fun exec(command: String, pty: PtySize? = null): ExecChannel?
-
-    companion object {
-        const val DEFAULT_OUTPUT_CAPACITY: Int = 256
-        const val DEFAULT_INPUT_CAPACITY: Int = 64
-    }
+    suspend fun exec(command: String): ExecChannel?
 }
 
-/** Terminal size for a PTY exec channel. Pixel sizes are optional (0 = unknown). */
+/** Terminal grid size. Pixel sizes are optional (0 = unknown). */
 data class PtySize(val cols: Int, val rows: Int, val widthPx: Int = 0, val heightPx: Int = 0)
 
 /**
@@ -114,8 +68,7 @@ data class PtySize(val cols: Int, val rows: Int, val widthPx: Int = 0, val heigh
  *
  * [stdout] and [stderr] are single-collector flows that complete at end of output. Output
  * is only read from the network while there's buffer room, so a stream nobody collects
- * eventually pauses the command through SSH flow control, like a full pipe would. With a
- * PTY the remote merges stderr into stdout.
+ * eventually pauses the command through SSH flow control, like a full pipe would.
  */
 interface ExecChannel : AutoCloseable {
     val stdout: Flow<ByteArray>
@@ -130,20 +83,12 @@ interface ExecChannel : AutoCloseable {
     /** Writes all of [bytes] to the command's stdin. Throws if the channel is closed. */
     suspend fun write(bytes: ByteArray)
 
-    /** Closes the command's stdin, for programs that read until EOF. */
-    suspend fun sendEof()
-
-    /** Resizes the PTY; no effect for channels opened without one. */
-    suspend fun resize(size: PtySize)
-
     /** Closes the channel; safe to call more than once. */
     override fun close()
 }
 
 sealed interface SessionEvent {
     val session: PluginSession
-
-    data class Opened(override val session: PluginSession) : SessionEvent
 
     /**
      * The tab was closed. It is not necessarily preceded by [StatusChanged] to
@@ -160,13 +105,6 @@ sealed interface SessionEvent {
         /** Current attempt when [status] is [SessionStatus.Reconnecting], otherwise 0. */
         val reconnectAttempt: Int,
     ) : SessionEvent
-
-    data class TitleChanged(override val session: PluginSession, val title: String?) : SessionEvent
-
-    data class PwdChanged(override val session: PluginSession, val pwd: String?) : SessionEvent
-
-    /** The terminal rang the bell (BEL) [count] times since the previous [Bell]. */
-    data class Bell(override val session: PluginSession, val count: Int) : SessionEvent
 }
 
 interface SessionRegistry {

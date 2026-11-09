@@ -105,17 +105,13 @@ import com.jossephus.chuchu.ui.screens.Files.UploadProgress
 import com.jossephus.chuchu.ui.screens.Files.formatFileSize
 import com.jossephus.chuchu.ui.screens.Terminal.TerminalTabMode
 import com.jossephus.chuchu.ui.terminal.AccessoryAction
-import com.jossephus.chuchu.ui.terminal.AccessoryKeyGroup
-import com.jossephus.chuchu.ui.terminal.AccessoryKeyItem
 import com.jossephus.chuchu.ui.terminal.BuiltinCommand
 import com.jossephus.chuchu.ui.terminal.ChuchuKeyBindings
-import com.jossephus.chuchu.ui.terminal.ExtraChuchuBinding
 import com.jossephus.chuchu.ui.terminal.CustomActionModifier
 import com.jossephus.chuchu.ui.terminal.GhosttyKey
 import com.jossephus.chuchu.ui.terminal.GhosttyKeyAction
 import com.jossephus.chuchu.ui.terminal.KeyboardAccessoryBar
 import com.jossephus.chuchu.ui.terminal.ModifierState
-import com.jossephus.chuchu.ui.terminal.ResolvedAccessoryEntry
 import com.jossephus.chuchu.ui.terminal.TerminalAccessoryDispatcher
 import com.jossephus.chuchu.ui.terminal.TerminalAccessoryLayoutStore
 import com.jossephus.chuchu.ui.terminal.TerminalCanvas
@@ -488,32 +484,6 @@ fun TerminalScreen(
     var fabFilteredActions by remember { mutableStateOf<List<TerminalCustomAction>?>(null) }
     val pluginManager =
         remember(context) { PluginManager.getInstance(context.applicationContext as Application) }
-    val pluginCommands by pluginManager.commands.collectAsStateWithLifecycle()
-    fun runPluginCommand(qualifiedId: String) {
-        val registered = pluginCommands.firstOrNull { it.qualifiedId == qualifiedId } ?: return
-        pluginManager.runCommand(registered, vm.activeTabId.value)
-    }
-    // Plugin buttons go after the user's own layout and take at most one slot: the bar
-    // wraps to two rows and drops whatever doesn't fit, which would otherwise be chuchu's
-    // own files/settings buttons at the end.
-    val accessoryEntries =
-        remember(accessoryLayout, pluginCommands) {
-            val pluginItems =
-                pluginCommands.mapNotNull { registered ->
-                    val label = registered.command.accessoryLabel ?: return@mapNotNull null
-                    AccessoryKeyItem(
-                        id = "plugin:${registered.qualifiedId}",
-                        label = label,
-                        action = AccessoryAction.RunCommand(registered.qualifiedId),
-                    )
-                }
-            accessoryLayout +
-                when (pluginItems.size) {
-                    0 -> emptyList()
-                    1 -> listOf(ResolvedAccessoryEntry.Single(pluginItems.single()))
-                    else -> listOf(ResolvedAccessoryEntry.Group(AccessoryKeyGroup("plugins", "plugins", pluginItems)))
-                }
-        }
     val pluginSessionViews by pluginManager.sessionViews.collectAsStateWithLifecycle()
     val pluginTheme = rememberPluginTheme()
     val pluginSessions by pluginManager.sessionRegistry.sessions.collectAsStateWithLifecycle()
@@ -529,7 +499,6 @@ fun TerminalScreen(
             currentTerminalCustomKeyGroups,
             builtinShortcuts,
             showCustomActionsFab,
-            pluginCommands,
         ) {
             val isStrip = tabMode == TerminalTabMode.Strip
             val builtinCommandHandlers: Map<BuiltinCommand, () -> Unit> = mapOf(
@@ -564,13 +533,6 @@ fun TerminalScreen(
                     vm.dispatchTextWithModifierState(rawText, actionModifierState)
                 },
                 onSelectAmongActions = { actions -> fabFilteredActions = actions },
-                extraBindings =
-                    pluginCommands.mapNotNull { registered ->
-                        val key = registered.command.key ?: return@mapNotNull null
-                        ExtraChuchuBinding(key, registered.command.title) {
-                            pluginManager.runCommand(registered, vm.activeTabId.value)
-                        }
-                    },
             )
         }
     val multiplexerState by vm.multiplexerState.collectAsStateWithLifecycle()
@@ -1093,11 +1055,6 @@ fun TerminalScreen(
 
 
                     fun dispatchAccessoryAction(action: AccessoryAction) {
-                        if (action is AccessoryAction.RunCommand) {
-                            chuchuKeys.reset()
-                            runPluginCommand(action.commandId)
-                            return
-                        }
                         if (
                             action is AccessoryAction.SendText && chuchuKeys.handleText(action.text)
                         ) {
@@ -1872,7 +1829,7 @@ fun TerminalScreen(
                                 )
                             }
                             KeyboardAccessoryBar(
-                                entries = accessoryEntries,
+                                entries = accessoryLayout,
                                 modifierState = modifierState,
                                 onAction = ::dispatchAccessoryAction,
                                 onSettings = onOpenSettings,
@@ -1901,10 +1858,7 @@ fun TerminalScreen(
                 }
                 if (showTabSheet) {
                     val paletteAccessoryAction: (AccessoryAction) -> Unit = { action ->
-                        if (action is AccessoryAction.RunCommand) {
-                            chuchuKeys.reset()
-                            runPluginCommand(action.commandId)
-                        } else if (
+                        if (
                             !(action is AccessoryAction.SendText &&
                                 chuchuKeys.handleText(action.text))
                         ) {
@@ -1970,7 +1924,7 @@ fun TerminalScreen(
                         activeTabId = activeTabId,
                         focusedTabIndex = focusedTabIndex,
                         onFocusedTabIndexChange = { focusedTabIndex = it },
-                        accessoryEntries = accessoryEntries,
+                        accessoryEntries = accessoryLayout,
                         accessoryModifierState = modifierState,
                         onAccessoryAction = paletteAccessoryAction,
                         onChuchuKey = { chuchuKeys.togglePrefix() },

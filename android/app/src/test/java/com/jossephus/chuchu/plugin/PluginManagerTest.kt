@@ -2,15 +2,12 @@ package com.jossephus.chuchu.plugin
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import com.jossephus.chuchu.plugin.api.ByteStreamEvent
 import com.jossephus.chuchu.plugin.api.ChuchuPlugin
 import com.jossephus.chuchu.plugin.api.ExecChannel
 import com.jossephus.chuchu.plugin.api.HostInfo
 import com.jossephus.chuchu.plugin.api.PluginApi
-import com.jossephus.chuchu.plugin.api.PluginCommand
 import com.jossephus.chuchu.plugin.api.PluginHost
 import com.jossephus.chuchu.plugin.api.PluginSession
-import com.jossephus.chuchu.plugin.api.PtySize
 import com.jossephus.chuchu.plugin.api.SessionEvent
 import com.jossephus.chuchu.plugin.api.SessionRegistry
 import com.jossephus.chuchu.plugin.api.SessionStatus
@@ -23,15 +20,11 @@ import com.jossephus.chuchu.plugin.api.TransportConnection
 import com.jossephus.chuchu.plugin.api.TransportHostForm
 import com.jossephus.chuchu.plugin.api.TransportProvider
 import com.jossephus.chuchu.service.transport.TransportRegistry
-import com.jossephus.chuchu.plugin.api.provideService
-import com.jossephus.chuchu.plugin.api.service
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.junit.Assert.assertEquals
@@ -42,10 +35,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PluginManagerTest {
-    private interface Greeter {
-        fun greet(): String
-    }
-
     private open class RecordingPlugin(private val onRegister: (PluginHost) -> Unit = {}) : ChuchuPlugin {
         lateinit var host: PluginHost
         var unloadCount = 0
@@ -87,49 +76,29 @@ class PluginManagerTest {
         manager.plugins.value.find { it.descriptor.id == id }?.status
 
     @Test
-    fun registersPluginAndExposesHostIdentity() {
+    fun registersPluginAndSharesTheSessionRegistry() {
         val plugin = RecordingPlugin()
         manager.load(listOf(entry("alpha") { plugin }))
 
         assertEquals(PluginStatus.Active, status("alpha"))
-        assertEquals("alpha", plugin.host.pluginId)
-        assertEquals(PluginApi.VERSION, plugin.host.apiVersion)
         assertSame(registry, plugin.host.sessions)
     }
 
     @Test
-    fun servicesAreSharedAcrossPlugins() {
-        val greeter = object : Greeter {
-            override fun greet() = "hi"
-        }
-        val consumer = RecordingPlugin()
-        manager.load(
-            listOf(
-                entry("provider") { RecordingPlugin { it.provideService<Greeter>(greeter) } },
-                entry("consumer") { consumer },
-            ),
-        )
-
-        assertSame(greeter, consumer.host.service<Greeter>())
-    }
-
-    @Test
-    fun registerFailureDisablesPluginAndRollsBackItsServices() {
-        val consumer = RecordingPlugin()
+    fun registerFailureDisablesPluginAndRollsBackItsContributions() {
+        val healthy = RecordingPlugin()
         val failing = RecordingPlugin {
-            it.provideService<Greeter>(object : Greeter {
-                override fun greet() = "half-registered"
-            })
+            it.registerSessionView(MultiplexerView("half-registered"))
             error("boom")
         }
-        manager.load(listOf(entry("failing") { failing }, entry("consumer") { consumer }))
+        manager.load(listOf(entry("failing") { failing }, entry("healthy") { healthy }))
 
         assertEquals(PluginStatus.Failed, status("failing"))
         assertTrue(manager.plugins.value.first().error!!.contains("boom"))
         assertEquals(1, failing.unloadCount)
         assertFalse(failing.host.scope.isActive)
-        assertNull(consumer.host.service<Greeter>())
-        assertEquals(PluginStatus.Active, status("consumer"))
+        assertTrue(manager.sessionViews.value.isEmpty())
+        assertEquals(PluginStatus.Active, status("healthy"))
     }
 
     @Test
@@ -147,32 +116,15 @@ class PluginManagerTest {
     }
 
     @Test
-    fun disabledPluginCannotProvideServices() {
+    fun disabledPluginCannotRegister() {
         val crashing = RecordingPlugin()
         manager.load(listOf(entry("crashing") { crashing }))
         crashing.host.scope.launch { error("background crash") }
 
-        val result = runCatching {
-            crashing.host.provideService<Greeter>(object : Greeter {
-                override fun greet() = "late"
-            })
-        }
+        val result = runCatching { crashing.host.registerSessionView(MultiplexerView("late")) }
 
         assertTrue(result.isFailure)
-        assertNull(crashing.host.service<Greeter>())
-    }
-
-    @Test
-    fun duplicateServiceFailsTheSecondProvider() {
-        fun provider() = RecordingPlugin {
-            it.provideService<Greeter>(object : Greeter {
-                override fun greet() = "hi"
-            })
-        }
-        manager.load(listOf(entry("first") { provider() }, entry("second") { provider() }))
-
-        assertEquals(PluginStatus.Active, status("first"))
-        assertEquals(PluginStatus.Failed, status("second"))
+        assertTrue(manager.sessionViews.value.isEmpty())
     }
 
     @Test
@@ -202,60 +154,12 @@ class PluginManagerTest {
         assertEquals(1, manager.plugins.value.size)
     }
 
-    @Test
-    fun commandsAreRegisteredAndRunWithNoActiveSession() {
-        var ranWith: Any? = "not run"
-        manager.load(
-            listOf(entry("cmds") { RecordingPlugin { it.registerCommand(PluginCommand("hello", "hello", 'h') { ctx -> ranWith = ctx.session }) } }),
-        )
-
-        val registered = manager.commands.value.single()
-        assertEquals("cmds.hello", registered.qualifiedId)
-        manager.runCommand(registered, activeTabId = null)
-        assertNull(ranWith)
-    }
-
-    @Test
-    fun throwingCommandDisablesPluginAndRemovesItsCommands() {
-        manager.load(
-            listOf(entry("buggy") { RecordingPlugin { it.registerCommand(PluginCommand("boom", "boom") { error("bad") }) } }),
-        )
-
-        manager.runCommand(manager.commands.value.single(), activeTabId = null)
-
-        assertEquals(PluginStatus.Failed, status("buggy"))
-        assertTrue(manager.commands.value.isEmpty())
-    }
-
-    @Test
-    fun duplicateCommandIdFailsRegistration() {
-        manager.load(
-            listOf(
-                entry("dupe") {
-                    RecordingPlugin {
-                        it.registerCommand(PluginCommand("same", "a") {})
-                        it.registerCommand(PluginCommand("same", "b") {})
-                    }
-                },
-            ),
-        )
-
-        assertEquals(PluginStatus.Failed, status("dupe"))
-        assertTrue(manager.commands.value.isEmpty())
-    }
-
     private class FakeSession(multiplexer: String?) : PluginSession {
         override val id = "tab-1"
         override val host =
             HostInfo(1, "box", "box.local", 22, "me", SessionTransport.Ssh, multiplexer)
         override val status = MutableStateFlow(SessionStatus.Connected)
-        override val title = MutableStateFlow<String?>(null)
-        override val pwd = MutableStateFlow<String?>(null)
-        override fun output(capacity: Int): Flow<ByteStreamEvent> = emptyFlow()
-        override fun input(capacity: Int): Flow<ByteStreamEvent> = emptyFlow()
-        override fun write(bytes: ByteArray) = Unit
-        override fun writeText(text: String) = Unit
-        override suspend fun exec(command: String, pty: PtySize?): ExecChannel? = null
+        override suspend fun exec(command: String): ExecChannel? = null
     }
 
     private class MultiplexerView(private val multiplexer: String) : SessionViewProvider {

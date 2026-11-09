@@ -103,9 +103,6 @@ sealed interface AccessoryAction {
     data class SendText(val text: String) : AccessoryAction
 
     data object Paste : AccessoryAction
-
-    /** Runs a plugin command; handled by the screen, which owns the plugin manager. */
-    data class RunCommand(val commandId: String) : AccessoryAction
 }
 
 data class AccessoryKeyItem(
@@ -167,8 +164,6 @@ object TerminalAccessoryDispatcher {
             modifierState = modifierState,
             shouldPaste = true,
         )
-
-        is AccessoryAction.RunCommand -> AccessoryDispatchResult(modifierState = modifierState)
     }
 }
 

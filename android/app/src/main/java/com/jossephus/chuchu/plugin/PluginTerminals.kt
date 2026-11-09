@@ -94,11 +94,9 @@ class GhosttyPluginTerminal internal constructor(
     private val inputChannel = Channel<ByteArray>(Channel.UNLIMITED)
     private val snapshot = MutableStateFlow<TerminalSnapshot?>(null)
     private val _size = MutableStateFlow(PtySize(DEFAULT_COLS, DEFAULT_ROWS))
-    private val _title = MutableStateFlow<String?>(null)
 
     override val input: Flow<ByteArray> = inputChannel.receiveAsFlow()
     override val size: StateFlow<PtySize> = _size.asStateFlow()
-    override val title: StateFlow<String?> = _title.asStateFlow()
 
     init {
         scope.launch {
@@ -247,7 +245,6 @@ class GhosttyPluginTerminal internal constructor(
     private fun emitSnapshot() {
         val images = TerminalSnapshot.parseImages(bridge.nativeSnapshotImages(handle))
         snapshot.value = TerminalSnapshot.fromByteBuffer(bridge.nativeSnapshot(handle), images)
-        bridge.nativePollTitle(handle)?.let { _title.value = it }
         lastSnapshotAtMs = System.currentTimeMillis()
     }
 

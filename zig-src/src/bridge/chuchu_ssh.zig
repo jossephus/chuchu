@@ -1967,28 +1967,6 @@ fn openSessionChannel(session: *NativeSshSession, ssh_session: *c.LIBSSH2_SESSIO
     }
 }
 
-fn requestExecPty(session: *NativeSshSession, channel: *c.LIBSSH2_CHANNEL, term: []const u8, cols: c.jint, rows: c.jint, width_px: c.jint, height_px: c.jint) bool {
-    const term_z = dupSentinel(term) orelse {
-        setError(session, "TERM alloc failed", .{});
-        return false;
-    };
-    defer allocator.free(term_z);
-    while (true) {
-        const rc = c.libssh2_channel_request_pty_ex(channel, term_z.ptr, @intCast(term.len), null, 0, cols, rows, width_px, height_px);
-        if (rc == 0) break;
-        if (rc != c.LIBSSH2_ERROR_EAGAIN) {
-            setLibssh2Error(session, "PTY request failed", rc);
-            return false;
-        }
-        if (!waitSocket(session, setup_wait_timeout_ms)) {
-            setError(session, "PTY request timed out", .{});
-            return false;
-        }
-    }
-    trySetChannelEnv(session, channel, "COLORTERM", "truecolor");
-    return true;
-}
-
 fn startExec(session: *NativeSshSession, channel: *c.LIBSSH2_CHANNEL, command: []const u8) bool {
     while (true) {
         const rc = c.libssh2_channel_process_startup(channel, "exec", 4, command.ptr, @intCast(command.len));
@@ -2004,9 +1982,9 @@ fn startExec(session: *NativeSshSession, channel: *c.LIBSSH2_CHANNEL, command: [
     }
 }
 
-/// Opens an exec channel running `command`, with a PTY when `with_pty` is set.
+/// Opens an exec channel running `command`.
 /// Returns the channel id (> 0), or -1 with the reason in nativeGetLastError.
-export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeExecOpen(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, command: c.jstring, with_pty: c.jboolean, cols: c.jint, rows: c.jint, width_px: c.jint, height_px: c.jint, term: c.jstring) callconv(.c) c.jint {
+export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeExecOpen(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, command: c.jstring) callconv(.c) c.jint {
     _ = thiz;
     const session = sessionFromHandle(handle) orelse return -1;
     const ssh_session = session.session orelse {
@@ -2019,17 +1997,6 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeExecOpen(e
     };
     defer allocator.free(command_slice);
     const channel = openSessionChannel(session, ssh_session) orelse return -1;
-    if (with_pty == c.JNI_TRUE) {
-        const term_slice = jniDupString(env, term) orelse allocator.dupe(u8, "xterm-ghostty") catch {
-            freeChannel(channel);
-            return -1;
-        };
-        defer allocator.free(term_slice);
-        if (!requestExecPty(session, channel, term_slice, cols, rows, width_px, height_px)) {
-            freeChannel(channel);
-            return -1;
-        }
-    }
     if (!startExec(session, channel, command_slice)) {
         freeChannel(channel);
         return -1;
@@ -2094,42 +2061,6 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeExecExitSt
     const session = sessionFromHandle(handle) orelse return -1;
     const channel = execChannel(session, id) orelse return -1;
     return c.libssh2_channel_get_exit_status(channel);
-}
-
-/// Closes the command's stdin, for programs that read until EOF.
-export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeExecSendEof(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, id: c.jint) callconv(.c) c.jboolean {
-    _ = env;
-    _ = thiz;
-    const session = sessionFromHandle(handle) orelse return c.JNI_FALSE;
-    const channel = execChannel(session, id) orelse return c.JNI_FALSE;
-    while (true) {
-        const rc = c.libssh2_channel_send_eof(channel);
-        if (rc == 0) return c.JNI_TRUE;
-        if (rc != c.LIBSSH2_ERROR_EAGAIN) {
-            setLibssh2Error(session, "Exec send EOF failed", rc);
-            return c.JNI_FALSE;
-        }
-        if (!waitSocket(session, io_wait_timeout_ms)) return c.JNI_FALSE;
-    }
-}
-
-export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeExecResize(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, id: c.jint, cols: c.jint, rows: c.jint, width_px: c.jint, height_px: c.jint) callconv(.c) c.jboolean {
-    _ = env;
-    _ = thiz;
-    const session = sessionFromHandle(handle) orelse return c.JNI_FALSE;
-    const channel = execChannel(session, id) orelse return c.JNI_FALSE;
-    while (true) {
-        const rc = c.libssh2_channel_request_pty_size_ex(channel, cols, rows, width_px, height_px);
-        if (rc == 0) return c.JNI_TRUE;
-        if (rc != c.LIBSSH2_ERROR_EAGAIN) {
-            setLibssh2Error(session, "Exec PTY resize failed", rc);
-            return c.JNI_FALSE;
-        }
-        if (!waitSocket(session, setup_wait_timeout_ms)) {
-            setError(session, "Exec PTY resize timed out", .{});
-            return c.JNI_FALSE;
-        }
-    }
 }
 
 /// Closes and forgets the channel; unknown ids are ignored so double-close is safe.

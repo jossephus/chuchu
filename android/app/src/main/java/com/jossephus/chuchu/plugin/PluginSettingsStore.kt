@@ -2,11 +2,7 @@ package com.jossephus.chuchu.plugin
 
 import android.content.Context
 import android.content.SharedPreferences
-import com.jossephus.chuchu.plugin.api.ChoiceField
 import com.jossephus.chuchu.plugin.api.PluginSettings
-import com.jossephus.chuchu.plugin.api.PluginStorage
-import com.jossephus.chuchu.plugin.api.SettingField
-import com.jossephus.chuchu.plugin.api.TextField
 import com.jossephus.chuchu.plugin.api.ToggleField
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.awaitClose
@@ -92,25 +88,15 @@ class PluginSettingValues internal constructor(
 ) : PluginSettings {
     override fun get(field: ToggleField): Boolean = prefs.get(prefix + field.key)?.toBooleanStrictOrNull() ?: field.default
 
-    override fun get(field: TextField): String = prefs.get(prefix + field.key) ?: field.default
-
-    override fun get(field: ChoiceField): String =
-        prefs.get(prefix + field.key)?.takeIf { value -> field.options.any { it.value == value } } ?: field.default
-
     override fun forHost(hostId: Long): PluginSettings = hostValues(prefs, hostId)
 
     override val changes: Flow<String> =
         prefs.changes.filter { it.startsWith(prefix) }.map { it.removePrefix(prefix) }
 
     /** The field's current value as the UI edits it ("true"/"false" for toggles). */
-    fun raw(field: SettingField): String =
-        when (field) {
-            is ToggleField -> get(field).toString()
-            is TextField -> get(field)
-            is ChoiceField -> get(field)
-        }
+    fun raw(field: ToggleField): String = get(field).toString()
 
-    fun set(field: SettingField, raw: String) = prefs.put(prefix + field.key, raw)
+    fun set(field: ToggleField, raw: String) = prefs.put(prefix + field.key, raw)
 
     internal companion object {
         fun global(prefs: PluginPrefs) = PluginSettingValues(prefs, "s.")
@@ -122,10 +108,4 @@ class PluginSettingValues internal constructor(
             prefs.keys().filter { it.startsWith(prefix) }.forEach { prefs.put(it, null) }
         }
     }
-}
-
-internal class PluginStorageImpl(private val prefs: PluginPrefs) : PluginStorage {
-    override fun get(key: String): String? = prefs.get("d.$key")
-
-    override fun put(key: String, value: String?) = prefs.put("d.$key", value)
 }

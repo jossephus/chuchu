@@ -16,9 +16,6 @@ import com.jossephus.chuchu.model.SshKey
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.plugin.PluginManager
 import com.jossephus.chuchu.plugin.PluginSettingsEntry
-import com.jossephus.chuchu.plugin.api.ChoiceField
-import com.jossephus.chuchu.plugin.api.SettingField
-import com.jossephus.chuchu.plugin.api.TextField
 import com.jossephus.chuchu.plugin.api.ToggleField
 import com.jossephus.chuchu.plugin.api.TransportProvider
 import com.jossephus.chuchu.service.transport.TransportRegistry
@@ -311,26 +308,21 @@ class AddServerViewModel(application: Application, private val hostId: Long?) :
     // Unsaved plugin host-setting edits, keyed by plugin id then field. Held here rather than
     // written straight away so "cancel" discards them like the rest of the form, and so a
     // new host (no id yet) can be configured before its first save.
-    private val _pluginHostEdits = MutableStateFlow<Map<String, Map<SettingField, String>>>(emptyMap())
-    val pluginHostEdits: StateFlow<Map<String, Map<SettingField, String>>> = _pluginHostEdits.asStateFlow()
+    private val _pluginHostEdits = MutableStateFlow<Map<String, Map<ToggleField, String>>>(emptyMap())
+    val pluginHostEdits: StateFlow<Map<String, Map<ToggleField, String>>> = _pluginHostEdits.asStateFlow()
 
-    fun pluginHostValue(pluginId: String, field: SettingField): String {
+    fun pluginHostValue(pluginId: String, field: ToggleField): String {
         _pluginHostEdits.value[pluginId]?.get(field)?.let { return it }
         val id = hostId ?: return defaultRaw(field)
         return pluginManager.hostSettingValues(pluginId, id).raw(field)
     }
 
-    fun updatePluginHostValue(pluginId: String, field: SettingField, raw: String) {
+    fun updatePluginHostValue(pluginId: String, field: ToggleField, raw: String) {
         val edits = _pluginHostEdits.value
         _pluginHostEdits.value = edits + (pluginId to (edits[pluginId].orEmpty() + (field to raw)))
     }
 
-    private fun defaultRaw(field: SettingField): String =
-        when (field) {
-            is ToggleField -> field.default.toString()
-            is TextField -> field.default
-            is ChoiceField -> field.default
-        }
+    private fun defaultRaw(field: ToggleField): String = field.default.toString()
 
     private fun testPluginConnection(current: AddServerForm) {
         val provider = current.transportProvider ?: return

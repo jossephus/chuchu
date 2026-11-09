@@ -22,5 +22,4 @@ dependencyResolutionManagement {
 rootProject.name = "chuchu"
 include(":app")
 include(":plugin-api")
-include(":examples:hello-plugin")
  

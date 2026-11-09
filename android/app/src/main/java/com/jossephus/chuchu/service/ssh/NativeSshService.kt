@@ -285,9 +285,9 @@ class NativeSshService(
     }
 
     /** Opens an exec channel on this connection; returns its id. Throws on failure. */
-    fun execOpen(command: String, pty: Boolean, cols: Int, rows: Int, widthPx: Int, heightPx: Int): Int {
+    fun execOpen(command: String): Int {
         check(handle != 0L) { "Not connected" }
-        val id = bridge.nativeExecOpen(handle, command, pty, cols, rows, widthPx, heightPx, "xterm-ghostty")
+        val id = bridge.nativeExecOpen(handle, command)
         if (id <= 0) {
             throw IllegalStateException(bridge.nativeGetLastError(handle) ?: "Native SSH exec open failed")
         }
@@ -314,11 +314,6 @@ class NativeSshService(
     fun execEof(id: Int): Boolean = handle == 0L || bridge.nativeExecEof(handle, id)
 
     fun execExitStatus(id: Int): Int = if (handle == 0L) -1 else bridge.nativeExecExitStatus(handle, id)
-
-    fun execSendEof(id: Int): Boolean = handle != 0L && bridge.nativeExecSendEof(handle, id)
-
-    fun execResize(id: Int, cols: Int, rows: Int, widthPx: Int, heightPx: Int): Boolean =
-        handle != 0L && bridge.nativeExecResize(handle, id, cols, rows, widthPx, heightPx)
 
     fun execClose(id: Int) {
         if (handle != 0L) bridge.nativeExecClose(handle, id)
