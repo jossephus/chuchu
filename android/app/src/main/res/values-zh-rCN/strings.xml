@@ -42,6 +42,7 @@
     <string name="section_authentication">认证</string>
     <string name="section_session_persistence">会话保持</string>
     <string name="section_connect_via">连接方式</string>
+    <string name="section_port_forwarding">端口转发</string>
 
     <!-- Shared option labels -->
     <string name="auth_password">密码</string>
@@ -108,6 +109,26 @@
     <string name="add_server_jump_direct">直连</string>
     <string name="add_server_jump_new">+ 新建跳板机</string>
     <string name="add_server_jump_unavailable">已保存的跳板机无法再使用</string>
+    <string name="port_forward_add">+ 添加端口转发</string>
+    <string name="port_forward_type_local">本地</string>
+    <string name="port_forward_type_remote">远程</string>
+    <string name="port_forward_local_port">本地端口</string>
+    <string name="port_forward_remote_port">远程端口</string>
+    <string name="port_forward_destination_host">目标主机</string>
+    <string name="port_forward_local_hint">本机的 localhost:%1$s 将转发到服务器可访问的 %2$s:%3$s。</string>
+    <string name="port_forward_remote_hint">服务器的 localhost:%1$s 将转发到本机可访问的 %2$s:%3$s。</string>
+    <string name="port_forward_lifecycle_hint">打开此服务器的终端时开始转发，最后一个标签页关闭时停止。</string>
+    <string name="port_forward_save">保存转发</string>
+    <string name="port_forward_cancel">取消</string>
+    <string name="port_forward_remove">删除</string>
+    <string name="port_forward_problem_local_port">本地端口必须在 1 到 65535 之间</string>
+    <string name="port_forward_problem_privileged">本机只能监听 1024 及以上的端口</string>
+    <string name="port_forward_problem_remote_port">远程端口必须在 1 到 65535 之间</string>
+    <string name="port_forward_problem_host">请输入目标主机</string>
+    <string name="port_forward_problem_duplicate">已有转发在监听该端口</string>
+    <string name="port_forward_status_starting">正在启动端口转发…</string>
+    <string name="port_forward_status_active">正在转发 %1$s</string>
+    <string name="port_forward_status_failed">端口转发失败：%1$s（将重试）</string>
 
     <!-- SSH keys -->
     <string name="keys_generate">+ 生成密钥</string>

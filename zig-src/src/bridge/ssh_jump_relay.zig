@@ -8,20 +8,20 @@ const allocator = std.heap.c_allocator;
 const idle_poll_timeout_ms = 250;
 const buffer_size = 32 * 1024;
 
-const Buffer = struct {
+pub const Buffer = struct {
     bytes: [buffer_size]u8 = undefined,
     start: usize = 0,
     end: usize = 0,
 
-    fn isEmpty(self: *const Buffer) bool {
+    pub fn isEmpty(self: *const Buffer) bool {
         return self.start == self.end;
     }
 
-    fn pending(self: *Buffer) []u8 {
+    pub fn pending(self: *Buffer) []u8 {
         return self.bytes[self.start..self.end];
     }
 
-    fn consume(self: *Buffer, len: usize) void {
+    pub fn consume(self: *Buffer, len: usize) void {
         std.debug.assert(len <= self.end - self.start);
         self.start += len;
         if (self.start == self.end) {
@@ -30,7 +30,7 @@ const Buffer = struct {
         }
     }
 
-    fn fill(self: *Buffer, len: usize) void {
+    pub fn fill(self: *Buffer, len: usize) void {
         std.debug.assert(self.isEmpty());
         std.debug.assert(len <= self.bytes.len);
         self.start = 0;

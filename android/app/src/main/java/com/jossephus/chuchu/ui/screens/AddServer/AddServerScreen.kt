@@ -314,6 +314,12 @@ fun AddServerScreen(
                 )
                 SectionDivider()
             }
+            PortForwardSection(
+                forwards = form.portForwards,
+                onSave = vm::savePortForward,
+                onRemove = vm::removePortForward,
+            )
+            SectionDivider()
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -374,7 +380,7 @@ private fun SectionDivider() {
 }
 
 @Composable
-private fun SectionHeader(label: String) {
+internal fun SectionHeader(label: String) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
     Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
