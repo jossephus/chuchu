@@ -133,13 +133,12 @@ fun KeyboardAccessoryBar(
         }
 
         TwoRowAccessoryLayout(
-            keyCount = entries.size,
+            entries = entries,
             spacing = 6.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = horizontalPadding, vertical = verticalPadding),
-            key = { index ->
-                val entry = entries[index]
+            key = { entry ->
                 AccessoryEntry(
                     entry = entry,
                     expanded = expandedGroupId == entry.id,
@@ -173,17 +172,18 @@ fun KeyboardAccessoryBar(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TwoRowAccessoryLayout(
-    keyCount: Int,
+    entries: List<ResolvedAccessoryEntry>,
     spacing: Dp,
-    key: @Composable (Int) -> Unit,
+    key: @Composable (ResolvedAccessoryEntry) -> Unit,
     trailing: @Composable () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     SubcomposeLayout(modifier = modifier) { constraints ->
         val spacingPx = spacing.roundToPx()
         val unbounded = Constraints()
-        val keyWidths = List(keyCount) { index ->
-            subcompose("measure-key-$index") { key(index) }.sumOf { it.measure(unbounded).width }
+        val keyCount = entries.size
+        val keyWidths = entries.mapIndexed { index, entry ->
+            subcompose("measure-key-$index") { key(entry) }.sumOf { it.measure(unbounded).width }
         }
         val trailingWidths = subcompose("measure-trailing", trailing).map { it.measure(unbounded).width }
         val fits = AccessoryBarRows.fitsInTwoLines(keyWidths + trailingWidths, spacingPx, constraints.maxWidth)
@@ -200,7 +200,7 @@ private fun TwoRowAccessoryLayout(
                     horizontalArrangement = Arrangement.spacedBy(spacing),
                     verticalArrangement = Arrangement.spacedBy(spacing),
                 ) {
-                    repeat(keyCount) { key(it) }
+                    entries.forEach { key(it) }
                     trailing()
                 }
             } else {
@@ -215,7 +215,7 @@ private fun TwoRowAccessoryLayout(
                             horizontalArrangement = Arrangement.spacedBy(spacing),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            for (index in 0 until firstRowCount) key(index)
+                            for (index in 0 until firstRowCount) key(entries[index])
                         }
                         trailing()
                     }
@@ -224,7 +224,7 @@ private fun TwoRowAccessoryLayout(
                         horizontalArrangement = Arrangement.spacedBy(spacing),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        for (index in firstRowCount until keyCount) key(index)
+                        for (index in firstRowCount until keyCount) key(entries[index])
                     }
                 }
             }
