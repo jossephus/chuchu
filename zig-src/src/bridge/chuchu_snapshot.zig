@@ -1487,6 +1487,21 @@ fn scrollGoesToApp(terminal: *ChuchuTerminal) bool {
 export fn chuchu_scroll(handle: c.jlong, delta: c.jint, x: c.jfloat, y: c.jfloat) callconv(.c) void {
     const terminal = chuchuFromHandle(handle) orelse return;
 
+    if (terminal.terminal.screens.active_key == .alternate and
+        terminal.terminal.flags.mouse_event == .none and
+        terminal.terminal.modes.get(.mouse_alternate_scroll))
+    {
+        const up = delta < 0;
+        const seq: []const u8 = if (terminal.terminal.modes.get(.cursor_keys))
+            (if (up) "\x1bOA" else "\x1bOB")
+        else
+            (if (up) "\x1b[A" else "\x1b[B");
+        var i: usize = 0;
+        while (i < @abs(delta)) : (i += 1) appendPtyWrite(terminal, seq);
+        update_render_state(terminal);
+        return;
+    }
+
     if (scrollGoesToApp(terminal)) {
         // Send mouse scroll events to the application.
         // Negative delta = scroll up (older content) → button 4.
