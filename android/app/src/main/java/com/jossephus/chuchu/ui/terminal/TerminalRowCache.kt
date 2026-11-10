@@ -33,6 +33,7 @@ internal class TerminalRowCache {
     private var rowBlank = BooleanArray(0)
     private var previousHashes = HashSet<Int>()
     private var currentHashes = HashSet<Int>()
+    private var layersThisFrame = false
 
     fun beginFrame(key: Any, maxEntries: Int, rows: Int) {
         spareLimit = maxEntries / 2
@@ -47,6 +48,7 @@ internal class TerminalRowCache {
         frame++
         misses = 0
         hits = 0
+        layersThisFrame = false
     }
 
     fun measureRow(row: Int, snapshot: TerminalSnapshot, rowStart: Int, cols: Int, selFrom: Int, selTo: Int) {
@@ -71,6 +73,7 @@ internal class TerminalRowCache {
         currentHashes = swap
         val useLayers = drawn > 0 && seen * 2 >= drawn
         Trace.setCounter("term.rowLayers", if (useLayers) 1L else 0L)
+        layersThisFrame = useLayers
         return useLayers
     }
 
@@ -120,7 +123,7 @@ internal class TerminalRowCache {
         while (iterator.hasNext()) {
             val bucket = iterator.next()
             bucket.removeAll { entry ->
-                val stale = entry.lastUsedFrame < frame - RETAIN_FRAMES
+                val stale = !layersThisFrame || entry.lastUsedFrame < frame
                 if (stale) {
                     recycle(entry.node)
                     entryCount--
@@ -229,9 +232,5 @@ internal class TerminalRowCache {
             selTo = selTo,
             node = node,
         )
-    }
-
-    private companion object {
-        const val RETAIN_FRAMES = 2L
     }
 }
