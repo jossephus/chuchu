@@ -135,7 +135,7 @@ class TerminalSessionEngine(
     private var cellWidth = 1
     private var cellHeight = 1
     private var lastSnapshotAtMs = 0L
-    private var snapshotScheduled = false
+    private var snapshotJob: Job? = null
     private val snapshotIntervalMs = 16L
     private var title: String? = null
     private var pwd: String? = null
@@ -663,7 +663,8 @@ class TerminalSessionEngine(
                 bridge.nativeDestroy(handle)
                 handle = 0L
             }
-            snapshotScheduled = false
+            snapshotJob?.cancel()
+            snapshotJob = null
             title = null
             pwd = null
             images = emptyList()
@@ -1443,17 +1444,17 @@ class TerminalSessionEngine(
         val now = System.currentTimeMillis()
         val elapsed = now - lastSnapshotAtMs
         if (force || elapsed >= snapshotIntervalMs) {
-            snapshotScheduled = false
+            snapshotJob?.cancel()
+            snapshotJob = null
             emitSnapshot()
             lastSnapshotAtMs = now
             return
         }
-        if (snapshotScheduled) return
-        snapshotScheduled = true
+        if (snapshotJob?.isActive == true) return
         val waitMs = (snapshotIntervalMs - elapsed).coerceAtLeast(1L)
-        scope.launch(dispatcher) {
+        snapshotJob = scope.launch(dispatcher) {
             delay(waitMs)
-            snapshotScheduled = false
+            snapshotJob = null
             if (handle == 0L) return@launch
             emitSnapshot()
             lastSnapshotAtMs = System.currentTimeMillis()
