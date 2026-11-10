@@ -15,7 +15,7 @@ class EmojiSnapshotRegressionTest {
         val cols = 4
         val rows = 1
         val cellCount = cols * rows
-        val headerBytes = 15 * 4
+        val headerBytes = 18 * 4
         val gridBytes = cellCount * 11
         val extrasOffset = headerBytes + gridBytes
 
@@ -41,6 +41,9 @@ class EmojiSnapshotRegressionTest {
         raw.putInt(0) // viewport_scroll_y
         raw.putInt(0) // app_handles_selection_drag
         raw.putInt(TerminalSnapshot.CURSOR_STYLE_BLOCK) // cursor_style
+        raw.putInt(1)
+        raw.putInt(0)
+        raw.putInt(0)
 
         fun putCell(codepoint: Int, flags: Int) {
             raw.putInt(codepoint)
@@ -78,7 +81,7 @@ class EmojiSnapshotRegressionTest {
     fun parsesAppSelectionDragFlagFromSnapshotHeader() {
         val cols = 1
         val rows = 1
-        val headerBytes = 15 * 4
+        val headerBytes = 18 * 4
         val gridBytes = cols * rows * 11
         val raw = ByteBuffer.allocate(headerBytes + gridBytes).order(ByteOrder.LITTLE_ENDIAN)
 
@@ -97,6 +100,9 @@ class EmojiSnapshotRegressionTest {
         raw.putInt(0)
         raw.putInt(1)
         raw.putInt(TerminalSnapshot.CURSOR_STYLE_BAR) // cursor_style
+        raw.putInt(1)
+        raw.putInt(0)
+        raw.putInt(0)
 
         raw.putInt('a'.code)
         raw.put(255.toByte())
@@ -177,7 +183,7 @@ class EmojiSnapshotRegressionTest {
         val cols = 3
         val rows = 1
         val cellCount = cols * rows
-        val headerBytes = 15 * 4
+        val headerBytes = 18 * 4
         val gridBytes = cellCount * 11
         val extrasOffset = headerBytes + gridBytes
 
@@ -207,6 +213,9 @@ class EmojiSnapshotRegressionTest {
         raw.putInt(0) // viewport_scroll_y
         raw.putInt(0) // app_handles_selection_drag
         raw.putInt(TerminalSnapshot.CURSOR_STYLE_BLOCK) // cursor_style
+        raw.putInt(1)
+        raw.putInt(0)
+        raw.putInt(0)
 
         fun putCell(codepoint: Int, flags: Int) {
             raw.putInt(codepoint)
