@@ -44,6 +44,7 @@
     <string name="section_authentication">AUTHENTICATION</string>
     <string name="section_session_persistence">SESSION PERSISTENCE</string>
     <string name="section_connect_via">CONNECT VIA</string>
+    <string name="section_port_forwarding">PORT FORWARDING</string>
 
     <!-- Shared option labels -->
     <string name="auth_password">password</string>
@@ -111,6 +112,26 @@
     <string name="add_server_jump_direct">direct</string>
     <string name="add_server_jump_new">+ new jump server</string>
     <string name="add_server_jump_unavailable">saved jump host can no longer be used</string>
+    <string name="port_forward_add">+ add port forward</string>
+    <string name="port_forward_type_local">local</string>
+    <string name="port_forward_type_remote">remote</string>
+    <string name="port_forward_local_port">Local port</string>
+    <string name="port_forward_remote_port">Remote port</string>
+    <string name="port_forward_destination_host">Destination host</string>
+    <string name="port_forward_local_hint">localhost:%1$s on this phone reaches %2$s:%3$s as seen from the server.</string>
+    <string name="port_forward_remote_hint">localhost:%1$s on the server reaches %2$s:%3$s as seen from this phone.</string>
+    <string name="port_forward_lifecycle_hint">forwards start when you open a terminal to this server and stop when its last tab closes.</string>
+    <string name="port_forward_save">save forward</string>
+    <string name="port_forward_cancel">cancel</string>
+    <string name="port_forward_remove">remove</string>
+    <string name="port_forward_problem_local_port">local port must be between 1 and 65535</string>
+    <string name="port_forward_problem_privileged">this phone can only listen on ports 1024 and up</string>
+    <string name="port_forward_problem_remote_port">remote port must be between 1 and 65535</string>
+    <string name="port_forward_problem_host">enter a destination host</string>
+    <string name="port_forward_problem_duplicate">another forward already listens on that port</string>
+    <string name="port_forward_status_starting">starting port forwards…</string>
+    <string name="port_forward_status_active">forwarding %1$s</string>
+    <string name="port_forward_status_failed">port forwarding failed: %1$s (retrying)</string>
 
     <!-- SSH keys -->
     <string name="keys_generate">+ generate key</string>

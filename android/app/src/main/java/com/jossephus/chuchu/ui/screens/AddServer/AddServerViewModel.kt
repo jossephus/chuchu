@@ -13,6 +13,7 @@ import com.jossephus.chuchu.data.repository.SshKeyRepository
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.HostProfile
 import com.jossephus.chuchu.model.MultiplexerType
+import com.jossephus.chuchu.model.PortForward
 import com.jossephus.chuchu.model.SshKey
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.service.ssh.HostKeyCheck
@@ -196,6 +197,25 @@ class AddServerViewModel(
             )
     }
 
+    fun savePortForward(index: Int?, forward: PortForward) {
+        val forwards = _form.value.portForwards
+        _form.value =
+            _form.value.copy(
+                portForwards =
+                    if (index == null || index !in forwards.indices) {
+                        forwards + forward
+                    } else {
+                        forwards.toMutableList().also { it[index] = forward }
+                    },
+            )
+    }
+
+    fun removePortForward(index: Int) {
+        val forwards = _form.value.portForwards
+        if (index !in forwards.indices) return
+        _form.value = _form.value.copy(portForwards = forwards.filterIndexed { i, _ -> i != index })
+    }
+
     fun updateAuthMethod(authMethod: AuthMethod) {
         val current = _form.value
         if (authMethod == AuthMethod.None) {
@@ -332,6 +352,7 @@ class AddServerViewModel(
                             current.transport != Transport.Mosh && it?.runtimeSupported == true
                         },
                     jumpHostId = current.jumpHostId.takeIf { current.transport != Transport.Mosh },
+                    portForwards = current.portForwards,
                 )
             val savedId = hostRepository.upsert(profile)
             onComplete(current.id ?: savedId)
@@ -371,6 +392,7 @@ data class AddServerForm(
     val postConnectCommand: String = "",
     val multiplexer: MultiplexerType? = null,
     val jumpHostId: Long? = null,
+    val portForwards: List<PortForward> = emptyList(),
 ) {
     companion object {
         fun fromProfile(profile: HostProfile, key: SshKey?): AddServerForm =
@@ -391,6 +413,7 @@ data class AddServerForm(
                 postConnectCommand = profile.postConnectCommand.orEmpty(),
                 multiplexer = profile.multiplexer,
                 jumpHostId = profile.jumpHostId,
+                portForwards = profile.portForwards,
             )
 
         fun copyOf(profile: HostProfile, key: SshKey?, name: String): AddServerForm =

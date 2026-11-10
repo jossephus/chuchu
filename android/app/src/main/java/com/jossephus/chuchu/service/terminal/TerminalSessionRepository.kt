@@ -3,6 +3,8 @@ package com.jossephus.chuchu.service.terminal
 import android.app.Application
 import android.content.ClipData
 import android.content.ClipboardManager
+import com.jossephus.chuchu.data.db.AppDatabase
+import com.jossephus.chuchu.data.repository.HostRepository
 import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.Transport
@@ -58,6 +60,14 @@ class TerminalSessionRepository private constructor(application: Application) {
     private val tailscaleStatusChecker = TailscaleStatusChecker(appContext)
     private val clipboard = appContext.getSystemService(ClipboardManager::class.java)
     private val settingsRepository = SettingsRepository.getInstance(appContext)
+    private val hostRepository = HostRepository(AppDatabase.getInstance(appContext).hostProfileDao())
+    private val portForwards =
+        PortForwardManager(
+            scope = scope,
+            hostKeyStore = hostKeyStore,
+            loadForwards = { hostId -> hostRepository.getById(hostId)?.portForwards.orEmpty() },
+        )
+    val portForwardStatus: StateFlow<Map<Long, PortForwardStatus>> = portForwards.status
 
     private fun publishTerminalClipboard(tabId: String, text: String) {
         if (!canPublishTerminalClipboard(tabId)) return
@@ -123,7 +133,25 @@ class TerminalSessionRepository private constructor(application: Application) {
     private var foregroundServiceRunning = false
     private var foregroundNotificationLabel: String? = null
 
+    private val forwardingSpecs: Flow<Map<Long, TabSpec>> =
+        _tabs
+            .flatMapLatest { tabs ->
+                if (tabs.isEmpty()) {
+                    flowOf(emptyList())
+                } else {
+                    combine(tabs.map { tab -> tab.statusUpdates().map { status -> tab to status } }) {
+                        it.toList()
+                    }
+                }
+            }
+            .map(::forwardingSpecsFor)
+
     init {
+        scope.launch {
+            forwardingSpecs
+                .distinctUntilChanged { old, new -> old.keys == new.keys }
+                .collect { portForwards.sync(it) }
+        }
         scope.launch {
             combine(_tabs, _activeTabId) { tabs, _ -> tabs }
                 .flatMapLatest { tabs ->
@@ -562,3 +590,13 @@ class TerminalSessionRepository private constructor(application: Application) {
         }
     }
 }
+
+internal fun forwardingSpecsFor(tabs: List<Pair<TabSession, SessionStatus>>): Map<Long, TabSpec> =
+    tabs
+        .asSequence()
+        .filter { (tab, status) ->
+            tab.spec.transport != Transport.LocalShell &&
+                (status == SessionStatus.Connected || status == SessionStatus.Reconnecting)
+        }
+        .mapNotNull { (tab, _) -> tab.spec.hostId?.let { it to tab.spec } }
+        .toMap()
