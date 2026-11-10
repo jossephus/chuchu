@@ -15,6 +15,7 @@ import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.plugin.PluginManager
 import com.jossephus.chuchu.plugin.api.RemoteMultiplexerSession
+import com.jossephus.chuchu.service.ssh.SshJumpHost
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
 import com.jossephus.chuchu.service.terminal.HostKeyPrompt
 import com.jossephus.chuchu.service.terminal.SessionState
@@ -181,10 +182,18 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             multiplexers = plugins.multiplexers,
             publicKeyOpenSsh = key?.publicKeyOpenSsh.orEmpty(),
             privateKeyPem = key?.privateKeyPem.orEmpty(),
+            jumpHost = resolveJumpHost(host),
         )
         val requiresVerification =
             settingsRepository.requireAuthOnConnect.value || host.requireAuthOnConnect
         return PreparedTabOpen(spec = spec, requiresVerification = requiresVerification)
+    }
+
+    private suspend fun resolveJumpHost(host: HostProfile): SshJumpHost? {
+        val jumpHostId = host.jumpHostId?.takeIf { it != host.id } ?: return null
+        val jump = hostRepository.getById(jumpHostId) ?: return null
+        val key = jump.keyId?.let { sshKeyRepository.getById(it) }
+        return SshJumpHost.fromHostProfile(jump, key)
     }
 
     fun duplicateActiveTab(): TabSession? {

@@ -57,6 +57,7 @@ object ChuchuBackupImportPlanner {
             HostImportAction(
                 exportedId = backupHost.id,
                 host = importHost,
+                exportedJumpHostId = backupHost.jumpHostId,
                 keyActionIndex = backupHost.keyId?.let { (keyRefs[it] as? KeyReference.Insert)?.actionIndex },
                 renamed = importName != backupHost.name,
             )
@@ -81,6 +82,7 @@ object ChuchuBackupImportPlanner {
 
         val hostIds = mutableSetOf<Long>()
         importableHosts.forEach { host ->
+            if (host.jumpHostId == host.id) throw BackupFormatException("Host uses itself as a jump host")
             if (host.id <= 0L) throw BackupFormatException("Invalid host id")
             if (!hostIds.add(host.id)) throw BackupFormatException("Duplicate host id")
             if (host.name.isBlank()) throw BackupFormatException("Host name is required")
@@ -92,6 +94,11 @@ object ChuchuBackupImportPlanner {
             }
             if (host.authMethod.requiresKey() && host.keyId == null) {
                 throw BackupFormatException("Key authentication host is missing an SSH key")
+            }
+        }
+        importableHosts.forEach { host ->
+            if (host.jumpHostId != null && host.jumpHostId !in hostIds) {
+                throw BackupFormatException("Host references a missing jump host")
             }
         }
     }
@@ -147,6 +154,7 @@ sealed interface KeyImportAction {
 data class HostImportAction(
     val exportedId: Long,
     val host: HostProfile,
+    val exportedJumpHostId: Long? = null,
     val keyActionIndex: Int?,
     val renamed: Boolean,
 )

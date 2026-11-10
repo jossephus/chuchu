@@ -2,11 +2,11 @@
   "formatVersion": 1,
   "database": {
     "version": 12,
-    "identityHash": "fb60d4bdfb4710ddc8ed27848fbbd7e8",
+    "identityHash": "e0a520aa75ed86966c8819bdf6469fa2",
     "entities": [
       {
         "tableName": "host_profiles",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `host` TEXT NOT NULL, `port` INTEGER NOT NULL, `username` TEXT NOT NULL, `password` TEXT NOT NULL, `keyId` INTEGER, `keyPassphrase` TEXT NOT NULL, `transport` TEXT NOT NULL, `authMethod` TEXT NOT NULL, `requireAuthOnConnect` INTEGER NOT NULL DEFAULT 0, `postConnectCommand` TEXT, `multiplexer` TEXT DEFAULT NULL, `transportId` TEXT DEFAULT NULL)",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `host` TEXT NOT NULL, `port` INTEGER NOT NULL, `username` TEXT NOT NULL, `password` TEXT NOT NULL, `keyId` INTEGER, `keyPassphrase` TEXT NOT NULL, `transport` TEXT NOT NULL, `authMethod` TEXT NOT NULL, `requireAuthOnConnect` INTEGER NOT NULL DEFAULT 0, `postConnectCommand` TEXT, `multiplexer` TEXT DEFAULT NULL, `jumpHostId` INTEGER DEFAULT NULL)",
         "fields": [
           {
             "fieldPath": "id",
@@ -89,9 +89,9 @@
             "defaultValue": "NULL"
           },
           {
-            "fieldPath": "transportId",
-            "columnName": "transportId",
-            "affinity": "TEXT",
+            "fieldPath": "jumpHostId",
+            "columnName": "jumpHostId",
+            "affinity": "INTEGER",
             "notNull": false,
             "defaultValue": "NULL"
           }
@@ -179,7 +179,7 @@
     "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'fb60d4bdfb4710ddc8ed27848fbbd7e8')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'e0a520aa75ed86966c8819bdf6469fa2')"
     ]
   }
 }

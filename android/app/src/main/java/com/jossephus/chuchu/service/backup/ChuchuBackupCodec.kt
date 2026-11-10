@@ -11,7 +11,7 @@ import com.jossephus.chuchu.model.Transport
 
 object ChuchuBackupCodec {
     const val FORMAT_VERSION: Int = 1
-    const val PAYLOAD_VERSION: Int = 3
+    const val PAYLOAD_VERSION: Int = 4
     const val KDF_ID_PBKDF2_HMAC_SHA1: Int = 1
     const val CIPHER_ID_AES_256_GCM: Int = 1
     const val KDF_ITERATIONS: Int = 210_000
@@ -102,6 +102,7 @@ object ChuchuBackupCodec {
             writer.writeBoolean(host.requireAuthOnConnect)
             writeNullableStringField(host.postConnectCommand, "post-connect command")
             writeNullableStringField(host.multiplexer?.id, "multiplexer")
+            writer.writeNullableLong(host.jumpHostId)
             writeNullableStringField(host.transportId, "transport id")
         }
 
@@ -174,27 +175,29 @@ object ChuchuBackupCodec {
                 } else {
                     null
                 }
-                val transportId = if (version >= 3) readNullableStringField("transport id") else null
+                val jumpHostId = if (version >= 3) reader.readNullableLong() else null
+                val transportId = if (version >= 4) readNullableStringField("transport id") else null
                 if (transport != Transport.LocalShell) {
-                    add(
-                        BackupHostProfile(
-                            id = id,
-                            name = name,
-                            host = host,
-                            port = port,
-                            username = username,
-                            password = password,
-                            keyId = keyId,
-                            keyPassphrase = keyPassphrase,
-                            transport = transport,
-                            authMethod = authMethod,
-                            requireAuthOnConnect = requireAuthOnConnect,
-                            postConnectCommand = postConnectCommand,
-                            multiplexer = multiplexer,
-                            transportId = transportId,
+                add(
+                    BackupHostProfile(
+                        id = id,
+                        name = name,
+                        host = host,
+                        port = port,
+                        username = username,
+                        password = password,
+                        keyId = keyId,
+                        keyPassphrase = keyPassphrase,
+                        transport = transport,
+                        authMethod = authMethod,
+                        requireAuthOnConnect = requireAuthOnConnect,
+                        postConnectCommand = postConnectCommand,
+                        multiplexer = multiplexer,
+                        jumpHostId = jumpHostId,
+                        transportId = transportId,
                         ),
-                    )
-                }
+                )
+            }
             }
         }
 
