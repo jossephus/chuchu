@@ -5,6 +5,7 @@ import com.jossephus.chuchu.service.terminal.GhosttyBridge
 import com.jossephus.chuchu.service.terminal.TerminalMouseAction
 
 import android.graphics.Paint
+import android.os.Build
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
@@ -17,6 +18,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -161,6 +163,10 @@ fun TerminalCanvas(
         }
     }
     val drawBuffer = remember { StringBuilder(256) }
+    val rowCache = remember { if (Build.VERSION.SDK_INT >= 29) TerminalRowCache() else null }
+    DisposableEffect(rowCache) {
+        onDispose { if (Build.VERSION.SDK_INT >= 29) rowCache?.clear() }
+    }
     val singleGlyphCache = remember {
         HashMap<Int, String>(256).apply {
             for (cp in 33..126) this[cp] = cp.toChar().toString()
@@ -603,9 +609,8 @@ fun TerminalCanvas(
             val sb = drawBuffer
             val defaultBg = snapshot.defaultBgArgb
 
-            for (row in 0 until rows) {
+            fun drawRow(target: android.graphics.Canvas, row: Int, y: Float) {
                 val rowStart = row * cols
-                val y = row * cellHeight
                 val baseline = y + baselineOffset
 
                 // Background runs
@@ -635,7 +640,7 @@ fun TerminalCanvas(
                     }
                     if (iSelected || bg != defaultBg || iInverse) {
                         bgPaint.color = bg
-                        nCanvas.drawRect(
+                        target.drawRect(
                             (i - rowStart) * cellWidth,
                             y,
                             (j - rowStart) * cellWidth,
@@ -756,9 +761,68 @@ fun TerminalCanvas(
                     paint.isUnderlineText = (styleBits and TerminalSnapshot.CELL_FLAG_UNDERLINE) != 0
                     paint.textSkewX = if ((styleBits and TerminalSnapshot.CELL_FLAG_ITALIC) != 0) -0.25f else 0f
                     paint.alpha = if ((styleBits and TerminalSnapshot.CELL_FLAG_FAINT) != 0) FAINT_TEXT_ALPHA else 255
-                    nCanvas.drawText(sb.toString(), startCol * cellWidth, baseline, paint)
+                    target.drawText(sb.toString(), startCol * cellWidth, baseline, paint)
                     i = j
                 }
+            }
+
+            val cache = rowCache
+            if (cache != null && Build.VERSION.SDK_INT >= 29 && previewScale == 1f && nCanvas.isHardwareAccelerated) {
+                val pad = ceil(cellHeight * 0.25f).toInt()
+                val rowWidth = ceil(cols * cellWidth + cellWidth).toInt()
+                cache.beginFrame(
+                    listOf(
+                        primaryTextPaint,
+                        symbolsTextPaint,
+                        fallbackTextPaint,
+                        emojiTextPaint,
+                        cols,
+                        cellWidth,
+                        cellHeight,
+                        baselineOffset,
+                        defaultBg,
+                        selectionBackgroundArgb,
+                        selectionForegroundArgb,
+                    ),
+                    rows * 4,
+                    rows,
+                )
+                for (row in 0 until rows) {
+                    val rowStart = row * cols
+                    cache.measureRow(
+                        row,
+                        snapshot,
+                        rowStart,
+                        cols,
+                        rowSelectionFrom(hasSel, selStart, selEnd, rowStart, cols),
+                        rowSelectionTo(hasSel, selStart, selEnd, rowStart, cols),
+                    )
+                }
+                if (cache.shouldUseLayers()) {
+                    for (row in 0 until rows) {
+                        val rowStart = row * cols
+                        val node = cache.nodeFor(
+                            row = row,
+                            snapshot = snapshot,
+                            rowStart = rowStart,
+                            cols = cols,
+                            selFrom = rowSelectionFrom(hasSel, selStart, selEnd, rowStart, cols),
+                            selTo = rowSelectionTo(hasSel, selStart, selEnd, rowStart, cols),
+                            width = rowWidth,
+                            height = cellHeightInt,
+                            padTop = pad,
+                        ) { target -> drawRow(target, row, 0f) } ?: continue
+                        nCanvas.save()
+                        nCanvas.translate(0f, row * cellHeight - pad)
+                        nCanvas.drawRenderNode(node)
+                        nCanvas.restore()
+                    }
+                } else {
+                    for (row in 0 until rows) drawRow(nCanvas, row, row * cellHeight)
+                }
+                cache.endFrame()
+            } else {
+                for (row in 0 until rows) drawRow(nCanvas, row, row * cellHeight)
             }
 
             // Images: origin from cell coords (same cell size as text, so it lands
@@ -886,6 +950,18 @@ fun TerminalCanvas(
         }
         Trace.endSection()
     }
+}
+
+private fun rowSelectionFrom(hasSel: Boolean, selStart: Int, selEnd: Int, rowStart: Int, cols: Int): Int {
+    val rowLast = rowStart + cols - 1
+    if (!hasSel || selEnd < rowStart || selStart > rowLast) return -1
+    return max(selStart, rowStart) - rowStart
+}
+
+private fun rowSelectionTo(hasSel: Boolean, selStart: Int, selEnd: Int, rowStart: Int, cols: Int): Int {
+    val rowLast = rowStart + cols - 1
+    if (!hasSel || selEnd < rowStart || selStart > rowLast) return -1
+    return minOf(selEnd, rowLast) - rowStart
 }
 
 private data class TerminalScrollDelta(
