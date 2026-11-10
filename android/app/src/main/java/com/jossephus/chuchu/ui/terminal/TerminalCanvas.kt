@@ -8,6 +8,7 @@ import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.os.Trace
 
 import androidx.core.content.res.ResourcesCompat
 import android.view.ViewConfiguration
@@ -565,6 +566,7 @@ fun TerminalCanvas(
         }
 
     Canvas(modifier = canvasModifier) {
+        Trace.beginSection("term.draw")
         val cols = max(snapshot.cols, 1)
         val rows = max(snapshot.rows, 1)
         val contentWidth = cols * cellWidth
@@ -882,6 +884,7 @@ fun TerminalCanvas(
             }
             nCanvas.restore()
         }
+        Trace.endSection()
     }
 }
 
