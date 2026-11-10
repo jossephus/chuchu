@@ -16,6 +16,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavBackStackEntry
+import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -212,10 +214,10 @@ fun ApplicationNavController() {
                 },
             )
         }
-        composable("servers/add") {
+        composable("servers/add") { backStackEntry ->
             val vm: AddServerViewModel =
                 viewModel(factory = AddServerViewModel.factory(application, null))
-            AddServerScreen(vm = vm, onBack = { navController.popBackStack() })
+            ServerFormRoute(vm, backStackEntry, navController)
         }
         composable(
             route = "servers/copy/{id}",
@@ -233,7 +235,22 @@ fun ApplicationNavController() {
             val id = backStackEntry.arguments?.getLong("id")
             val vm: AddServerViewModel =
                 viewModel(factory = AddServerViewModel.factory(application, id))
-            AddServerScreen(vm = vm, onBack = { navController.popBackStack() })
+            ServerFormRoute(vm, backStackEntry, navController)
+        }
+        composable("servers/add-jump") {
+            val vm: AddServerViewModel =
+                viewModel(factory = AddServerViewModel.factory(application, null))
+            AddServerScreen(
+                vm = vm,
+                onBack = { navController.popBackStack() },
+                isJumpServer = true,
+                onSaved = { savedId ->
+                    navController.previousBackStackEntry
+                        ?.savedStateHandle
+                        ?.set(NEW_JUMP_HOST_ID, savedId)
+                    navController.popBackStack()
+                },
+            )
         }
         composable("terminal/local") {
             val settingsRepo = SettingsRepository.getInstance(application)
@@ -326,4 +343,28 @@ fun ApplicationNavController() {
             }
         }
     }
+}
+
+private const val NEW_JUMP_HOST_ID = "newJumpHostId"
+
+@Composable
+private fun ServerFormRoute(
+    vm: AddServerViewModel,
+    backStackEntry: NavBackStackEntry,
+    navController: NavHostController,
+) {
+    val newJumpHostId by
+        backStackEntry.savedStateHandle
+            .getStateFlow<Long?>(NEW_JUMP_HOST_ID, null)
+            .collectAsStateWithLifecycle()
+    LaunchedEffect(newJumpHostId) {
+        val id = newJumpHostId ?: return@LaunchedEffect
+        vm.updateJumpHost(id)
+        backStackEntry.savedStateHandle[NEW_JUMP_HOST_ID] = null
+    }
+    AddServerScreen(
+        vm = vm,
+        onBack = { navController.popBackStack() },
+        onAddJumpServer = { navController.navigate("servers/add-jump") },
+    )
 }

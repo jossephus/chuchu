@@ -23,6 +23,7 @@ import com.jossephus.chuchu.service.ssh.HostKeyCheck
 import com.jossephus.chuchu.service.ssh.HostKeyPolicy
 import com.jossephus.chuchu.service.ssh.HostKeyStore
 import com.jossephus.chuchu.service.ssh.NativeSshService
+import com.jossephus.chuchu.service.ssh.SshJumpHost
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -84,11 +85,19 @@ class AddServerViewModel(
     private val _allKeys = MutableStateFlow<List<SshKey>>(emptyList())
     val keys: StateFlow<List<SshKey>> = _allKeys.asStateFlow()
 
+    private val _jumpHostCandidates = MutableStateFlow<List<HostProfile>>(emptyList())
+    val jumpHostCandidates: StateFlow<List<HostProfile>> = _jumpHostCandidates.asStateFlow()
+
     private val _errorMessage = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val errorMessage: SharedFlow<String> = _errorMessage.asSharedFlow()
 
     init {
         viewModelScope.launch { sshKeyRepository.observeAll().collect { _allKeys.value = it } }
+        viewModelScope.launch {
+            hostRepository.observeAll().collect { hosts ->
+                _jumpHostCandidates.value = hosts.filter { it.id != hostId }
+            }
+        }
         if (hostId != null) {
             viewModelScope.launch {
                 val profile = hostRepository.getById(hostId) ?: return@launch
@@ -184,6 +193,15 @@ class AddServerViewModel(
                 transportId = null,
                 authMethod = nextAuthMethod,
                 multiplexer = current.multiplexer.takeIf { transport.hostsMultiplexer },
+                jumpHostId = current.jumpHostId.takeIf { transport.supportsJumpHost },
+            )
+    }
+
+    fun updateJumpHost(jumpHostId: Long?) {
+        val current = _form.value
+        _form.value =
+            current.copy(
+                jumpHostId = jumpHostId.takeIf { current.transport.supportsJumpHost },
             )
         _testState.value = ConnectionTestState()
     }
@@ -274,6 +292,7 @@ class AddServerViewModel(
                                 }
                             }
                         }
+                        val jumpHost = resolveJumpHost(current.jumpHostId)
                         NativeSshService(hostKeyPolicy = policy).use { nativeSsh ->
                             check(nativeSsh.isAvailable()) {
                                 getApplication<Application>()
@@ -290,6 +309,7 @@ class AddServerViewModel(
                                 publicKeyOpenSsh = current.publicKeyOpenSsh,
                                 privateKeyPem = current.privateKeyPem,
                                 keyPassphrase = current.keyPassphrase,
+                                jumpHost = jumpHost,
                             )
                         }
                     }
@@ -336,7 +356,7 @@ class AddServerViewModel(
         }
     }
 
-    fun save(onComplete: () -> Unit) {
+    fun save(onComplete: (Long) -> Unit) {
         val current = _form.value
         if (current.transport == Transport.Plugin) {
             savePluginHost(current, onComplete)
@@ -364,18 +384,28 @@ class AddServerViewModel(
                     requireAuthOnConnect = current.requireAuthOnConnect,
                     postConnectCommand = current.postConnectCommand.trim().ifBlank { null },
                     multiplexer = current.multiplexer.takeIf { current.transport.hostsMultiplexer },
+                    jumpHostId = current.jumpHostId.takeIf { current.transport.supportsJumpHost },
                 )
-            hostRepository.upsert(profile)
-            onComplete()
+            val savedId = hostRepository.upsert(profile)
+            onComplete(current.id ?: savedId)
         }
     }
 
-    private fun savePluginHost(current: AddServerForm, onComplete: () -> Unit) {
+    private suspend fun resolveJumpHost(jumpHostId: Long?): SshJumpHost? {
+        val id = jumpHostId ?: return null
+        val jump =
+            hostRepository.getById(id)
+                ?: throw IllegalStateException("Jump host no longer exists")
+        val key = jump.keyId?.let { sshKeyRepository.getById(it) }
+        return SshJumpHost.fromHostProfile(jump, key)
+    }
+
+    private fun savePluginHost(current: AddServerForm, onComplete: (Long) -> Unit) {
         val provider = transportProvider(current)
         if (!current.canSave(provider)) return
         val address = provider?.normalizeAddress(current.host) ?: return
         viewModelScope.launch {
-            hostRepository.upsert(
+            val savedId = hostRepository.upsert(
                 HostProfile(
                     id = current.id ?: 0L,
                     name = current.name.trim(),
@@ -388,7 +418,7 @@ class AddServerViewModel(
                     transportId = current.transportId,
                 ),
             )
-            onComplete()
+            onComplete(current.id ?: savedId)
         }
     }
 }
@@ -415,6 +445,7 @@ data class AddServerForm(
     val requireAuthOnConnect: Boolean = false,
     val postConnectCommand: String = "",
     val multiplexer: MultiplexerType? = null,
+    val jumpHostId: Long? = null,
     val transportId: String? = null,
 ) {
     companion object {
@@ -435,6 +466,7 @@ data class AddServerForm(
                 requireAuthOnConnect = profile.requireAuthOnConnect,
                 postConnectCommand = profile.postConnectCommand.orEmpty(),
                 multiplexer = profile.multiplexer,
+                jumpHostId = profile.jumpHostId,
                 transportId = profile.transportId,
             )
 

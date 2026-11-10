@@ -3,6 +3,7 @@ const std = @import("std");
 const c = @import("c");
 const jni_io = @import("io.zig");
 const ipc = @import("ipc.zig");
+const JumpRelay = @import("ssh_jump_relay.zig");
 
 const allocator = std.heap.c_allocator;
 const LOG_TAG = "ChuKittySSH";
@@ -42,6 +43,8 @@ const NativeSshSession = struct {
     hostkey_copy: ?[]u8 = null,
     last_error: std.ArrayList(u8) = .empty,
     empty_reads: u32 = 0,
+    jump: ?*NativeSshSession = null,
+    relay: ?*JumpRelay = null,
 };
 
 fn sessionFromHandle(handle: c.jlong) ?*NativeSshSession {
@@ -214,10 +217,22 @@ fn destroyNativeSshSession(session: *NativeSshSession) void {
         _ = c.libssh2_session_free(ssh_session);
     }
     closeSocket(session.socket_fd);
+    releaseJump(session);
     if (session.username) |username| allocator.free(username);
     clearHostKeyCopy(session);
     session.last_error.deinit(allocator);
     allocator.destroy(session);
+}
+
+fn releaseJump(session: *NativeSshSession) void {
+    if (session.relay) |relay| {
+        relay.deinit();
+        session.relay = null;
+    }
+    if (session.jump) |jump| {
+        destroyNativeSshSession(jump);
+        session.jump = null;
+    }
 }
 
 fn ensureSftp(session: *NativeSshSession) ?*c.LIBSSH2_SFTP {
@@ -578,53 +593,54 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeDestroySes
     destroyNativeSshSession(session);
 }
 
-export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeConnect(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, host: c.jstring, port: c.jint, username: c.jstring, ipv4_only: c.jboolean) callconv(.c) c.jboolean {
-    _ = thiz;
-    const session = sessionFromHandle(handle) orelse return c.JNI_FALSE;
+const ConnectTarget = struct {
+    host_z: [:0]u8,
+    port: u16,
+
+    fn deinit(self: ConnectTarget) void {
+        allocator.free(self.host_z);
+    }
+};
+
+fn beginConnect(session: *NativeSshSession, env: *c.JNIEnv, host: c.jstring, port: c.jint, username: c.jstring) ?ConnectTarget {
     const host_slice = jniDupString(env, host) orelse {
         setError(session, "Missing host", .{});
-        return c.JNI_FALSE;
+        return null;
     };
     defer allocator.free(host_slice);
     const host_z = dupSentinel(host_slice) orelse {
         setError(session, "Host alloc failed", .{});
-        return c.JNI_FALSE;
+        return null;
     };
-    defer allocator.free(host_z);
     const username_slice = jniDupString(env, username) orelse {
         setError(session, "Missing username", .{});
-        return c.JNI_FALSE;
+        allocator.free(host_z);
+        return null;
     };
     defer allocator.free(username_slice);
 
-    logInfo("nativeConnect host={s} port={} user={s}", .{ host_slice, port, username_slice });
+    logInfo("connect host={s} port={} user={s}", .{ host_slice, port, username_slice });
 
     session.last_error.clearRetainingCapacity();
     clearHostKeyCopy(session);
     if (session.username) |old| allocator.free(old);
     session.username = allocator.dupe(u8, username_slice) catch {
         setError(session, "Username alloc failed", .{});
-        return c.JNI_FALSE;
+        allocator.free(host_z);
+        return null;
     };
+    return .{ .host_z = host_z, .port = @intCast(std.math.clamp(port, 0, std.math.maxInt(u16))) };
+}
 
-    const family: c_int = if (ipv4_only != c.JNI_FALSE) c.AF_INET else c.AF_UNSPEC;
-    const fd = connectSocket(host_z, @intCast(@max(port, 0)), family) catch |err| {
-        logError("Socket connect failed host={s} port={} err={s}", .{ host_slice, port, @errorName(err) });
-        if (family == c.AF_INET and err == error.AddressLookupFailed) {
-            setError(session, "No IPv4 address found for host={s}", .{host_slice});
-        } else {
-            setError(session, "Socket connect failed host={s} port={}", .{ host_slice, port });
-        }
-        return c.JNI_FALSE;
-    };
-    logInfo("Socket connected fd={}", .{fd});
+fn handshakeOnSocket(session: *NativeSshSession, fd: c_int) bool {
+    std.debug.assert(session.session == null);
     session.socket_fd = fd;
 
     const ssh_session = c.libssh2_session_init_ex(null, null, null, null) orelse {
         setError(session, "libssh2_session_init_ex failed", .{});
         closeSocket(fd);
         session.socket_fd = -1;
-        return c.JNI_FALSE;
+        return false;
     };
     session.session = ssh_session;
     c.libssh2_session_set_blocking(ssh_session, 0);
@@ -635,31 +651,118 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeConnect(en
         if (handshake_rc != c.LIBSSH2_ERROR_EAGAIN) {
             logError("SSH handshake failed rc={}", .{handshake_rc});
             setLibssh2Error(session, "SSH handshake failed", handshake_rc);
-            return c.JNI_FALSE;
+            return false;
         }
         if (!waitSocket(session, setup_wait_timeout_ms)) {
             logError("SSH handshake timed out", .{});
             setError(session, "SSH handshake timed out", .{});
-            return c.JNI_FALSE;
+            return false;
         }
     }
     logInfo("SSH handshake completed", .{});
+    return copyHostKey(session, ssh_session);
+}
 
+fn copyHostKey(session: *NativeSshSession, ssh_session: *c.LIBSSH2_SESSION) bool {
     var hostkey_len: usize = 0;
     const hostkey_ptr = c.libssh2_session_hostkey(ssh_session, &hostkey_len, &session.hostkey_type);
     if (hostkey_ptr == null or hostkey_len == 0) {
         setError(session, "Missing server host key", .{});
-        return c.JNI_FALSE;
+        return false;
     }
     const hostkey_copy = allocator.alloc(u8, hostkey_len) catch {
         setError(session, "Host key copy alloc failed", .{});
-        return c.JNI_FALSE;
+        return false;
     };
     @memcpy(hostkey_copy, hostkey_ptr[0..hostkey_len]);
     session.hostkey_copy = hostkey_copy;
     session.hostkey_ptr = hostkey_copy.ptr;
     session.hostkey_len = hostkey_len;
-    return c.JNI_TRUE;
+    return true;
+}
+
+export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeConnect(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, host: c.jstring, port: c.jint, username: c.jstring, ipv4_only: c.jboolean) callconv(.c) c.jboolean {
+    _ = thiz;
+    const session = sessionFromHandle(handle) orelse return c.JNI_FALSE;
+    const target = beginConnect(session, env, host, port, username) orelse return c.JNI_FALSE;
+    defer target.deinit();
+
+    const family: c_int = if (ipv4_only != c.JNI_FALSE) c.AF_INET else c.AF_UNSPEC;
+    const fd = connectSocket(target.host_z, target.port, family) catch |err| {
+        logError("Socket connect failed host={s} port={} err={s}", .{ target.host_z, target.port, @errorName(err) });
+        if (family == c.AF_INET and err == error.AddressLookupFailed) {
+            setError(session, "No IPv4 address found for host={s}", .{target.host_z});
+        } else {
+            setError(session, "Socket connect failed host={s} port={}", .{ target.host_z, target.port });
+        }
+        return c.JNI_FALSE;
+    };
+    logInfo("Socket connected fd={}", .{fd});
+    return if (handshakeOnSocket(session, fd)) c.JNI_TRUE else c.JNI_FALSE;
+}
+
+fn openJumpChannel(session: *NativeSshSession, jump: *NativeSshSession, target: ConnectTarget) ?*c.LIBSSH2_CHANNEL {
+    const jump_session = jump.session orelse {
+        setError(session, "Jump host is not connected", .{});
+        return null;
+    };
+    while (true) {
+        const channel = c.libssh2_channel_direct_tcpip_ex(jump_session, target.host_z.ptr, target.port, "127.0.0.1", 22);
+        if (channel) |opened| return opened;
+        const rc = c.libssh2_session_last_errno(jump_session);
+        if (rc != c.LIBSSH2_ERROR_EAGAIN) {
+            var errmsg_ptr: [*c]u8 = null;
+            var errmsg_len: c_int = 0;
+            _ = c.libssh2_session_last_error(jump_session, &errmsg_ptr, &errmsg_len, 0);
+            const detail = if (errmsg_ptr != null and errmsg_len > 0) errmsg_ptr[0..@intCast(errmsg_len)] else "channel refused";
+            setError(session, "Jump host could not reach {s}:{}: {s} (rc={})", .{ target.host_z, target.port, detail, rc });
+            return null;
+        }
+        if (!waitSocket(jump, setup_wait_timeout_ms)) {
+            setError(session, "Jump host timed out opening a tunnel to {s}:{}", .{ target.host_z, target.port });
+            return null;
+        }
+    }
+}
+
+fn startJumpRelay(session: *NativeSshSession, jump: *NativeSshSession, channel: *c.LIBSSH2_CHANNEL) ?c_int {
+    var fds: [2]c_int = .{ -1, -1 };
+    if (c.socketpair(c.AF_UNIX, c.SOCK_STREAM, 0, &fds) != 0) {
+        setError(session, "Jump relay socketpair failed errno={}", .{c.__errno().*});
+        _ = c.libssh2_channel_free(channel);
+        return null;
+    }
+    setSocketNonBlocking(jump.socket_fd);
+    setSocketNonBlocking(fds[0]);
+    setSocketNonBlocking(fds[1]);
+    session.relay = JumpRelay.start(jump.session.?, jump.socket_fd, channel, fds[1]) catch |err| {
+        setError(session, "Jump relay start failed: {s}", .{@errorName(err)});
+        _ = c.libssh2_channel_free(channel);
+        closeSocket(fds[0]);
+        closeSocket(fds[1]);
+        return null;
+    };
+    return fds[0];
+}
+
+export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeConnectViaJump(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, jump_handle: c.jlong, host: c.jstring, port: c.jint, username: c.jstring) callconv(.c) c.jboolean {
+    _ = thiz;
+    const jump = sessionFromHandle(jump_handle) orelse return c.JNI_FALSE;
+    const session = sessionFromHandle(handle) orelse {
+        destroyNativeSshSession(jump);
+        return c.JNI_FALSE;
+    };
+    std.debug.assert(session != jump);
+    releaseJump(session);
+    session.jump = jump;
+
+    const target = beginConnect(session, env, host, port, username) orelse return c.JNI_FALSE;
+    defer target.deinit();
+
+    const channel = openJumpChannel(session, jump, target) orelse return c.JNI_FALSE;
+    const fd = startJumpRelay(session, jump, channel) orelse return c.JNI_FALSE;
+    logInfo("Jump tunnel open to {s}:{} fd={}", .{ target.host_z, target.port, fd });
+    return if (handshakeOnSocket(session, fd)) c.JNI_TRUE else c.JNI_FALSE;
 }
 
 export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeAuthenticateNone(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong) callconv(.c) c.jboolean {
@@ -1272,6 +1375,7 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeClose(env:
     }
     closeSocket(session.socket_fd);
     session.socket_fd = -1;
+    releaseJump(session);
 }
 
 export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeSftpInit(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong) callconv(.c) c.jboolean {

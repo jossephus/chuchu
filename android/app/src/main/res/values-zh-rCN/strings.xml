@@ -41,6 +41,7 @@
     <string name="section_transport">传输</string>
     <string name="section_authentication">认证</string>
     <string name="section_session_persistence">会话保持</string>
+    <string name="section_connect_via">连接方式</string>
     <string name="add_server_pairing_invalid">该二维码不是 %1$s 配对码</string>
     <string name="add_server_transport_unavailable">传输插件“%1$s”不可用。</string>
     <string name="add_server_scan_pairing">扫描配对二维码</string>
@@ -87,6 +88,7 @@
     <!-- Add / edit server -->
     <string name="add_server_title_edit">编辑主机</string>
     <string name="add_server_title_new">添加主机</string>
+    <string name="add_server_title_jump">添加跳板机</string>
     <string name="add_server_copy_suffix">副本</string>
     <string name="add_server_name_placeholder">我的服务器</string>
     <string name="add_server_tailscale_hint">通过 Tailscale 网络连接。请填写主机的 Tailscale IP（100.x.x.x）或 MagicDNS 名称。</string>
@@ -110,6 +112,9 @@
     <string name="add_server_use_existing_key">使用已有密钥</string>
     <string name="add_server_autorun">连接后自动运行</string>
     <string name="add_server_autorun_placeholder">例如 tmux attach -t main</string>
+    <string name="add_server_jump_direct">直连</string>
+    <string name="add_server_jump_new">+ 新建跳板机</string>
+    <string name="add_server_jump_unavailable">已保存的跳板机无法再使用</string>
 
     <!-- SSH keys -->
     <string name="keys_generate">+ 生成密钥</string>

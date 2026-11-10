@@ -26,5 +26,10 @@ data class HostProfile(
     @ColumnInfo(defaultValue = "NULL")
     val multiplexer: MultiplexerType? = null,
     @ColumnInfo(defaultValue = "NULL")
+    val jumpHostId: Long? = null,
+    @ColumnInfo(defaultValue = "NULL")
     val transportId: String? = null,
 )
+
+fun HostProfile.canServeAsJumpHostFor(hostId: Long?): Boolean =
+    id != hostId && transport != Transport.LocalShell && transport != Transport.Plugin && jumpHostId == null
