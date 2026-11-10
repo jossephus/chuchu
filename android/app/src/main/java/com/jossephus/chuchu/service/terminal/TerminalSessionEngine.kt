@@ -20,6 +20,7 @@ import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerSession
 import com.jossephus.chuchu.service.ssh.HostKeyCheck
 import com.jossephus.chuchu.service.ssh.HostKeyStore
 import com.jossephus.chuchu.service.ssh.NativeSshService
+import com.jossephus.chuchu.service.ssh.SshJumpHost
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
 import java.util.concurrent.Executors
 import kotlinx.coroutines.CancellationException
@@ -91,6 +92,7 @@ class TerminalSessionEngine(
         val multiplexer: MultiplexerType? = null,
         val multiplexerSessionName: String? = null,
         val multiplexerCreateIfMissing: Boolean = true,
+        val jumpHost: SshJumpHost? = null,
     ) {
         fun multiplexerStartupCommand(): String? {
             val type = multiplexer ?: return null
@@ -175,6 +177,7 @@ class TerminalSessionEngine(
         multiplexer: MultiplexerType? = null,
         multiplexerSessionName: String? = null,
         multiplexerCreateIfMissing: Boolean = true,
+        jumpHost: SshJumpHost? = null,
     ) {
         disconnectRequested = false
         val params =
@@ -192,6 +195,7 @@ class TerminalSessionEngine(
                 multiplexer = multiplexer,
                 multiplexerSessionName = multiplexerSessionName,
                 multiplexerCreateIfMissing = multiplexerCreateIfMissing,
+                jumpHost = jumpHost,
             )
         lastConnectionParams = params
         scope.launch(dispatcher) {
@@ -233,6 +237,15 @@ class TerminalSessionEngine(
                         status = SessionStatus.Error,
                         sessionKey = sessionKey,
                         error = "Native mosh unavailable. Check ABI/NDK build.",
+                    )
+                return@launch
+            }
+            if (transport == Transport.Mosh && jumpHost != null) {
+                _state.value =
+                    SessionState(
+                        status = SessionStatus.Error,
+                        sessionKey = sessionKey,
+                        error = "Mosh cannot connect through a jump host. Use SSH for this server.",
                     )
                 return@launch
             }
@@ -912,6 +925,7 @@ class TerminalSessionEngine(
             publicKeyOpenSsh = params.publicKeyOpenSsh,
             privateKeyPem = params.privateKeyPem,
             keyPassphrase = params.keyPassphrase,
+            jumpHost = params.jumpHost,
         )
         val startupCommand = params.multiplexerStartupCommand()?.trim().orEmpty()
         if (startupCommand.isNotEmpty()) {
@@ -1049,6 +1063,7 @@ class TerminalSessionEngine(
         multiplexer = multiplexer,
         multiplexerSessionName = multiplexerSessionName,
         multiplexerCreateIfMissing = multiplexerCreateIfMissing,
+        jumpHost = jumpHost,
     )
 
     private fun runMultiplexerCommand(
@@ -1067,6 +1082,7 @@ class TerminalSessionEngine(
                 publicKeyOpenSsh = params.publicKeyOpenSsh,
                 privateKeyPem = params.privateKeyPem,
                 keyPassphrase = params.keyPassphrase,
+                jumpHost = params.jumpHost,
             )
             if (!service.openExec(withExitEnvelope(command))) {
                 return MultiplexerCommandResult(1, "", "Remote server did not open an exec channel")

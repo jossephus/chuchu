@@ -26,6 +26,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -37,7 +38,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jossephus.chuchu.R
 import com.jossephus.chuchu.model.AuthMethod
+import com.jossephus.chuchu.model.HostProfile
 import com.jossephus.chuchu.model.MultiplexerType
+import com.jossephus.chuchu.model.canServeAsJumpHostFor
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
@@ -49,16 +52,24 @@ import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
 
 @Composable
-fun AddServerScreen(vm: AddServerViewModel, onBack: () -> Unit, modifier: Modifier = Modifier) {
+fun AddServerScreen(
+    vm: AddServerViewModel,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    isJumpServer: Boolean = false,
+    onSaved: (Long) -> Unit = { onBack() },
+    onAddJumpServer: () -> Unit = {},
+) {
     val form by vm.form.collectAsStateWithLifecycle()
     val testState by vm.testState.collectAsStateWithLifecycle()
     val keys by vm.keys.collectAsStateWithLifecycle()
+    val jumpHostCandidates by vm.jumpHostCandidates.collectAsStateWithLifecycle()
     val colors = ChuColors.current
     val typography = ChuTypography.current
 
     val scrollState = rememberScrollState()
     val context = LocalContext.current
-    var showAdditionalSettings by remember { mutableStateOf(false) }
+    var showAdditionalSettings by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(vm) {
         vm.errorMessage.collect { message ->
@@ -78,10 +89,10 @@ fun AddServerScreen(vm: AddServerViewModel, onBack: () -> Unit, modifier: Modifi
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             ChuText("$ ", style = typography.headline, color = colors.textMuted)
             ChuText(
-                if (form.id != null) {
-                    stringResource(R.string.add_server_title_edit)
-                } else {
-                    stringResource(R.string.add_server_title_new)
+                when {
+                    form.id != null -> stringResource(R.string.add_server_title_edit)
+                    isJumpServer -> stringResource(R.string.add_server_title_jump)
+                    else -> stringResource(R.string.add_server_title_new)
                 },
                 style = typography.headline,
             )
@@ -291,6 +302,18 @@ fun AddServerScreen(vm: AddServerViewModel, onBack: () -> Unit, modifier: Modifi
             }
         }
         if (showAdditionalSettings) {
+            if (form.transport != Transport.Mosh && !isJumpServer) {
+                JumpHostSection(
+                    selectedId = form.jumpHostId,
+                    candidates =
+                        jumpHostCandidates.filter {
+                            it.canServeAsJumpHostFor(form.id) || it.id == form.jumpHostId
+                        },
+                    onSelect = vm::updateJumpHost,
+                    onAddJumpServer = onAddJumpServer,
+                )
+                SectionDivider()
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -333,7 +356,7 @@ fun AddServerScreen(vm: AddServerViewModel, onBack: () -> Unit, modifier: Modifi
             ChuText(testState.message ?: "", style = typography.bodySmall, color = colors.error)
         }
         ChuButton(
-            onClick = { vm.save(onBack) },
+            onClick = { vm.save(onSaved) },
             enabled = form.canSave(),
             variant = ChuButtonVariant.Outlined,
             bracketed = true,
@@ -471,6 +494,69 @@ private fun KeyAuthSection(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun JumpHostSection(
+    selectedId: Long?,
+    candidates: List<HostProfile>,
+    onSelect: (Long?) -> Unit,
+    onAddJumpServer: () -> Unit,
+) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+
+    SectionHeader(stringResource(R.string.section_connect_via))
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        JumpHostOption(
+            label = stringResource(R.string.add_server_jump_direct),
+            detail = "",
+            isSelected = selectedId == null,
+            onClick = { onSelect(null) },
+        )
+        candidates.forEach { host ->
+            JumpHostOption(
+                label = host.name,
+                detail = "${host.username}@${host.host}",
+                isSelected = host.id == selectedId,
+                onClick = { onSelect(host.id) },
+            )
+        }
+    }
+    if (selectedId != null && candidates.none { it.id == selectedId }) {
+        ChuText(
+            stringResource(R.string.add_server_jump_unavailable),
+            style = typography.bodySmall,
+            color = colors.error,
+        )
+    }
+    ChuButton(
+        onClick = onAddJumpServer,
+        variant = ChuButtonVariant.Ghost,
+        bracketed = true,
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+    ) {
+        ChuText(stringResource(R.string.add_server_jump_new), style = typography.labelSmall, color = colors.accent)
+    }
+}
+
+@Composable
+private fun JumpHostOption(label: String, detail: String, isSelected: Boolean, onClick: () -> Unit) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+    ) {
+        ChuText(
+            text = (if (isSelected) "● " else "○ ") + label,
+            style = typography.body,
+            color = if (isSelected) colors.accent else colors.textPrimary,
+        )
+        ChuText(detail, style = typography.bodySmall, color = colors.textMuted)
     }
 }
 

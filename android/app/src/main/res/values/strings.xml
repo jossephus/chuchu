@@ -43,6 +43,7 @@
     <string name="section_transport">TRANSPORT</string>
     <string name="section_authentication">AUTHENTICATION</string>
     <string name="section_session_persistence">SESSION PERSISTENCE</string>
+    <string name="section_connect_via">CONNECT VIA</string>
 
     <!-- Shared option labels -->
     <string name="auth_password">password</string>
@@ -83,6 +84,7 @@
     <!-- Add / edit server -->
     <string name="add_server_title_edit">edit server</string>
     <string name="add_server_title_new">add server</string>
+    <string name="add_server_title_jump">add jump server</string>
     <string name="add_server_copy_suffix">copy</string>
     <string name="add_server_name_placeholder">My server</string>
     <string name="add_server_tailscale_hint">Connects through the Tailscale network. Use the host\'s Tailscale IP (100.x.x.x) or MagicDNS name.</string>
@@ -106,6 +108,9 @@
     <string name="add_server_use_existing_key">use existing key</string>
     <string name="add_server_autorun">auto-run on connect</string>
     <string name="add_server_autorun_placeholder">e.g. tmux attach -t main</string>
+    <string name="add_server_jump_direct">direct</string>
+    <string name="add_server_jump_new">+ new jump server</string>
+    <string name="add_server_jump_unavailable">saved jump host can no longer be used</string>
 
     <!-- SSH keys -->
     <string name="keys_generate">+ generate key</string>
