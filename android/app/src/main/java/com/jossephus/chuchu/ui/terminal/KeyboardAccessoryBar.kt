@@ -55,6 +55,13 @@ import kotlinx.coroutines.withTimeoutOrNull
 private const val INITIAL_REPEAT_DELAY_MS = 400L
 private const val REPEAT_INTERVAL_MS = 50L
 
+/**
+ * Renders terminal accessory keys in either a horizontally scrollable
+ * single row or an adaptive two-row layout.
+ *
+ * @param entries Resolved accessory keys and groups in display order.
+ * @param useSingleRow Whether to use the single-row layout.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun KeyboardAccessoryBar(
@@ -129,6 +136,8 @@ fun KeyboardAccessoryBar(
                     buttonPadding = buttonPadding,
                 )
             }
+            // Keep the return scoped to Column instead of exiting
+            // KeyboardAccessoryBar during composition.
             return@Column
         }
 
@@ -169,6 +178,13 @@ fun KeyboardAccessoryBar(
     }
 }
 
+/**
+ * Measures and arranges accessory entries while keeping overflow reachable.
+ *
+ * Passes entries directly to [key] rather than looking them up by index,
+ * avoiding stale positional access when the key list changes during
+ * recomposition.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TwoRowAccessoryLayout(
