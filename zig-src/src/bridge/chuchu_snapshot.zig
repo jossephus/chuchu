@@ -32,7 +32,7 @@ const verbose_snapshot_perf_logs = false;
 //      pane-scoped selection.)
 //  14  cursor_style (the visual shape the app requested via DECSCUSR:
 //      0 = block, 1 = bar, 2 = underline, 3 = block_hollow)
-const SNAPSHOT_HEADER_I32_COUNT = 15;
+const SNAPSHOT_HEADER_I32_COUNT = 18;
 const SNAPSHOT_CELL_SIZE_BYTES = 11;
 // Flag bit set on a cell whose codepoint has additional grapheme codepoints
 // in the extras section.
@@ -467,6 +467,7 @@ fn chuchuDecodePng(alloc: std.mem.Allocator, data: []const u8) ghostty.sys.Decod
 
 export fn update_render_state(terminal: ?*ChuchuTerminal) callconv(.c) void {
     if (terminal == null) return;
+    terminal.?.render_state.overscan_request = .{ .above = 1, .below = 1 };
     terminal.?.render_state.update(allocator, &terminal.?.terminal) catch return;
     updateMetadata(terminal.?);
 }
@@ -932,7 +933,10 @@ export fn chuchu_build_text_snapshot(handle: c.jlong, out_size: [*c]usize) callc
     const cols: usize = terminal.render_state.cols;
     const rows: usize = terminal.render_state.rows;
     const header_size = SNAPSHOT_HEADER_I32_COUNT * @sizeOf(i32);
-    const grid_size = cols * rows * SNAPSHOT_CELL_SIZE_BYTES;
+    const overscan_above: usize = @min(terminal.render_state.overscan.above, 1);
+    const overscan_below: usize = @min(terminal.render_state.overscan.below, 1);
+    const row_count = rows + overscan_above + overscan_below;
+    const grid_size = cols * row_count * SNAPSHOT_CELL_SIZE_BYTES;
     const base_total_size = header_size + grid_size;
 
     var buffer = ensureListSize(&terminal.snapshot_buffer, base_total_size) orelse return null;
@@ -971,6 +975,9 @@ export fn chuchu_build_text_snapshot(handle: c.jlong, out_size: [*c]usize) callc
         .block_hollow => 3,
     };
     writeIntLe(i32, buffer[0..base_total_size], 56, cursor_style);
+    writeIntLe(i32, buffer[0..base_total_size], 60, if (scrollGoesToApp(terminal)) 0 else 1);
+    writeIntLe(i32, buffer[0..base_total_size], 64, @intCast(overscan_above));
+    writeIntLe(i32, buffer[0..base_total_size], 68, @intCast(overscan_below));
 
     terminal.snapshot_extras_scratch.clearRetainingCapacity();
     var extras_records: usize = 0;
@@ -978,8 +985,18 @@ export fn chuchu_build_text_snapshot(handle: c.jlong, out_size: [*c]usize) callc
 
     const row_slice = terminal.render_state.row_data.slice();
     const row_cells = row_slice.items(.cells);
+    const viewport_start = terminal.render_state.viewportStart();
     var cell_index: usize = 0;
-    for (row_cells[0..rows]) |cells| {
+    var row_ord: usize = 0;
+    while (row_ord < row_count) : (row_ord += 1) {
+        const in_viewport = row_ord < rows;
+        const data_index = if (in_viewport)
+            viewport_start + row_ord
+        else if (row_ord == rows and overscan_above == 1)
+            viewport_start - 1
+        else
+            viewport_start + rows;
+        const cells = row_cells[data_index];
         const cell_slice = cells.slice();
         const render_cells = cell_slice.items(.raw);
         const graphemes = cell_slice.items(.grapheme);
@@ -1013,7 +1030,7 @@ export fn chuchu_build_text_snapshot(handle: c.jlong, out_size: [*c]usize) callc
                 flags |= CELL_FLAG_SPACER;
             }
 
-            if (cellHasExtras(render_cell)) {
+            if (in_viewport and cellHasExtras(render_cell)) {
                 flags |= CELL_FLAG_HAS_GRAPHEME;
                 std.debug.assert(this_index <= std.math.maxInt(u32));
                 std.debug.assert(render_cell.grapheme.len <= std.math.maxInt(u32));
@@ -1460,19 +1477,17 @@ export fn chuchu_resize(handle: c.jlong, cols: c.jint, rows: c.jint, cell_width:
     update_render_state(terminal);
 }
 
+fn scrollGoesToApp(terminal: *ChuchuTerminal) bool {
+    const in_alt_screen = terminal.terminal.modes.get(.alt_screen) or
+        terminal.terminal.modes.get(.alt_screen_legacy) or
+        terminal.terminal.modes.get(.alt_screen_save_cursor_clear_enter);
+    return in_alt_screen or terminal.terminal.flags.mouse_event != .none;
+}
+
 export fn chuchu_scroll(handle: c.jlong, delta: c.jint, x: c.jfloat, y: c.jfloat) callconv(.c) void {
     const terminal = chuchuFromHandle(handle) orelse return;
 
-    // Check if we're in alternate screen mode (used by vim, tmux, less, etc.)
-    const alt_screen = terminal.terminal.modes.get(.alt_screen);
-    const alt_screen_legacy = terminal.terminal.modes.get(.alt_screen_legacy);
-    const alt_screen_1049 = terminal.terminal.modes.get(.alt_screen_save_cursor_clear_enter);
-    const in_alt_screen = alt_screen or alt_screen_legacy or alt_screen_1049;
-
-    // Check if mouse reporting is enabled (any mode other than none)
-    const mouse_reporting_enabled = terminal.terminal.flags.mouse_event != .none;
-
-    if (in_alt_screen or mouse_reporting_enabled) {
+    if (scrollGoesToApp(terminal)) {
         // Send mouse scroll events to the application.
         // Negative delta = scroll up (older content) → button 4.
         // Positive delta = scroll down (newer content) → button 5.
