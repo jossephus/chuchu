@@ -140,6 +140,7 @@ class TerminalSessionEngine(
     private var snapshotJob: Job? = null
     private val readWake = Channel<Unit>(Channel.CONFLATED)
     private var lastInputAtMs = 0L
+    private var viewportAtActive = true
     private val snapshotIntervalMs = 16L
     private var title: String? = null
     private var pwd: String? = null
@@ -518,6 +519,7 @@ class TerminalSessionEngine(
                 return@launch
             }
             bridge.nativeScroll(handle, delta, x, y)
+            viewportAtActive = false
             flushPtyWrites()
             requestSnapshot(force = true)
         }
@@ -525,8 +527,9 @@ class TerminalSessionEngine(
 
     fun scrollToActive() {
         scope.launch(dispatcher) {
-            if (handle == 0L) return@launch
+            if (handle == 0L || viewportAtActive) return@launch
             bridge.nativeScrollToActive(handle)
+            viewportAtActive = true
             requestSnapshot(force = true)
         }
     }
