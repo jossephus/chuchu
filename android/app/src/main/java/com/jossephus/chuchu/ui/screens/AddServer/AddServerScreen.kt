@@ -26,6 +26,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -49,7 +50,14 @@ import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
 
 @Composable
-fun AddServerScreen(vm: AddServerViewModel, onBack: () -> Unit, modifier: Modifier = Modifier) {
+fun AddServerScreen(
+    vm: AddServerViewModel,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    isJumpServer: Boolean = false,
+    onSaved: (Long) -> Unit = { onBack() },
+    onAddJumpServer: () -> Unit = {},
+) {
     val form by vm.form.collectAsStateWithLifecycle()
     val testState by vm.testState.collectAsStateWithLifecycle()
     val keys by vm.keys.collectAsStateWithLifecycle()
@@ -59,7 +67,7 @@ fun AddServerScreen(vm: AddServerViewModel, onBack: () -> Unit, modifier: Modifi
 
     val scrollState = rememberScrollState()
     val context = LocalContext.current
-    var showAdditionalSettings by remember { mutableStateOf(false) }
+    var showAdditionalSettings by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(vm) {
         vm.errorMessage.collect { message ->
@@ -79,7 +87,11 @@ fun AddServerScreen(vm: AddServerViewModel, onBack: () -> Unit, modifier: Modifi
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             ChuText("$ ", style = typography.headline, color = colors.textMuted)
             ChuText(
-                if (form.id != null) "edit server" else "add server",
+                when {
+                    form.id != null -> "edit server"
+                    isJumpServer -> "add jump server"
+                    else -> "add server"
+                },
                 style = typography.headline,
             )
         }
@@ -277,6 +289,18 @@ fun AddServerScreen(vm: AddServerViewModel, onBack: () -> Unit, modifier: Modifi
             }
         }
         if (showAdditionalSettings) {
+            if (form.transport != Transport.Mosh && !isJumpServer) {
+                JumpHostSection(
+                    selectedId = form.jumpHostId,
+                    candidates =
+                        jumpHostCandidates.filter {
+                            it.canServeAsJumpHostFor(form.id) || it.id == form.jumpHostId
+                        },
+                    onSelect = vm::updateJumpHost,
+                    onAddJumpServer = onAddJumpServer,
+                )
+                SectionDivider()
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -290,17 +314,6 @@ fun AddServerScreen(vm: AddServerViewModel, onBack: () -> Unit, modifier: Modifi
             }
             SectionDivider()
             MultiplexerSection(selected = form.multiplexer, onSelect = vm::updateMultiplexer)
-            if (form.transport != Transport.Mosh) {
-                SectionDivider()
-                JumpHostSection(
-                    selectedId = form.jumpHostId,
-                    candidates =
-                        jumpHostCandidates.filter {
-                            it.canServeAsJumpHostFor(form.id) || it.id == form.jumpHostId
-                        },
-                    onSelect = vm::updateJumpHost,
-                )
-            }
             SectionDivider()
             PostConnectActionSection(
                 command = form.postConnectCommand,
@@ -330,7 +343,7 @@ fun AddServerScreen(vm: AddServerViewModel, onBack: () -> Unit, modifier: Modifi
             ChuText(testState.message ?: "", style = typography.bodySmall, color = colors.error)
         }
         ChuButton(
-            onClick = { vm.save(onBack) },
+            onClick = { vm.save(onSaved) },
             enabled = form.canSave(),
             variant = ChuButtonVariant.Outlined,
             bracketed = true,
@@ -467,74 +480,43 @@ private fun JumpHostSection(
     selectedId: Long?,
     candidates: List<HostProfile>,
     onSelect: (Long?) -> Unit,
+    onAddJumpServer: () -> Unit,
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
-    var pickerExpanded by remember { mutableStateOf(false) }
-    val selected = candidates.firstOrNull { it.id == selectedId }
 
-    SectionHeader("JUMP HOST")
-    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-        if (selected != null) {
-            ChuText("● ", style = typography.body, color = colors.accent)
-            ChuText(
-                "${selected.name}  ·  ${selected.username}@${selected.host}:${selected.port}",
-                style = typography.body,
-                color = colors.textPrimary,
-            )
-        } else if (selectedId != null) {
-            ChuText(
-                "saved jump host can no longer be used",
-                style = typography.body,
-                color = colors.error,
-            )
-        } else {
-            ChuText("direct connection", style = typography.body, color = colors.textMuted)
-        }
-    }
-    if (candidates.isEmpty()) {
-        ChuText(
-            "save the jump host as a server first, then pick it here.",
-            style = typography.bodySmall,
-            color = colors.textMuted,
-        )
-        return
-    }
-    ChuButton(
-        onClick = { pickerExpanded = !pickerExpanded },
-        variant = ChuButtonVariant.Ghost,
-        bracketed = true,
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-    ) {
-        ChuText(
-            text = if (selected != null) "change jump host" else "connect through a jump host",
-            style = typography.labelSmall,
-            color = colors.accent,
-        )
-    }
-    if (!pickerExpanded) return
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    SectionHeader("CONNECT VIA")
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         JumpHostOption(
-            label = "none (direct)",
+            label = "direct",
             detail = "",
             isSelected = selectedId == null,
-            onClick = {
-                onSelect(null)
-                pickerExpanded = false
-            },
+            onClick = { onSelect(null) },
         )
         candidates.forEach { host ->
             JumpHostOption(
                 label = host.name,
                 detail = "${host.username}@${host.host}",
-                isSelected = host.id == selected?.id,
-                onClick = {
-                    onSelect(host.id)
-                    pickerExpanded = false
-                },
+                isSelected = host.id == selectedId,
+                onClick = { onSelect(host.id) },
             )
         }
+    }
+    if (selectedId != null && candidates.none { it.id == selectedId }) {
+        ChuText(
+            "saved jump host can no longer be used",
+            style = typography.bodySmall,
+            color = colors.error,
+        )
+    }
+    ChuButton(
+        onClick = onAddJumpServer,
+        variant = ChuButtonVariant.Ghost,
+        bracketed = true,
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+    ) {
+        ChuText("+ new jump server", style = typography.labelSmall, color = colors.accent)
     }
 }
 
@@ -548,7 +530,7 @@ private fun JumpHostOption(label: String, detail: String, isSelected: Boolean, o
         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
     ) {
         ChuText(
-            text = (if (isSelected) "● " else "  ") + label,
+            text = (if (isSelected) "● " else "○ ") + label,
             style = typography.body,
             color = if (isSelected) colors.accent else colors.textPrimary,
         )

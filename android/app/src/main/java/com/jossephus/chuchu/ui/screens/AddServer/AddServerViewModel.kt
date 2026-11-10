@@ -284,7 +284,7 @@ class AddServerViewModel(application: Application, private val hostId: Long?) :
         }
     }
 
-    fun save(onComplete: () -> Unit) {
+    fun save(onComplete: (Long) -> Unit) {
         val current = _form.value
         val host = current.host.filterNot { it.isWhitespace() }
         val port = current.port.toIntOrNull() ?: 22
@@ -313,8 +313,8 @@ class AddServerViewModel(application: Application, private val hostId: Long?) :
                         },
                     jumpHostId = current.jumpHostId.takeIf { current.transport != Transport.Mosh },
                 )
-            hostRepository.upsert(profile)
-            onComplete()
+            val savedId = hostRepository.upsert(profile)
+            onComplete(current.id ?: savedId)
         }
     }
 
