@@ -253,7 +253,7 @@ internal fun TerminalViewport(
         TerminalStatusBadges(
             // A released tab reattaching keeps its last screen; say it is catching up.
             // The viewport only draws once there is a snapshot, so Connecting here means reattaching.
-            isReattaching = liveState.status == SessionStatus.Connecting,
+            isReattaching = sessionState.status == SessionStatus.Connecting,
             isReconnecting = isReconnecting,
             reconnectAttempt = sessionState.reconnectAttempt,
             duplicateLoading = duplicateLoading,
