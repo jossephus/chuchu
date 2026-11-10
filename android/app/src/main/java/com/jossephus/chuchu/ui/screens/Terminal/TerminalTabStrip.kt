@@ -17,19 +17,20 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.jossephus.chuchu.R
 import com.jossephus.chuchu.service.terminal.SessionStatus
 import kotlinx.coroutines.flow.map
 import kotlin.math.roundToInt
@@ -46,14 +47,14 @@ private const val TAB_TITLE_COLLISION_PREFIX_LENGTH = 14
 /**
  * Human-readable status text for accessibility.
  */
+@Composable
 internal fun statusLabel(status: SessionStatus): String = when (status) {
-    SessionStatus.Connected -> "connected"
-    SessionStatus.Connecting -> "connecting"
-    SessionStatus.Reconnecting -> "reconnecting"
-    SessionStatus.Disconnected -> "disconnected"
-    SessionStatus.Error -> "error"
+    SessionStatus.Connected -> stringResource(R.string.session_status_connected)
+    SessionStatus.Connecting -> stringResource(R.string.session_status_connecting)
+    SessionStatus.Reconnecting -> stringResource(R.string.session_status_reconnecting)
+    SessionStatus.Disconnected -> stringResource(R.string.session_status_disconnected)
+    SessionStatus.Error -> stringResource(R.string.session_status_error)
 }
-
 /**
  * Always-visible global top tab strip for strip mode.
  *
@@ -74,8 +75,7 @@ fun TerminalTabStrip(
     val typography = ChuTypography.current
     val scrollState = rememberScrollState()
     val trailingActionWidth = if (tabs.isNotEmpty()) 72.dp else 40.dp
-    val tabOffsets = remember { mutableStateMapOf<String, Int>() }
-    val rowRootLeft = remember { mutableStateOf(0) }
+    val tabBounds = remember { mutableStateMapOf<String, IntRange>() }
     val titles = tabs.map { tab ->
         val title by remember(tab) {
             tab.sessionState.map { it.title?.takeIf(String::isNotBlank) }
@@ -87,10 +87,11 @@ fun TerminalTabStrip(
         .groupingBy { it.take(TAB_TITLE_COLLISION_PREFIX_LENGTH) }
         .eachCount()
 
-    val activeTabOffset = activeTabId?.let { tabOffsets[it] }
+    val activeTabBounds = activeTabId?.let { tabBounds[it] }
 
-    LaunchedEffect(activeTabId, activeTabOffset) {
-        val target = activeTabOffset ?: return@LaunchedEffect
+    LaunchedEffect(activeTabId, activeTabBounds) {
+        val bounds = activeTabBounds ?: return@LaunchedEffect
+        val target = scrollToReveal(bounds, scrollState.value, scrollState.viewportSize) ?: return@LaunchedEffect
         scrollState.animateScrollTo(target)
     }
 
@@ -104,10 +105,7 @@ fun TerminalTabStrip(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(end = trailingActionWidth)
-                .horizontalScroll(scrollState)
-                .onGloballyPositioned { coords ->
-                    rowRootLeft.value = coords.localToRoot(Offset.Zero).x.roundToInt()
-                },
+                .horizontalScroll(scrollState),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
@@ -124,7 +122,8 @@ fun TerminalTabStrip(
                 Box(
                     modifier = Modifier
                         .onGloballyPositioned { coords ->
-                            tabOffsets[tab.id] = coords.localToRoot(Offset.Zero).x.roundToInt() - rowRootLeft.value + scrollState.value
+                            val start = coords.positionInParent().x.roundToInt()
+                            tabBounds[tab.id] = start until start + coords.size.width
                         }
                         .semantics { contentDescription = label }
                         .defaultMinSize(minHeight = 32.dp)
@@ -170,7 +169,7 @@ fun TerminalTabStrip(
                     modifier = Modifier.defaultMinSize(minHeight = 32.dp, minWidth = 32.dp),
                     variant = ChuButtonVariant.Ghost,
                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
-                    contentDescription = "all tabs",
+                    contentDescription = stringResource(R.string.tabs_all),
                 ) {
                     ChuText(
                         if (tabs.size > 99) "≡" else "${tabs.size}",
@@ -186,7 +185,7 @@ fun TerminalTabStrip(
                     modifier = Modifier.defaultMinSize(minHeight = 32.dp, minWidth = 32.dp),
                     variant = ChuButtonVariant.Ghost,
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                    contentDescription = "new connection",
+                    contentDescription = stringResource(R.string.tabs_new_connection),
                 ) {
                     ChuText("+", style = typography.label, color = colors.accent)
                 }
@@ -195,3 +194,10 @@ fun TerminalTabStrip(
         }
     }
 }
+
+internal fun scrollToReveal(bounds: IntRange, scroll: Int, viewport: Int): Int? =
+    when {
+        bounds.first < scroll -> bounds.first
+        bounds.last + 1 > scroll + viewport -> bounds.last + 1 - viewport
+        else -> null
+    }

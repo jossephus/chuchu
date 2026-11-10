@@ -36,6 +36,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -44,6 +46,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.jossephus.chuchu.R
 import com.jossephus.chuchu.data.backup.BackupImportPlan
 import com.jossephus.chuchu.data.backup.CHUCHU_BACKUP_MIME_TYPE
 import com.jossephus.chuchu.data.backup.KeyImportAction
@@ -215,13 +218,13 @@ internal fun SshBackupSheet(
                     verticalAlignment = Alignment.Top,
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        ChuText("ssh hosts & keys backup", style = typography.headline)
+                        ChuText(stringResource(R.string.settings_backup_title), style = typography.headline)
                         ChuText(
                             text = when (effectiveStep) {
-                                is SheetStep.Overview -> "Backup your SSH keys and server profiles."
-                                is SheetStep.ExportPassphrase -> "Create an encrypted backup file."
-                                is SheetStep.ImportPassphrase -> "Restore from an encrypted backup file."
-                                is SheetStep.ImportPreview -> "Review what will be imported."
+                                is SheetStep.Overview -> stringResource(R.string.backup_subtitle_overview)
+                                is SheetStep.ExportPassphrase -> stringResource(R.string.backup_subtitle_export)
+                                is SheetStep.ImportPassphrase -> stringResource(R.string.backup_subtitle_import)
+                                is SheetStep.ImportPreview -> stringResource(R.string.backup_subtitle_preview)
                             },
                             style = typography.body,
                             color = colors.textSecondary,
@@ -266,8 +269,8 @@ internal fun SshBackupSheet(
                             onExport = {
                                 requireUserVerification(
                                     context = context,
-                                    title = "Export SSH backup",
-                                    subtitle = "Authenticate to create an encrypted backup",
+                                    title = context.getString(R.string.verification_export_title),
+                                    subtitle = context.getString(R.string.verification_export_subtitle),
                                 ) { result ->
                                     if (result == VerificationResult.Success || result == VerificationResult.Unavailable) {
                                         exportLauncher.launch(defaultBackupFileName())
@@ -290,8 +293,8 @@ internal fun SshBackupSheet(
                             onImport = {
                                 requireUserVerification(
                                     context = context,
-                                    title = "Import SSH backup",
-                                    subtitle = "Authenticate to restore an encrypted backup",
+                                    title = context.getString(R.string.verification_import_title),
+                                    subtitle = context.getString(R.string.verification_import_subtitle),
                                 ) { result ->
                                     if (result == VerificationResult.Success || result == VerificationResult.Unavailable) {
                                         importLauncher.launch(arrayOf(CHUCHU_BACKUP_MIME_TYPE, "*/*"))
@@ -321,7 +324,7 @@ internal fun SshBackupSheet(
                     if (isBusy) {
                         ChuCard(modifier = Modifier.fillMaxWidth()) {
                             ChuText(
-                                text = "Working…",
+                                text = stringResource(R.string.backup_working),
                                 style = typography.body,
                                 color = colors.textMuted,
                                 modifier = Modifier.padding(12.dp),
@@ -366,7 +369,7 @@ internal fun SshBackupSheet(
                             bracketed = true,
                             modifier = Modifier.weight(1f),
                         ) {
-                            ChuText("dismiss", style = typography.label)
+                            ChuText(stringResource(R.string.action_dismiss), style = typography.label)
                         }
                     }
                 }
@@ -410,7 +413,7 @@ internal fun SshBackupSheet(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        ChuText("ssh key details", style = typography.headline)
+                        ChuText(stringResource(R.string.backup_key_details_title), style = typography.headline)
                         ChuButton(
                             onClick = { selectedKeyDetails = null },
                             variant = ChuButtonVariant.Ghost,
@@ -457,7 +460,7 @@ private fun OverviewContent(
             // Key list (safe metadata only)
             if (keys.isNotEmpty()) {
                 ChuText(
-                    text = "configured keys:",
+                    text = stringResource(R.string.backup_configured_keys),
                     style = typography.labelSmall,
                     color = colors.textSecondary,
                 )
@@ -469,7 +472,7 @@ private fun OverviewContent(
                 }
             } else {
                 ChuText(
-                    text = "No SSH keys configured yet. Add keys in a server profile.",
+                    text = stringResource(R.string.backup_no_keys),
                     style = typography.body,
                     color = colors.textSecondary,
                 )
@@ -477,7 +480,7 @@ private fun OverviewContent(
 
             // Warning about encrypted secrets
             ChuText(
-                text = "Backups include all private keys, passwords, and passphrases inside an encrypted file.",
+                text = stringResource(R.string.backup_include_warning),
                 style = typography.bodySmall,
                 color = colors.textMuted,
             )
@@ -495,7 +498,7 @@ private fun OverviewContent(
             bracketed = true,
             modifier = Modifier.weight(1f),
         ) {
-            ChuText("export", style = typography.label, color = colors.accent)
+            ChuText(stringResource(R.string.action_export), style = typography.label, color = colors.accent)
         }
         ChuButton(
             onClick = onImport,
@@ -504,7 +507,7 @@ private fun OverviewContent(
             bracketed = true,
             modifier = Modifier.weight(1f),
         ) {
-            ChuText("import", style = typography.label, color = colors.accent)
+            ChuText(stringResource(R.string.action_import), style = typography.label, color = colors.accent)
         }
     }
 }
@@ -542,7 +545,7 @@ private fun KeyInfoRow(key: SshKey, onClick: () -> Unit) {
                 }
             }
         }
-        ChuText("view", style = typography.bodySmall, color = colors.accent)
+        ChuText(stringResource(R.string.backup_view), style = typography.bodySmall, color = colors.accent)
     }
 }
 
@@ -560,16 +563,16 @@ private fun KeyDetailsContent(
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            ChuText("name", style = typography.labelSmall, color = colors.textMuted)
+            ChuText(stringResource(R.string.backup_key_name), style = typography.labelSmall, color = colors.textMuted)
             ChuText(key.name, style = typography.label)
-            ChuText("public key", style = typography.labelSmall, color = colors.textMuted)
+            ChuText(stringResource(R.string.backup_public_key), style = typography.labelSmall, color = colors.textMuted)
             ChuText(key.publicKeyOpenSsh, style = typography.body)
         }
     }
 
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         ChuButton(onClick = onBack, variant = ChuButtonVariant.Ghost, bracketed = true, modifier = Modifier.weight(1f)) {
-            ChuText("back", style = typography.label, color = colors.textMuted)
+            ChuText(stringResource(R.string.action_back), style = typography.label, color = colors.textMuted)
         }
         ChuButton(
             onClick = { clipboard.setText(AnnotatedString(key.publicKeyOpenSsh)) },
@@ -577,7 +580,7 @@ private fun KeyDetailsContent(
             bracketed = true,
             modifier = Modifier.weight(1f),
         ) {
-            ChuText("copy public", style = typography.label, color = colors.accent)
+            ChuText(stringResource(R.string.backup_copy_public), style = typography.label, color = colors.accent)
         }
     }
 }
@@ -615,8 +618,12 @@ private fun ExportPassphraseContent(
             ChuTextField(
                 value = passphrase,
                 onValueChange = onPassphraseChange,
-                label = "encryption passphrase",
-                placeholder = "at least $BACKUP_MIN_PASSPHRASE_LENGTH characters",
+                label = stringResource(R.string.backup_encryption_passphrase),
+                placeholder =
+                    stringResource(
+                        R.string.backup_passphrase_min_placeholder,
+                        BACKUP_MIN_PASSPHRASE_LENGTH,
+                    ),
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 autoFocus = true,
@@ -624,27 +631,31 @@ private fun ExportPassphraseContent(
             ChuTextField(
                 value = passphraseConfirm,
                 onValueChange = onPassphraseConfirmChange,
-                label = "confirm passphrase",
-                placeholder = "re-enter passphrase",
+                label = stringResource(R.string.backup_confirm_passphrase),
+                placeholder = stringResource(R.string.backup_reenter_passphrase),
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 autoFocus = false,
             )
             if (passphrase.length in 1 until BACKUP_MIN_PASSPHRASE_LENGTH) {
                 ChuText(
-                    text = "Passphrase must be at least $BACKUP_MIN_PASSPHRASE_LENGTH characters.",
+                    text =
+                        stringResource(
+                            R.string.backup_passphrase_too_short,
+                            BACKUP_MIN_PASSPHRASE_LENGTH,
+                        ),
                     style = typography.bodySmall,
                     color = colors.textMuted,
                 )
             } else if (passphrase.length >= BACKUP_MIN_PASSPHRASE_LENGTH && !valid) {
                 ChuText(
-                    text = "Passphrases do not match.",
+                    text = stringResource(R.string.backup_passphrase_mismatch),
                     style = typography.bodySmall,
                     color = colors.error,
                 )
             }
             ChuText(
-                text = "You will be prompted to choose a save location and verify your identity.",
+                text = stringResource(R.string.backup_export_hint),
                 style = typography.bodySmall,
                 color = colors.textMuted,
             )
@@ -662,7 +673,11 @@ private fun ExportPassphraseContent(
             borderColor = colors.textMuted,
             modifier = Modifier.weight(1f),
         ) {
-            ChuText("cancel", style = typography.label, color = colors.textMuted)
+            ChuText(
+                stringResource(R.string.action_cancel),
+                style = typography.label,
+                color = colors.textMuted,
+            )
         }
         ChuButton(
             onClick = onExport,
@@ -672,7 +687,11 @@ private fun ExportPassphraseContent(
             borderColor = colors.accent,
             modifier = Modifier.weight(1f),
         ) {
-            ChuText("export", style = typography.label, color = colors.accent)
+            ChuText(
+                stringResource(R.string.action_export),
+                style = typography.label,
+                color = colors.accent,
+            )
         }
     }
 }
@@ -699,14 +718,14 @@ private fun ImportPassphraseContent(
             ChuTextField(
                 value = passphrase,
                 onValueChange = onPassphraseChange,
-                label = "backup passphrase",
-                placeholder = "passphrase used during export",
+                label = stringResource(R.string.backup_import_passphrase),
+                placeholder = stringResource(R.string.backup_import_passphrase_placeholder),
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 autoFocus = true,
             )
             ChuText(
-                text = "You will be prompted to select a backup file and verify your identity.",
+                text = stringResource(R.string.backup_import_hint),
                 style = typography.bodySmall,
                 color = colors.textMuted,
             )
@@ -724,7 +743,11 @@ private fun ImportPassphraseContent(
             borderColor = colors.textMuted,
             modifier = Modifier.weight(1f),
         ) {
-            ChuText("cancel", style = typography.label, color = colors.textMuted)
+            ChuText(
+                stringResource(R.string.action_cancel),
+                style = typography.label,
+                color = colors.textMuted,
+            )
         }
         ChuButton(
             onClick = onImport,
@@ -734,7 +757,11 @@ private fun ImportPassphraseContent(
             borderColor = colors.accent,
             modifier = Modifier.weight(1f),
         ) {
-            ChuText("import", style = typography.label, color = colors.accent)
+            ChuText(
+                stringResource(R.string.action_import),
+                style = typography.label,
+                color = colors.accent,
+            )
         }
     }
 }
@@ -756,7 +783,7 @@ private fun ImportPreviewContent(
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            ChuText("import summary", style = typography.label)
+            ChuText(stringResource(R.string.backup_import_summary), style = typography.label)
 
             val summaryParts = mutableListOf<String>()
             val keyInsert = plan.keyInsertCount
@@ -765,14 +792,39 @@ private fun ImportPreviewContent(
             val hostImported = plan.hostActions.size
             val hostRenamed = plan.renamedHostCount
 
-            if (keyInsert > 0) summaryParts += "$keyInsert new key(s)"
-            if (keyReuse > 0) summaryParts += "$keyReuse existing key(s) reused"
-            if (keyRenamed > 0) summaryParts += "$keyRenamed key(s) renamed"
-            if (hostImported > 0) summaryParts += "$hostImported host(s)"
-            if (hostRenamed > 0) summaryParts += "$hostRenamed host(s) renamed"
+            if (keyInsert > 0) {
+                summaryParts +=
+                    pluralStringResource(R.plurals.backup_summary_new_keys, keyInsert, keyInsert)
+            }
+            if (keyReuse > 0) {
+                summaryParts +=
+                    pluralStringResource(R.plurals.backup_summary_reused_keys, keyReuse, keyReuse)
+            }
+            if (keyRenamed > 0) {
+                summaryParts +=
+                    pluralStringResource(
+                        R.plurals.backup_summary_renamed_keys,
+                        keyRenamed,
+                        keyRenamed,
+                    )
+            }
+            if (hostImported > 0) {
+                summaryParts +=
+                    pluralStringResource(R.plurals.backup_summary_hosts, hostImported, hostImported)
+            }
+            if (hostRenamed > 0) {
+                summaryParts +=
+                    pluralStringResource(
+                        R.plurals.backup_summary_renamed_hosts,
+                        hostRenamed,
+                        hostRenamed,
+                    )
+            }
 
             ChuText(
-                text = summaryParts.joinToString(", ").ifEmpty { "Nothing to import" },
+                text = summaryParts.joinToString(", ").ifEmpty {
+                    stringResource(R.string.backup_summary_nothing)
+                },
                 style = typography.body,
                 color = colors.textSecondary,
             )
@@ -781,7 +833,11 @@ private fun ImportPreviewContent(
             val reusedKeys = plan.keyActions.filterIsInstance<KeyImportAction.Reuse>()
             if (reusedKeys.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(4.dp))
-                ChuText("reused keys:", style = typography.labelSmall, color = colors.textMuted)
+                ChuText(
+                    stringResource(R.string.backup_reused_keys_header),
+                    style = typography.labelSmall,
+                    color = colors.textMuted,
+                )
                 reusedKeys.forEach { action ->
                     ChuText(
                         text = "  • ${action.name}",
@@ -795,9 +851,18 @@ private fun ImportPreviewContent(
             val insertedKeys = plan.keyActions.filterIsInstance<KeyImportAction.Insert>()
             if (insertedKeys.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(4.dp))
-                ChuText("new keys:", style = typography.labelSmall, color = colors.textMuted)
+                ChuText(
+                    stringResource(R.string.backup_new_keys_header),
+                    style = typography.labelSmall,
+                    color = colors.textMuted,
+                )
                 insertedKeys.forEach { action ->
-                    val note = if (action.renamed) " (renamed)" else ""
+                    val note =
+                        if (action.renamed) {
+                            stringResource(R.string.backup_renamed_suffix)
+                        } else {
+                            ""
+                        }
                     ChuText(
                         text = "  • ${action.key.name}$note",
                         style = typography.bodySmall,
@@ -811,7 +876,11 @@ private fun ImportPreviewContent(
             val normalHosts = plan.hostActions.filter { !it.renamed }
             if (normalHosts.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(4.dp))
-                ChuText("hosts to add:", style = typography.labelSmall, color = colors.textMuted)
+                ChuText(
+                    stringResource(R.string.backup_hosts_to_add),
+                    style = typography.labelSmall,
+                    color = colors.textMuted,
+                )
                 normalHosts.forEach { action ->
                     ChuText(
                         text = "  • ${action.host.name} → ${action.host.host}",
@@ -822,10 +891,19 @@ private fun ImportPreviewContent(
             }
             if (renamedHosts.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(4.dp))
-                ChuText("renamed hosts:", style = typography.labelSmall, color = colors.textMuted)
+                ChuText(
+                    stringResource(R.string.backup_renamed_hosts),
+                    style = typography.labelSmall,
+                    color = colors.textMuted,
+                )
                 renamedHosts.forEach { action ->
                     ChuText(
-                        text = "  • ${action.host.name} (conflict resolved)",
+                        text =
+                            "  • " +
+                                stringResource(
+                                    R.string.backup_host_conflict_resolved,
+                                    action.host.name,
+                                ),
                         style = typography.bodySmall,
                         color = colors.textMuted,
                     )
@@ -833,7 +911,7 @@ private fun ImportPreviewContent(
             }
 
             ChuText(
-                text = "Existing data will not be overwritten. Conflicting names will be auto-renamed.",
+                text = stringResource(R.string.backup_summary_note),
                 style = typography.bodySmall,
                 color = colors.textMuted,
             )
@@ -851,7 +929,11 @@ private fun ImportPreviewContent(
             borderColor = colors.textMuted,
             modifier = Modifier.weight(1f),
         ) {
-            ChuText("cancel", style = typography.label, color = colors.textMuted)
+            ChuText(
+                stringResource(R.string.action_cancel),
+                style = typography.label,
+                color = colors.textMuted,
+            )
         }
         ChuButton(
             onClick = onConfirm,
@@ -861,7 +943,7 @@ private fun ImportPreviewContent(
             borderColor = colors.accent,
             modifier = Modifier.weight(1f),
         ) {
-            ChuText("confirm import", style = typography.label, color = colors.accent)
+            ChuText(stringResource(R.string.action_confirm_import), style = typography.label, color = colors.accent)
         }
     }
 }

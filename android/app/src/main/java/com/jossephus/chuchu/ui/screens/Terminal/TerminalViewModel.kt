@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.jossephus.chuchu.R
 import com.jossephus.chuchu.data.db.AppDatabase
 import com.jossephus.chuchu.data.repository.HostRepository
 import com.jossephus.chuchu.data.repository.SettingsRepository
@@ -43,6 +44,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -53,6 +55,7 @@ import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class TerminalViewModel(application: Application) : AndroidViewModel(application) {
+    private val app = application
     private val tailscaleStatusChecker = TailscaleStatusChecker(application)
     private val sessionRepository = TerminalSessionRepository.getInstance(application)
     private val database = AppDatabase.getInstance(application)
@@ -79,6 +82,24 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     val activeTabId: StateFlow<String?> = sessionRepository.activeTabId
     val activeTab: StateFlow<TabSession?> = sessionRepository.activeTab
     val sessionState: StateFlow<SessionState> = sessionRepository.sessionState
+
+    /**
+     * The session without its terminal snapshot. The snapshot changes on every frame of
+     * output and every resize, so screen chrome that reads [sessionState] recomposed the
+     * whole terminal screen per frame; only the viewport reads the snapshot itself.
+     */
+    val sessionChrome: StateFlow<SessionState> =
+        sessionState
+            .map { it.copy(snapshot = null) }
+            .distinctUntilChanged()
+            .stateIn(viewModelScope, SharingStarted.Eagerly, sessionState.value.copy(snapshot = null))
+
+    /** Whether the terminal has drawn anything yet, without following each new snapshot. */
+    val hasSnapshot: StateFlow<Boolean> =
+        sessionState
+            .map { it.snapshot != null }
+            .distinctUntilChanged()
+            .stateIn(viewModelScope, SharingStarted.Eagerly, sessionState.value.snapshot != null)
     val hostKeyPrompt: StateFlow<HostKeyPrompt?> = sessionRepository.hostKeyPrompt
     val hosts: StateFlow<List<HostProfile>> =
         hostRepository.observeAll().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -117,6 +138,14 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         val target = existing.firstOrNull { it.id == activeId } ?: existing.last()
         sessionRepository.selectTab(target.id)
         return target
+    }
+
+    fun selectMultiplexerTab(hostId: Long, sessionName: String): TabSession? {
+        val existing =
+            sessionRepository.tabsForHost(hostId).firstOrNull { it.spec.multiplexerSessionName == sessionName }
+                ?: return null
+        sessionRepository.selectTab(existing.id)
+        return existing
     }
 
     fun selectLocalShellTab(): TabSession? {
@@ -207,7 +236,9 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                         },
                         onFailure = { error ->
                             _multiplexerState.value = _multiplexerState.value.copy(
-                                preflightError = error.message ?: "Could not create multiplexer session",
+                                preflightError =
+                                    error.message
+                                        ?: app.getString(R.string.terminal_error_create_mux),
                             )
                         },
                     )
@@ -252,14 +283,19 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         val reconnectRecovery = preparedAction is PendingMultiplexerAction.Reconnect
         if (spec.transport == Transport.Mosh) {
             _multiplexerState.value = MultiplexerUiState(
-                preflightError = "$label is not supported for Mosh connections",
+                preflightError =
+                    app.getString(R.string.terminal_error_mosh_unsupported, label),
                 reconnectRecovery = reconnectRecovery,
             )
             return
         }
         if (spec.multiplexer != null && spec.multiplexer.runtimeSupported.not()) {
             _multiplexerState.value = MultiplexerUiState(
-                preflightError = "${spec.multiplexer.label} is not supported yet",
+                preflightError =
+                    app.getString(
+                        R.string.terminal_error_multiplexer_unsupported,
+                        spec.multiplexer.label,
+                    ),
                 reconnectRecovery = reconnectRecovery,
             )
             return
@@ -288,7 +324,9 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                         _multiplexerState.value = _multiplexerState.value.copy(
                             preflightLoading = false,
                             preflightHostLabel = null,
-                            preflightError = error.message ?: "Could not prepare multiplexer session",
+                            preflightError =
+                                error.message
+                                    ?: app.getString(R.string.terminal_error_prepare_mux),
                         )
                     },
                 )
@@ -317,7 +355,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             is PendingMultiplexerAction.Reconnect -> {
                 if (!reconnectTabWithSpec(action.tabId, nextSpec)) {
                     _multiplexerState.value = MultiplexerUiState(
-                        preflightError = "Terminal session is no longer available",
+                        preflightError = app.getString(R.string.terminal_error_session_gone),
                         reconnectRecovery = true,
                     )
                 }
@@ -367,7 +405,9 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                         _multiplexerState.value = _multiplexerState.value.copy(
                             sessions = emptyList(),
                             sessionsLoading = false,
-                            sessionsError = error.message ?: "Failed to list sessions",
+                            sessionsError =
+                                error.message
+                                    ?: app.getString(R.string.terminal_error_list_sessions),
                             sessionsSourceTabId = sourceTabId,
                             sessionsSourceHostId = sourceHostId,
                         )
@@ -394,7 +434,9 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                     },
                     onFailure = { error ->
                         _multiplexerState.value = _multiplexerState.value.copy(
-                            sessionsError = error.message ?: "Could not create multiplexer session",
+                            sessionsError =
+                                error.message
+                                    ?: app.getString(R.string.terminal_error_create_mux),
                         )
                     },
                 )
@@ -412,7 +454,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             _multiplexerState.value = state.copy(
                 sessions = emptyList(),
                 sessionsLoading = false,
-                sessionsError = "Session list is stale. Refresh sessions and try again.",
+                sessionsError = app.getString(R.string.terminal_error_session_list_stale),
                 sessionsSourceTabId = activeTab?.id,
                 sessionsSourceHostId = activeHostId,
             )
@@ -619,7 +661,9 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                         updateFileBrowserState(tabId) {
                             it.copy(
                                 isLoading = false,
-                                error = err.message ?: "Failed to list directory",
+                                error =
+                                    err.message
+                                        ?: app.getString(R.string.files_error_list_directory),
                             )
                         }
                     }

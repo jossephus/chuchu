@@ -34,6 +34,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import com.jossephus.chuchu.R
+import com.jossephus.chuchu.ui.screens.SessionBrowser.SessionPickerStyle
 import com.jossephus.chuchu.ui.screens.Terminal.TerminalTabMode
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
@@ -45,6 +47,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -60,6 +64,7 @@ import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuCard
+import com.jossephus.chuchu.ui.components.ChuSegmentedControl
 import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.components.ChuSwitch
 import com.jossephus.chuchu.ui.components.ChuTextField
@@ -81,6 +86,8 @@ internal fun TerminalSettings(
     onEditAccessoryLayout: () -> Unit,
     accessoryBarSingleRow: Boolean,
     onAccessoryBarSingleRowChanged: (Boolean) -> Unit,
+    accessoryBarOnlyWithKeyboard: Boolean = false,
+    onAccessoryBarOnlyWithKeyboardChanged: (Boolean) -> Unit = {},
     currentTerminalFontSize: Float = 14f,
     onTerminalFontSizeChanged: (Float) -> Unit = {},
     currentTerminalCustomKeyGroups: List<TerminalCustomKeyGroup>,
@@ -91,10 +98,14 @@ internal fun TerminalSettings(
     onEditChuchuCommands: () -> Unit = {},
     currentTabMode: TerminalTabMode = TerminalTabMode.Classic,
     onTabModeChanged: (TerminalTabMode) -> Unit = {},
+    currentSessionPickerStyle: SessionPickerStyle = SessionPickerStyle.Panel,
+    onSessionPickerStyleChanged: (SessionPickerStyle) -> Unit = {},
     localShellEnabled: Boolean = false,
     onLocalShellEnabledChanged: (Boolean) -> Unit = {},
     keepScreenAwake: Boolean = false,
     onKeepScreenAwakeChanged: (Boolean) -> Unit = {},
+    hideStatusBar: Boolean = false,
+    onHideStatusBarChanged: (Boolean) -> Unit = {},
     hideScreenContents: Boolean = false,
     onHideScreenContentsChanged: (Boolean) -> Unit = {},
     disableAutocorrect: Boolean = false,
@@ -114,7 +125,7 @@ internal fun TerminalSettings(
 
     Row(verticalAlignment = Alignment.CenterVertically) {
         ChuText("── ", style = typography.labelSmall, color = colors.textMuted)
-        ChuText("TERMINAL", style = typography.labelSmall, color = colors.textMuted)
+        ChuText(stringResource(R.string.settings_terminal_header), style = typography.labelSmall, color = colors.textMuted)
         ChuText(" ", style = typography.labelSmall, color = colors.textMuted)
         Box(modifier = Modifier.height(1.dp).background(colors.textMuted).fillMaxWidth())
     }
@@ -137,7 +148,7 @@ internal fun TerminalSettings(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    ChuText("font size", style = typography.label)
+                    ChuText(stringResource(R.string.settings_font_size), style = typography.label)
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -210,7 +221,7 @@ internal fun TerminalSettings(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    ChuText("tab interface", style = typography.label)
+                    ChuText(stringResource(R.string.settings_tab_interface), style = typography.label)
                     Box(contentAlignment = Alignment.TopEnd) {
                         ChuButton(
                             onClick = { tabModeExpanded = !tabModeExpanded },
@@ -239,6 +250,30 @@ internal fun TerminalSettings(
                         }
                     }
                 }
+            }
+        }
+
+        ChuCard(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                ChuText(stringResource(R.string.settings_session_picker), style = typography.label)
+                ChuText(
+                    stringResource(R.string.settings_session_picker_hint),
+                    style = typography.bodySmall,
+                    color = colors.textMuted,
+                )
+                ChuSegmentedControl(
+                    options = SessionPickerStyle.entries,
+                    labels =
+                        mapOf(
+                            SessionPickerStyle.Panel to stringResource(R.string.settings_session_picker_panel),
+                            SessionPickerStyle.Browser to stringResource(R.string.settings_session_picker_browser),
+                        ),
+                    selected = currentSessionPickerStyle,
+                    onSelect = onSessionPickerStyleChanged,
+                )
             }
         }
 
@@ -306,9 +341,17 @@ internal fun TerminalSettings(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        ChuText("accessory keys", style = typography.label)
+                        ChuText(stringResource(R.string.settings_accessory_keys), style = typography.label)
                         ChuText(
-                            if (selectedEntries.isEmpty()) "no keys enabled" else "${selectedEntries.size} keys enabled",
+                            if (selectedEntries.isEmpty()) {
+                                stringResource(R.string.settings_no_keys_enabled)
+                            } else {
+                                pluralStringResource(
+                                    R.plurals.settings_keys_enabled,
+                                    selectedEntries.size,
+                                    selectedEntries.size,
+                                )
+                            },
                             style = typography.body,
                             color = colors.textMuted,
                         )
@@ -320,7 +363,7 @@ internal fun TerminalSettings(
                         bracketed = true,
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
                     ) {
-                        ChuText("customize", style = typography.label)
+                        ChuText(stringResource(R.string.action_customize), style = typography.label)
                     }
                 }
 
@@ -333,9 +376,9 @@ internal fun TerminalSettings(
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        ChuText("single-row accessory bar", style = typography.label)
+                        ChuText(stringResource(R.string.settings_single_row_bar), style = typography.label)
                         ChuText(
-                            "off = two rows (default), on = one horizontal row",
+                            stringResource(R.string.settings_single_row_bar_hint),
                             style = typography.bodySmall,
                             color = colors.textMuted,
                         )
@@ -346,9 +389,31 @@ internal fun TerminalSettings(
                     )
                 }
 
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        ChuText(stringResource(R.string.settings_bar_only_with_keyboard), style = typography.label)
+                        ChuText(
+                            stringResource(R.string.settings_bar_only_with_keyboard_hint),
+                            style = typography.bodySmall,
+                            color = colors.textMuted,
+                        )
+                    }
+                    ChuSwitch(
+                        checked = accessoryBarOnlyWithKeyboard,
+                        onCheckedChange = onAccessoryBarOnlyWithKeyboardChanged,
+                    )
+                }
+
                 if (selectedEntries.isEmpty()) {
                     ChuText(
-                        "choose the accessory keys you want in the terminal bar.",
+                        stringResource(R.string.settings_choose_keys_hint),
                         style = typography.body,
                         color = colors.textSecondary,
                     )
@@ -381,10 +446,18 @@ internal fun TerminalSettings(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        ChuText("custom actions", style = typography.label)
+                        ChuText(stringResource(R.string.settings_custom_actions), style = typography.label)
                         val actionCount = currentTerminalCustomKeyGroups.sumOf { it.actions.size }
                         ChuText(
-                            if (actionCount == 0) "no custom actions" else "$actionCount actions",
+                            if (actionCount == 0) {
+                                stringResource(R.string.settings_no_custom_actions)
+                            } else {
+                                pluralStringResource(
+                                    R.plurals.settings_actions_count,
+                                    actionCount,
+                                    actionCount,
+                                )
+                            },
                             style = typography.body,
                             color = colors.textMuted,
                         )
@@ -396,12 +469,12 @@ internal fun TerminalSettings(
                         bracketed = true,
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
                     ) {
-                        ChuText("customize", style = typography.label)
+                        ChuText(stringResource(R.string.action_customize), style = typography.label)
                     }
                 }
 
                 ChuText(
-                    "create quick keys.",
+                    stringResource(R.string.settings_create_quick_keys),
                     style = typography.body,
                     color = colors.textSecondary,
                 )
@@ -415,9 +488,9 @@ internal fun TerminalSettings(
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        ChuText("show actions button", style = typography.label)
+                        ChuText(stringResource(R.string.settings_show_actions_button), style = typography.label)
                         ChuText(
-                            "toggle visibility of the floating button in terminal",
+                            stringResource(R.string.settings_show_actions_button_hint),
                             style = typography.bodySmall,
                             color = colors.textMuted,
                         )
@@ -441,10 +514,18 @@ internal fun TerminalSettings(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        ChuText("chuchu commands", style = typography.label)
+                        ChuText(stringResource(R.string.settings_chuchu_commands), style = typography.label)
                         val boundCount = builtinShortcuts.count { it.value.isNotEmpty() }
                         ChuText(
-                            if (boundCount == 0) "no shortcuts" else "$boundCount shortcuts",
+                            if (boundCount == 0) {
+                                stringResource(R.string.settings_no_shortcuts)
+                            } else {
+                                pluralStringResource(
+                                    R.plurals.settings_shortcuts_count,
+                                    boundCount,
+                                    boundCount,
+                                )
+                            },
                             style = typography.body,
                             color = colors.textMuted,
                         )
@@ -456,12 +537,12 @@ internal fun TerminalSettings(
                         bracketed = true,
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
                     ) {
-                        ChuText("customize", style = typography.label)
+                        ChuText(stringResource(R.string.action_customize), style = typography.label)
                     }
                 }
 
                 ChuText(
-                    "assign shortcut keys for builtin commands.",
+                    stringResource(R.string.settings_assign_shortcuts_hint),
                     style = typography.body,
                     color = colors.textSecondary,
                 )
@@ -481,9 +562,9 @@ internal fun TerminalSettings(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
-                    ChuText("enable local shell", style = typography.label)
+                    ChuText(stringResource(R.string.settings_enable_local_shell), style = typography.label)
                     ChuText(
-                        "show the Android local shell shortcut on the server list",
+                        stringResource(R.string.settings_enable_local_shell_hint),
                         style = typography.bodySmall,
                         color = colors.textMuted,
                     )
@@ -508,9 +589,9 @@ internal fun TerminalSettings(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
-                    ChuText("allow remote clipboard writes", style = typography.label)
+                    ChuText(stringResource(R.string.settings_allow_remote_clipboard), style = typography.label)
                     ChuText(
-                        "lets the remote host set this device's clipboard (OSC 52). only the visible tab can write.",
+                        stringResource(R.string.settings_allow_remote_clipboard_hint),
                         style = typography.bodySmall,
                         color = colors.textMuted,
                     )
@@ -535,9 +616,9 @@ internal fun TerminalSettings(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
-                    ChuText("keep screen awake", style = typography.label)
+                    ChuText(stringResource(R.string.settings_keep_screen_awake), style = typography.label)
                     ChuText(
-                        "prevent the display from sleeping while a terminal is open",
+                        stringResource(R.string.settings_keep_screen_awake_hint),
                         style = typography.bodySmall,
                         color = colors.textMuted,
                     )
@@ -562,9 +643,36 @@ internal fun TerminalSettings(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
-                    ChuText("hide screen contents", style = typography.label)
+                    ChuText(stringResource(R.string.settings_hide_status_bar), style = typography.label)
                     ChuText(
-                        "blocks screenshots and hides the terminal in the app switcher",
+                        stringResource(R.string.settings_hide_status_bar_hint),
+                        style = typography.bodySmall,
+                        color = colors.textMuted,
+                    )
+                }
+                ChuSwitch(
+                    checked = hideStatusBar,
+                    onCheckedChange = onHideStatusBarChanged,
+                )
+            }
+        }
+
+        ChuCard(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .defaultMinSize(minHeight = 48.dp)
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    ChuText(stringResource(R.string.settings_hide_screen_contents), style = typography.label)
+                    ChuText(
+                        stringResource(R.string.settings_hide_screen_contents_hint),
                         style = typography.bodySmall,
                         color = colors.textMuted,
                     )
@@ -605,9 +713,9 @@ private fun DisableAutocorrectSetting(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                ChuText("disable autocorrect", style = typography.label)
+                ChuText(stringResource(R.string.settings_disable_autocorrect), style = typography.label)
                 ChuText(
-                    "for keyboards that ignore the standard hint; may disable glide typing",
+                    stringResource(R.string.settings_disable_autocorrect_hint),
                     style = typography.bodySmall,
                     color = colors.textMuted,
                 )
@@ -690,9 +798,9 @@ internal fun ChuchuCommandsEditorSheet(
                     verticalAlignment = Alignment.Top,
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        ChuText("chuchu commands", style = typography.headline)
+                        ChuText(stringResource(R.string.settings_chuchu_commands), style = typography.headline)
                         ChuText(
-                            "empty key hides the command. overrides custom action shortcut keys.",
+                            stringResource(R.string.settings_commands_editor_hint),
                             style = typography.body,
                             color = colors.textSecondary,
                         )
@@ -722,9 +830,9 @@ internal fun ChuchuCommandsEditorSheet(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                ChuText(command.label, style = typography.label)
+                                ChuText(stringResource(command.labelRes), style = typography.label)
                                 ChuText(
-                                    command.description,
+                                    stringResource(command.descriptionRes),
                                     style = typography.bodySmall,
                                     color = colors.textMuted,
                                 )
@@ -732,9 +840,9 @@ internal fun ChuchuCommandsEditorSheet(
                             ChuTextField(
                                 value = draft[command.id] ?: "",
                                 onValueChange = { setKey(command, it) },
-                                label = command.label,
+                                label = stringResource(command.labelRes),
                                 showLabel = false,
-                                placeholder = "key",
+                                placeholder = stringResource(R.string.settings_commands_key_placeholder),
                                 singleLine = true,
                                 autoFocus = false,
                                 modifier = Modifier.width(64.dp),
@@ -753,7 +861,7 @@ internal fun ChuchuCommandsEditorSheet(
                         bracketed = true,
                         modifier = Modifier.weight(1f),
                     ) {
-                        ChuText("reset", style = typography.label)
+                        ChuText(stringResource(R.string.action_reset), style = typography.label)
                     }
 
                     ChuButton(
@@ -761,7 +869,7 @@ internal fun ChuchuCommandsEditorSheet(
                         bracketed = true,
                         modifier = Modifier.weight(1f),
                     ) {
-                        ChuText("save", style = typography.label, color = colors.onAccent)
+                        ChuText(stringResource(R.string.action_save), style = typography.label, color = colors.onAccent)
                     }
                 }
             }
@@ -769,9 +877,10 @@ internal fun ChuchuCommandsEditorSheet(
     }
 }
 
+@Composable
 private fun tabModeLabel(mode: TerminalTabMode): String = when (mode) {
-    TerminalTabMode.Classic -> "palette"
-    TerminalTabMode.Strip -> "tab strip"
+    TerminalTabMode.Classic -> stringResource(R.string.settings_tab_mode_palette)
+    TerminalTabMode.Strip -> stringResource(R.string.settings_tab_mode_strip)
 }
 
 
@@ -863,9 +972,9 @@ internal fun AccessoryLayoutEditorSheet(
                     verticalAlignment = Alignment.Top,
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        ChuText("accessory keys", style = typography.headline)
+                        ChuText(stringResource(R.string.settings_accessory_keys), style = typography.headline)
                         ChuText(
-                            "choose which keys appear in the bar.",
+                            stringResource(R.string.settings_choose_keys_hint_short),
                             style = typography.body,
                             color = colors.textSecondary,
                         )
@@ -892,7 +1001,7 @@ internal fun AccessoryLayoutEditorSheet(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            ChuText("preview", style = typography.label)
+                            ChuText(stringResource(R.string.settings_accessory_preview), style = typography.label)
                             ChuText(
                                 if (selectedEntries.isEmpty()) "0" else selectedEntries.size.toString(),
                                 style = typography.labelSmall,
@@ -902,7 +1011,7 @@ internal fun AccessoryLayoutEditorSheet(
 
                         if (selectedEntries.isEmpty()) {
                             ChuText(
-                                "no accessory keys selected.",
+                                stringResource(R.string.settings_no_accessory_keys_selected),
                                 style = typography.body,
                                 color = colors.textMuted,
                             )
@@ -966,7 +1075,7 @@ internal fun AccessoryLayoutEditorSheet(
                         }
 
                         ChuText(
-                            "long-press a key in preview, then drag to place it where you want.",
+                            stringResource(R.string.settings_accessory_drag_hint),
                             style = typography.body,
                             color = colors.textMuted,
                         )
@@ -1001,7 +1110,7 @@ internal fun AccessoryLayoutEditorSheet(
                         bracketed = true,
                         modifier = Modifier.weight(1f),
                     ) {
-                        ChuText("reset", style = typography.label)
+                        ChuText(stringResource(R.string.action_reset), style = typography.label)
                     }
 
                     ChuButton(
@@ -1009,7 +1118,7 @@ internal fun AccessoryLayoutEditorSheet(
                         bracketed = true,
                         modifier = Modifier.weight(1f),
                     ) {
-                        ChuText("save", style = typography.label, color = colors.onAccent)
+                        ChuText(stringResource(R.string.action_save), style = typography.label, color = colors.onAccent)
                     }
                 }
             }
@@ -1064,9 +1173,13 @@ private fun AccessoryChooserRow(
     val childCount = group?.group?.children?.size ?: 0
     val description =
         if (group != null) {
-            if (childCount > 0) "group · $childCount keys" else "group"
+            if (childCount > 0) {
+                stringResource(R.string.settings_accessory_group_desc, childCount)
+            } else {
+                stringResource(R.string.settings_accessory_group)
+            }
         } else {
-            "key"
+            stringResource(R.string.settings_accessory_key)
         }
 
     Row(

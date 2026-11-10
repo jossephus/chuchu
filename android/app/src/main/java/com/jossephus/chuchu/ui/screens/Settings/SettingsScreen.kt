@@ -1,6 +1,7 @@
 package com.jossephus.chuchu.ui.screens.Settings
 
 import androidx.activity.compose.BackHandler
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,23 +24,26 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.jossephus.chuchu.R
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuSwitch
 import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.screens.Keys.KeysContent
 import com.jossephus.chuchu.ui.screens.Keys.KeysViewModel
+import com.jossephus.chuchu.ui.screens.SessionBrowser.SessionPickerStyle
 import com.jossephus.chuchu.ui.screens.Terminal.TerminalTabMode
 import com.jossephus.chuchu.ui.terminal.TerminalCustomKeyGroup
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
 import com.jossephus.chuchu.ui.theme.ThemeMode
 
-enum class SettingsCategory(val label: String) {
-    General("general"),
-    Terminal("terminal"),
-    Keys("keys"),
+enum class SettingsCategory(@StringRes val labelRes: Int) {
+    General(R.string.settings_category_general),
+    Terminal(R.string.settings_category_terminal),
+    Keys(R.string.settings_category_keys),
 }
 
 @Composable
@@ -50,11 +54,13 @@ fun SettingsScreen(
     requireAuthOnConnect: Boolean,
     localShellEnabled: Boolean,
     keepScreenAwake: Boolean,
+    hideStatusBar: Boolean,
     hideScreenContents: Boolean,
     disableAutocorrect: Boolean,
     remoteClipboardWriteEnabled: Boolean,
     currentAccessoryLayoutIds: List<String>,
     accessoryBarSingleRow: Boolean,
+    accessoryBarOnlyWithKeyboard: Boolean,
     currentTerminalCustomKeyGroups: List<TerminalCustomKeyGroup>,
     showCustomActionsFab: Boolean,
     onShowCustomActionsFabChanged: (Boolean) -> Unit,
@@ -62,6 +68,8 @@ fun SettingsScreen(
     onBuiltinShortcutsChanged: (Map<String, String>) -> Unit = {},
     currentTabMode: TerminalTabMode = TerminalTabMode.Classic,
     onTabModeChanged: (TerminalTabMode) -> Unit = {},
+    currentSessionPickerStyle: SessionPickerStyle = SessionPickerStyle.Panel,
+    onSessionPickerStyleChanged: (SessionPickerStyle) -> Unit = {},
     themeMode: ThemeMode,
     lightThemeName: String,
     onThemeSelected: (String) -> Unit,
@@ -72,11 +80,13 @@ fun SettingsScreen(
     onRequireAuthOnConnectChanged: (Boolean) -> Unit,
     onLocalShellEnabledChanged: (Boolean) -> Unit,
     onKeepScreenAwakeChanged: (Boolean) -> Unit,
+    onHideStatusBarChanged: (Boolean) -> Unit,
     onHideScreenContentsChanged: (Boolean) -> Unit,
     onDisableAutocorrectChanged: (Boolean) -> Unit,
     onRemoteClipboardWriteEnabledChanged: (Boolean) -> Unit,
     onAccessoryLayoutChanged: (List<String>) -> Unit,
     onAccessoryBarSingleRowChanged: (Boolean) -> Unit,
+    onAccessoryBarOnlyWithKeyboardChanged: (Boolean) -> Unit,
     currentTerminalFontSize: Float = 14f,
     onTerminalFontSizeChanged: (Float) -> Unit = {},
     onTerminalCustomActionsChanged: (List<TerminalCustomKeyGroup>) -> Unit,
@@ -123,7 +133,7 @@ fun SettingsScreen(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         ChuText("$ ", style = typography.headline, color = colors.textMuted)
-                        ChuText("settings", style = typography.headline)
+                        ChuText(stringResource(R.string.settings_title), style = typography.headline)
                     }
                     ChuButton(
                         onClick = onBack,
@@ -153,7 +163,7 @@ fun SettingsScreen(
                             modifier = Modifier.weight(1f),
                         ) {
                             ChuText(
-                                category.label,
+                                stringResource(category.labelRes),
                                 style = typography.label,
                                 color = if (isSelected) colors.accent else colors.textSecondary,
                             )
@@ -186,6 +196,8 @@ fun SettingsScreen(
                             onEditAccessoryLayout = { showAccessoryEditor = true },
                             accessoryBarSingleRow = accessoryBarSingleRow,
                             onAccessoryBarSingleRowChanged = onAccessoryBarSingleRowChanged,
+                            accessoryBarOnlyWithKeyboard = accessoryBarOnlyWithKeyboard,
+                            onAccessoryBarOnlyWithKeyboardChanged = onAccessoryBarOnlyWithKeyboardChanged,
                             currentTerminalFontSize = currentTerminalFontSize,
                             onTerminalFontSizeChanged = onTerminalFontSizeChanged,
                             currentTerminalCustomKeyGroups = currentTerminalCustomKeyGroups,
@@ -196,10 +208,14 @@ fun SettingsScreen(
                             onEditChuchuCommands = { showChuchuCommandsEditor = true },
                             currentTabMode = currentTabMode,
                             onTabModeChanged = onTabModeChanged,
+                            currentSessionPickerStyle = currentSessionPickerStyle,
+                            onSessionPickerStyleChanged = onSessionPickerStyleChanged,
                             localShellEnabled = localShellEnabled,
                             onLocalShellEnabledChanged = onLocalShellEnabledChanged,
                             keepScreenAwake = keepScreenAwake,
                             onKeepScreenAwakeChanged = onKeepScreenAwakeChanged,
+                            hideStatusBar = hideStatusBar,
+                            onHideStatusBarChanged = onHideStatusBarChanged,
                             hideScreenContents = hideScreenContents,
                             onHideScreenContentsChanged = onHideScreenContentsChanged,
                             disableAutocorrect = disableAutocorrect,
@@ -280,7 +296,11 @@ private fun GeneralSettings(
     Spacer(modifier = Modifier.height(16.dp))
     Row(verticalAlignment = Alignment.CenterVertically) {
         ChuText("── ", style = typography.labelSmall, color = colors.textMuted)
-        ChuText("SECURITY", style = typography.labelSmall, color = colors.textMuted)
+        ChuText(
+            stringResource(R.string.settings_security_header),
+            style = typography.labelSmall,
+            color = colors.textMuted,
+        )
         ChuText(" ", style = typography.labelSmall, color = colors.textMuted)
         Box(modifier = Modifier.height(1.dp).background(colors.textMuted).fillMaxWidth())
     }
@@ -290,7 +310,7 @@ private fun GeneralSettings(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ChuText("lock app on open", style = typography.label)
+        ChuText(stringResource(R.string.settings_lock_app_on_open), style = typography.label)
         ChuSwitch(checked = appLockEnabled, onCheckedChange = onAppLockEnabledChanged)
     }
     Spacer(modifier = Modifier.height(20.dp))
@@ -299,12 +319,15 @@ private fun GeneralSettings(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ChuText("verify before server connect", style = typography.label)
+        ChuText(
+            stringResource(R.string.settings_verify_before_connect),
+            style = typography.label,
+        )
         ChuSwitch(checked = requireAuthOnConnect, onCheckedChange = onRequireAuthOnConnectChanged)
     }
     Spacer(modifier = Modifier.height(4.dp))
     ChuText(
-        "use biometrics or device PIN/pattern.",
+        stringResource(R.string.settings_verify_before_connect_hint),
         style = typography.bodySmall,
         color = colors.textMuted,
     )
@@ -314,16 +337,20 @@ private fun GeneralSettings(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ChuText("ssh hosts & keys backup", style = typography.label)
+        ChuText(stringResource(R.string.settings_backup_title), style = typography.label)
         ChuButton(
             onClick = onOpenBackup,
             variant = ChuButtonVariant.Outlined,
             bracketed = true,
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
         ) {
-            ChuText("manage", style = typography.label)
+            ChuText(stringResource(R.string.action_manage), style = typography.label)
         }
     }
     Spacer(modifier = Modifier.height(4.dp))
-    ChuText("encrypted export/import.", style = typography.bodySmall, color = colors.textMuted)
+    ChuText(
+        stringResource(R.string.settings_backup_hint),
+        style = typography.bodySmall,
+        color = colors.textMuted,
+    )
 }

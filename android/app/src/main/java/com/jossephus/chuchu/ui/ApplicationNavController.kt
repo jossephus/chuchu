@@ -1,6 +1,7 @@
 package com.jossephus.chuchu.ui
 
 import android.app.Application
+import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -21,12 +22,17 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.jossephus.chuchu.R
 import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.ui.screens.AddServer.AddServerScreen
 import com.jossephus.chuchu.ui.screens.AddServer.AddServerViewModel
 import com.jossephus.chuchu.ui.screens.Keys.KeysViewModel
 import com.jossephus.chuchu.ui.screens.ServerList.ServerListScreen
 import com.jossephus.chuchu.ui.screens.ServerList.ServerListViewModel
+import com.jossephus.chuchu.ui.screens.SessionBrowser.SessionBrowserScreen
+import com.jossephus.chuchu.ui.screens.SessionBrowser.SessionBrowserViewModel
+import com.jossephus.chuchu.ui.screens.SessionBrowser.SessionPickerStyle
+import com.jossephus.chuchu.ui.screens.SessionBrowser.opensSessionBrowser
 import com.jossephus.chuchu.ui.screens.Settings.SettingsBackupViewModel
 import com.jossephus.chuchu.ui.screens.Settings.SettingsScreen
 import com.jossephus.chuchu.ui.screens.Terminal.TerminalScreen
@@ -68,6 +74,7 @@ fun ApplicationNavController() {
             val requireAuthOnConnect by
                 settingsRepo.requireAuthOnConnect.collectAsStateWithLifecycle()
             val localShellEnabled by settingsRepo.localShellEnabled.collectAsStateWithLifecycle()
+            val sessionPickerStyle by settingsRepo.sessionPickerStyle.collectAsStateWithLifecycle()
             val hosts by vm.hosts.collectAsStateWithLifecycle()
             val searchQuery by vm.search.collectAsStateWithLifecycle()
             ServerListScreen(
@@ -83,8 +90,8 @@ fun ApplicationNavController() {
                         } else {
                             requireUserVerification(
                                 context = context,
-                                title = "Verify to open local shell",
-                                subtitle = "Authenticate to open this device shell",
+                                title = context.getString(R.string.verification_local_shell_title),
+                                subtitle = context.getString(R.string.verification_local_shell_subtitle),
                             ) { result ->
                                 if (result == VerificationResult.Success) {
                                     navController.navigate("terminal/local")
@@ -93,20 +100,27 @@ fun ApplicationNavController() {
                         }
                     },
                 onEditServer = { id -> navController.navigate("servers/edit/$id") },
+                onCopyServer = { id -> navController.navigate("servers/copy/$id") },
                 onConnectServer = { id ->
                     val host = hosts.firstOrNull { it.id == id }
                     val hostRequiresAuth = host?.requireAuthOnConnect == true
                     val mustVerify = requireAuthOnConnect || hostRequiresAuth
+                    val route =
+                        if (sessionPickerStyle == SessionPickerStyle.Browser && host != null && host.opensSessionBrowser()) {
+                            "sessions/$id"
+                        } else {
+                            "terminal/$id"
+                        }
                     if (!mustVerify) {
-                        navController.navigate("terminal/$id")
+                        navController.navigate(route)
                     } else {
                         requireUserVerification(
                             context = context,
-                            title = "Verify to connect",
-                            subtitle = "Authenticate to open this server session",
+                            title = context.getString(R.string.verification_connect_title),
+                            subtitle = context.getString(R.string.verification_connect_subtitle),
                         ) { result ->
                             if (result == VerificationResult.Success) {
-                                navController.navigate("terminal/$id")
+                                navController.navigate(route)
                             }
                         }
                     }
@@ -129,14 +143,18 @@ fun ApplicationNavController() {
             val accessoryLayoutIds by settingsRepo.accessoryLayoutIds.collectAsStateWithLifecycle()
             val accessoryBarSingleRow by
                 settingsRepo.accessoryBarSingleRow.collectAsStateWithLifecycle()
+            val accessoryBarOnlyWithKeyboard by
+                settingsRepo.accessoryBarOnlyWithKeyboard.collectAsStateWithLifecycle()
             val customKeyGroups by
                 settingsRepo.terminalCustomKeyGroups.collectAsStateWithLifecycle()
             val showCustomActionsFab by
                 settingsRepo.showCustomActionsFab.collectAsStateWithLifecycle()
             val builtinShortcuts by settingsRepo.builtinShortcuts.collectAsStateWithLifecycle()
             val tabMode by settingsRepo.terminalTabMode.collectAsStateWithLifecycle()
+            val sessionPickerStyle by settingsRepo.sessionPickerStyle.collectAsStateWithLifecycle()
             val localShellEnabled by settingsRepo.localShellEnabled.collectAsStateWithLifecycle()
             val keepScreenAwake by settingsRepo.keepScreenAwake.collectAsStateWithLifecycle()
+            val hideStatusBar by settingsRepo.hideStatusBar.collectAsStateWithLifecycle()
             val hideScreenContents by settingsRepo.hideScreenContents.collectAsStateWithLifecycle()
             val disableAutocorrect by settingsRepo.disableAutocorrect.collectAsStateWithLifecycle()
             val remoteClipboardWriteEnabled by
@@ -151,11 +169,13 @@ fun ApplicationNavController() {
                 requireAuthOnConnect = requireAuthOnConnect,
                 localShellEnabled = localShellEnabled,
                 keepScreenAwake = keepScreenAwake,
+                hideStatusBar = hideStatusBar,
                 hideScreenContents = hideScreenContents,
                 disableAutocorrect = disableAutocorrect,
                 remoteClipboardWriteEnabled = remoteClipboardWriteEnabled,
                 currentAccessoryLayoutIds = accessoryLayoutIds,
                 accessoryBarSingleRow = accessoryBarSingleRow,
+                accessoryBarOnlyWithKeyboard = accessoryBarOnlyWithKeyboard,
                 currentTerminalCustomKeyGroups = customKeyGroups,
                 showCustomActionsFab = showCustomActionsFab,
                 onShowCustomActionsFabChanged = settingsRepo::setShowCustomActionsFab,
@@ -163,6 +183,8 @@ fun ApplicationNavController() {
                 onBuiltinShortcutsChanged = settingsRepo::setBuiltinShortcuts,
                 currentTabMode = tabMode,
                 onTabModeChanged = settingsRepo::setTerminalTabMode,
+                currentSessionPickerStyle = sessionPickerStyle,
+                onSessionPickerStyleChanged = settingsRepo::setSessionPickerStyle,
                 themeMode = themeMode,
                 lightThemeName = lightThemeName,
                 onThemeSelected = settingsRepo::setTheme,
@@ -173,11 +195,13 @@ fun ApplicationNavController() {
                 onRequireAuthOnConnectChanged = settingsRepo::setRequireAuthOnConnect,
                 onLocalShellEnabledChanged = settingsRepo::setLocalShellEnabled,
                 onKeepScreenAwakeChanged = settingsRepo::setKeepScreenAwake,
+                onHideStatusBarChanged = settingsRepo::setHideStatusBar,
                 onHideScreenContentsChanged = settingsRepo::setHideScreenContents,
                 onDisableAutocorrectChanged = settingsRepo::setDisableAutocorrect,
                 onRemoteClipboardWriteEnabledChanged = settingsRepo::setRemoteClipboardWriteEnabled,
                 onAccessoryLayoutChanged = settingsRepo::setAccessoryLayoutIds,
                 onAccessoryBarSingleRowChanged = settingsRepo::setAccessoryBarSingleRow,
+                onAccessoryBarOnlyWithKeyboardChanged = settingsRepo::setAccessoryBarOnlyWithKeyboard,
                 currentTerminalFontSize = terminalFontSize,
                 onTerminalFontSizeChanged = settingsRepo::setTerminalFontSize,
                 onTerminalCustomActionsChanged = settingsRepo::setTerminalCustomKeyGroups,
@@ -195,6 +219,15 @@ fun ApplicationNavController() {
             val vm: AddServerViewModel =
                 viewModel(factory = AddServerViewModel.factory(application, null))
             ServerFormRoute(vm, backStackEntry, navController)
+        }
+        composable(
+            route = "servers/copy/{id}",
+            arguments = listOf(navArgument("id") { type = NavType.LongType }),
+        ) { backStackEntry ->
+            val id = backStackEntry.arguments?.getLong("id")
+            val vm: AddServerViewModel =
+                viewModel(factory = AddServerViewModel.factory(application, null, copyFromHostId = id))
+            AddServerScreen(vm = vm, onBack = { navController.popBackStack() })
         }
         composable(
             route = "servers/edit/{id}",
@@ -243,8 +276,27 @@ fun ApplicationNavController() {
             }
         }
         composable(
-            route = "terminal/{id}",
+            route = "sessions/{id}",
             arguments = listOf(navArgument("id") { type = NavType.LongType }),
+        ) { backStackEntry ->
+            val id = backStackEntry.arguments?.getLong("id") ?: return@composable
+            val vm: SessionBrowserViewModel = viewModel(factory = SessionBrowserViewModel.factory(application, id))
+            SessionBrowserScreen(
+                vm = vm,
+                onOpenSession = { name, create ->
+                    navController.navigate("terminal/$id?session=${Uri.encode(name)}&create=$create")
+                },
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(
+            route = "terminal/{id}?session={session}&create={create}",
+            arguments =
+                listOf(
+                    navArgument("id") { type = NavType.LongType },
+                    navArgument("session") { type = NavType.StringType; nullable = true; defaultValue = null },
+                    navArgument("create") { type = NavType.BoolType; defaultValue = false },
+                ),
         ) { backStackEntry ->
             val id = backStackEntry.arguments?.getLong("id")
             val vm: TerminalViewModel = viewModel(factory = TerminalViewModel.factory(application))
@@ -253,6 +305,8 @@ fun ApplicationNavController() {
                 hostId = id,
                 onOpenSettings = { navController.navigate("settings") },
                 onBack = { navController.popBackStack() },
+                multiplexerSession = backStackEntry.arguments?.getString("session"),
+                createMultiplexerSession = backStackEntry.arguments?.getBoolean("create") == true,
             )
         }
     }
@@ -271,8 +325,8 @@ fun ApplicationNavController() {
             unlockPromptRequested = true
             requireUserVerification(
                 context = context,
-                title = "Unlock Chuchu",
-                subtitle = "Authenticate to continue",
+                title = context.getString(R.string.verification_unlock_title),
+                subtitle = context.getString(R.string.verification_unlock_subtitle),
             ) { result ->
                 appUnlocked = result == VerificationResult.Success
                 if (result != VerificationResult.Success) {

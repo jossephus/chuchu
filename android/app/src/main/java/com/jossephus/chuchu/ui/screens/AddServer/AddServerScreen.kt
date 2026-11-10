@@ -30,11 +30,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jossephus.chuchu.R
 import com.jossephus.chuchu.model.AuthMethod
 import com.jossephus.chuchu.model.HostProfile
 import com.jossephus.chuchu.model.MultiplexerType
@@ -88,20 +90,20 @@ fun AddServerScreen(
             ChuText("$ ", style = typography.headline, color = colors.textMuted)
             ChuText(
                 when {
-                    form.id != null -> "edit server"
-                    isJumpServer -> "add jump server"
-                    else -> "add server"
+                    form.id != null -> stringResource(R.string.add_server_title_edit)
+                    isJumpServer -> stringResource(R.string.add_server_title_jump)
+                    else -> stringResource(R.string.add_server_title_new)
                 },
                 style = typography.headline,
             )
         }
 
-        SectionHeader("CONNECTION")
+        SectionHeader(stringResource(R.string.section_connection))
         ChuTextField(
             value = form.name,
             onValueChange = vm::updateName,
-            label = "Name",
-            placeholder = "My server",
+            label = stringResource(R.string.field_name),
+            placeholder = stringResource(R.string.add_server_name_placeholder),
             singleLine = true,
             autoFocus = false,
             modifier = Modifier.fillMaxWidth(),
@@ -109,7 +111,7 @@ fun AddServerScreen(
         ChuTextField(
             value = form.host,
             onValueChange = vm::updateHost,
-            label = "Host",
+            label = stringResource(R.string.field_host),
             placeholder = "192.168.1.10",
             singleLine = true,
             keyboardOptions =
@@ -128,7 +130,7 @@ fun AddServerScreen(
             ChuTextField(
                 value = form.port,
                 onValueChange = vm::updatePort,
-                label = "Port",
+                label = stringResource(R.string.field_port),
                 singleLine = true,
                 keyboardOptions =
                     KeyboardOptions(
@@ -142,7 +144,7 @@ fun AddServerScreen(
             ChuTextField(
                 value = form.username,
                 onValueChange = vm::updateUsername,
-                label = "Username",
+                label = stringResource(R.string.field_username),
                 placeholder = "root",
                 singleLine = true,
                 keyboardOptions =
@@ -158,7 +160,7 @@ fun AddServerScreen(
 
         SectionDivider()
 
-        SectionHeader("TRANSPORT")
+        SectionHeader(stringResource(R.string.section_transport))
         ChuSegmentedControl(
             options = listOf(Transport.SSH, Transport.TailscaleSSH, Transport.Mosh),
             labels =
@@ -172,7 +174,7 @@ fun AddServerScreen(
         )
         if (form.transport == Transport.TailscaleSSH) {
             ChuText(
-                "Connects through the Tailscale network. Use the host's Tailscale IP (100.x.x.x) or MagicDNS name.",
+                stringResource(R.string.add_server_tailscale_hint),
                 style = typography.bodySmall,
                 color = colors.textMuted,
             )
@@ -180,7 +182,7 @@ fun AddServerScreen(
 
         SectionDivider()
 
-        SectionHeader("AUTHENTICATION")
+        SectionHeader(stringResource(R.string.section_authentication))
         val authOptions =
             when (form.transport) {
                 Transport.TailscaleSSH ->
@@ -196,9 +198,9 @@ fun AddServerScreen(
             options = authOptions,
             labels =
                 mapOf(
-                    AuthMethod.Password to "password",
-                    AuthMethod.Key to "ssh key",
-                    AuthMethod.None to "none",
+                    AuthMethod.Password to stringResource(R.string.auth_password),
+                    AuthMethod.Key to stringResource(R.string.auth_ssh_key),
+                    AuthMethod.None to stringResource(R.string.auth_none),
                 ),
             selected = segmentSelected,
             onSelect = vm::updateAuthMethod,
@@ -209,7 +211,7 @@ fun AddServerScreen(
                 ChuTextField(
                     value = form.password,
                     onValueChange = vm::updatePassword,
-                    label = "Password",
+                    label = stringResource(R.string.field_password),
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     autoFocus = false,
@@ -225,16 +227,27 @@ fun AddServerScreen(
                     onSelectKey = { vm.selectStoredKey(it) },
                     onCopyPublicKey = {
                         if (form.publicKeyOpenSsh.isBlank()) {
-                            Toast.makeText(context, "No public key available", Toast.LENGTH_SHORT)
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.add_server_no_public_key),
+                                Toast.LENGTH_SHORT,
+                            )
                                 .show()
                         } else {
                             val clipboard =
                                 context.getSystemService(Context.CLIPBOARD_SERVICE)
                                     as ClipboardManager
                             clipboard.setPrimaryClip(
-                                ClipData.newPlainText("SSH Public Key", form.publicKeyOpenSsh)
+                                ClipData.newPlainText(
+                                    context.getString(R.string.add_server_clipboard_label),
+                                    form.publicKeyOpenSsh,
+                                )
                             )
-                            Toast.makeText(context, "Public key copied", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.add_server_public_key_copied),
+                                Toast.LENGTH_SHORT,
+                            ).show()
                         }
                     },
                 )
@@ -254,13 +267,13 @@ fun AddServerScreen(
                             }
                         },
                     )
-                    ChuText("set passphrase", style = typography.label)
+                    ChuText(stringResource(R.string.add_server_set_passphrase), style = typography.label)
                 }
                 if (form.authMethod == AuthMethod.KeyWithPassphrase) {
                     ChuTextField(
                         value = form.keyPassphrase,
                         onValueChange = vm::updateKeyPassphrase,
-                        label = "Passphrase",
+                        label = stringResource(R.string.field_passphrase),
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                         autoFocus = false,
@@ -270,7 +283,7 @@ fun AddServerScreen(
             }
             AuthMethod.None -> {
                 ChuText(
-                    "no SSH auth uses Tailscale SSH policy (`tailscale up --ssh`) on the server. connect through Tailscale SSH instead of regular sshd credentials.",
+                    stringResource(R.string.add_server_ssh_key_only_hint),
                     style = typography.bodySmall,
                     color = colors.textMuted,
                 )
@@ -285,7 +298,7 @@ fun AddServerScreen(
                 variant = ChuButtonVariant.Outlined,
                 bracketed = true,
             ) {
-                ChuText("additional settings", style = typography.label)
+                ChuText(stringResource(R.string.add_server_additional_settings), style = typography.label)
             }
         }
         if (showAdditionalSettings) {
@@ -306,7 +319,7 @@ fun AddServerScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
             ) {
-                ChuText("require biometric auth", style = typography.label)
+                ChuText(stringResource(R.string.add_server_require_biometric), style = typography.label)
                 ChuSwitch(
                     checked = form.requireAuthOnConnect,
                     onCheckedChange = vm::updateRequireAuthOnConnect,
@@ -332,10 +345,10 @@ fun AddServerScreen(
         ) {
             val label =
                 when (testState.status) {
-                    ConnectionTestStatus.Idle -> "test connection"
-                    ConnectionTestStatus.Running -> "testing…"
-                    ConnectionTestStatus.Success -> "connected"
-                    ConnectionTestStatus.Error -> "test failed"
+                    ConnectionTestStatus.Idle -> stringResource(R.string.add_server_test_idle)
+                    ConnectionTestStatus.Running -> stringResource(R.string.add_server_test_running)
+                    ConnectionTestStatus.Success -> stringResource(R.string.add_server_test_success)
+                    ConnectionTestStatus.Error -> stringResource(R.string.add_server_test_error)
                 }
             ChuText(label, style = typography.label)
         }
@@ -350,7 +363,7 @@ fun AddServerScreen(
             borderColor = colors.accent,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            ChuText("save", style = typography.label, color = colors.accent)
+            ChuText(stringResource(R.string.action_save), style = typography.label, color = colors.accent)
         }
     }
 }
@@ -402,7 +415,11 @@ private fun KeyAuthSection(
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                 modifier = Modifier.weight(1f),
             ) {
-                ChuText("copy public key", style = typography.labelSmall, color = colors.accent)
+                ChuText(
+                    stringResource(R.string.add_server_copy_public_key),
+                    style = typography.labelSmall,
+                    color = colors.accent,
+                )
             }
             ChuButton(
                 onClick = onGenerate,
@@ -410,12 +427,12 @@ private fun KeyAuthSection(
                 bracketed = true,
                 modifier = Modifier.weight(1f),
             ) {
-                ChuText("new key", style = typography.label)
+                ChuText(stringResource(R.string.add_server_new_key), style = typography.label)
             }
         }
     } else {
         ChuText(
-            "generate an Ed25519 key, then copy the public key to ~/.ssh/authorized_keys on the remote host.",
+            stringResource(R.string.add_server_generate_key_hint),
             style = typography.bodySmall,
             color = colors.textMuted,
         )
@@ -425,7 +442,7 @@ private fun KeyAuthSection(
             bracketed = true,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            ChuText("generate key", style = typography.label)
+            ChuText(stringResource(R.string.add_server_generate_key), style = typography.label)
         }
     }
 
@@ -438,7 +455,12 @@ private fun KeyAuthSection(
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
         ) {
             ChuText(
-                text = if (selectedKey != null) "change key" else "use existing key",
+                text =
+                    if (selectedKey != null) {
+                        stringResource(R.string.add_server_change_key)
+                    } else {
+                        stringResource(R.string.add_server_use_existing_key)
+                    },
                 style = typography.labelSmall,
                 color = colors.accent,
             )
@@ -485,10 +507,10 @@ private fun JumpHostSection(
     val colors = ChuColors.current
     val typography = ChuTypography.current
 
-    SectionHeader("CONNECT VIA")
+    SectionHeader(stringResource(R.string.section_connect_via))
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         JumpHostOption(
-            label = "direct",
+            label = stringResource(R.string.add_server_jump_direct),
             detail = "",
             isSelected = selectedId == null,
             onClick = { onSelect(null) },
@@ -504,7 +526,7 @@ private fun JumpHostSection(
     }
     if (selectedId != null && candidates.none { it.id == selectedId }) {
         ChuText(
-            "saved jump host can no longer be used",
+            stringResource(R.string.add_server_jump_unavailable),
             style = typography.bodySmall,
             color = colors.error,
         )
@@ -516,7 +538,7 @@ private fun JumpHostSection(
         modifier = Modifier.fillMaxWidth(),
         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
     ) {
-        ChuText("+ new jump server", style = typography.labelSmall, color = colors.accent)
+        ChuText(stringResource(R.string.add_server_jump_new), style = typography.labelSmall, color = colors.accent)
     }
 }
 
@@ -551,14 +573,14 @@ private enum class MultiplexerOption(val type: MultiplexerType?) {
 private fun MultiplexerSection(selected: MultiplexerType?, onSelect: (MultiplexerType?) -> Unit) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
-    SectionHeader("SESSION PERSISTENCE")
+    SectionHeader(stringResource(R.string.section_session_persistence))
     val options = MultiplexerOption.entries.toList()
     val selectedOption = options.firstOrNull { it.type == selected } ?: MultiplexerOption.Off
     ChuSegmentedControl(
         options = options,
         labels =
             mapOf(
-                MultiplexerOption.Off to "off",
+                MultiplexerOption.Off to stringResource(R.string.label_off),
                 MultiplexerOption.Tmux to "tmux",
                 MultiplexerOption.Zellij to "zellij",
                 MultiplexerOption.Zmx to "zmx",
@@ -573,12 +595,12 @@ private fun MultiplexerSection(selected: MultiplexerType?, onSelect: (Multiplexe
 private fun PostConnectActionSection(command: String, onCommandChange: (String) -> Unit) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
-    ChuText("auto-run on connect", style = typography.label)
+    ChuText(stringResource(R.string.add_server_autorun), style = typography.label)
     ChuTextField(
         value = command,
         onValueChange = onCommandChange,
         label = "",
-        placeholder = "e.g. tmux attach -t main",
+        placeholder = stringResource(R.string.add_server_autorun_placeholder),
         showLabel = false,
         singleLine = true,
         autoFocus = false,
@@ -593,7 +615,7 @@ private fun PostConnectActionSection(command: String, onCommandChange: (String) 
             borderColor = colors.textMuted,
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
         ) {
-            ChuText("clear", style = typography.labelSmall, color = colors.textMuted)
+            ChuText(stringResource(R.string.action_clear), style = typography.labelSmall, color = colors.textMuted)
         }
     }
 }

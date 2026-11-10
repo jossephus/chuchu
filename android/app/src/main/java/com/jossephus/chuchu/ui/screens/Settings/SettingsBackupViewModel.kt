@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.jossephus.chuchu.R
 import com.jossephus.chuchu.data.backup.BackupFormatException
 import com.jossephus.chuchu.data.backup.BackupImportPlan
 import com.jossephus.chuchu.data.backup.BackupPayload
@@ -130,13 +131,18 @@ class SettingsBackupViewModel(
                     val context = getApplication<Application>()
                     context.contentResolver.openOutputStream(uri)?.use { output ->
                         output.write(encryptedBytes)
-                    } ?: throw BackupFormatException("Could not open backup destination")
+                    } ?: throw BackupFormatException(
+                        getApplication<Application>()
+                            .getString(R.string.backup_error_open_destination)
+                    )
                 }
-                _success.value = "Backup exported successfully"
+                _success.value =
+                    getApplication<Application>().getString(R.string.backup_export_success)
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
-                _error.value = "Export failed. Please choose another location and try again."
+                _error.value =
+                    getApplication<Application>().getString(R.string.backup_export_failed)
             } finally {
                 passphrase.fill('\u0000')
                 _isBusy.value = false
@@ -174,15 +180,18 @@ class SettingsBackupViewModel(
                 _importPassphrase.value = ""
                 _importPlan.value = plan
             } catch (_: InvalidBackupPassphraseException) {
-                _error.value = "Wrong passphrase. Could not decrypt backup."
+                _error.value =
+                    getApplication<Application>().getString(R.string.backup_wrong_passphrase)
                 clearImportPassphrase()
             } catch (_: BackupFormatException) {
-                _error.value = "Import failed. Choose a valid Chuchu backup file."
+                _error.value =
+                    getApplication<Application>().getString(R.string.backup_invalid_file)
                 clearImportPassphrase()
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
-                _error.value = "Import failed. Could not read the selected backup file."
+                _error.value =
+                    getApplication<Application>().getString(R.string.backup_read_failed)
                 clearImportPassphrase()
             } finally {
                 passphrase.fill('\u0000')
@@ -203,17 +212,56 @@ class SettingsBackupViewModel(
                     backupRepo.importPayload(payload)
                 }
                 val parts = mutableListOf<String>()
-                if (result.importedKeys > 0) parts += "${result.importedKeys} key(s)"
-                if (result.reusedKeys > 0) parts += "${result.reusedKeys} reused"
-                if (result.renamedKeys > 0) parts += "${result.renamedKeys} key(s) renamed"
-                if (result.importedHosts > 0) parts += "${result.importedHosts} host(s)"
-                if (result.renamedHosts > 0) parts += "${result.renamedHosts} host(s) renamed"
-                _success.value = "Import complete: ${parts.joinToString(", ")}"
+                val app = getApplication<Application>()
+                if (result.importedKeys > 0) {
+                    parts +=
+                        app.resources.getQuantityString(
+                            R.plurals.backup_result_keys_imported,
+                            result.importedKeys,
+                            result.importedKeys,
+                        )
+                }
+                if (result.reusedKeys > 0) {
+                    parts +=
+                        app.resources.getQuantityString(
+                            R.plurals.backup_result_keys_reused,
+                            result.reusedKeys,
+                            result.reusedKeys,
+                        )
+                }
+                if (result.renamedKeys > 0) {
+                    parts +=
+                        app.resources.getQuantityString(
+                            R.plurals.backup_result_keys_renamed,
+                            result.renamedKeys,
+                            result.renamedKeys,
+                        )
+                }
+                if (result.importedHosts > 0) {
+                    parts +=
+                        app.resources.getQuantityString(
+                            R.plurals.backup_result_hosts_imported,
+                            result.importedHosts,
+                            result.importedHosts,
+                        )
+                }
+                if (result.renamedHosts > 0) {
+                    parts +=
+                        app.resources.getQuantityString(
+                            R.plurals.backup_result_hosts_renamed,
+                            result.renamedHosts,
+                            result.renamedHosts,
+                        )
+                }
+                _success.value =
+                    app.getString(R.string.backup_import_complete, parts.joinToString(", "))
                 clearImportState()
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
-                _error.value = "Import failed. Nothing was changed."
+                _error.value =
+                    getApplication<Application>()
+                        .getString(R.string.backup_import_failed_nothing_changed)
                 clearImportState()
             } finally {
                 _isBusy.value = false
@@ -251,12 +299,17 @@ class SettingsBackupViewModel(
                 if (read == -1) break
                 totalBytes += read
                 if (totalBytes > ChuchuBackupCodec.MAX_BACKUP_SIZE_BYTES) {
-                    throw BackupFormatException("Backup file is too large")
+                    throw BackupFormatException(
+                        getApplication<Application>()
+                            .getString(R.string.backup_error_file_too_large)
+                    )
                 }
                 output.write(buffer, 0, read)
             }
             output.toByteArray()
-        } ?: throw BackupFormatException("Could not open backup file")
+        } ?: throw BackupFormatException(
+            getApplication<Application>().getString(R.string.backup_error_open_file)
+        )
     }
 
     private fun clearExportPassphrase() {
