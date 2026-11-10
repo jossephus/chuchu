@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -211,9 +212,11 @@ internal fun TerminalViewport(
     modifier: Modifier = Modifier,
 ) {
     val colors = ChuColors.current
-    // Read here rather than by the screen, so a new frame of output recomposes only the viewport.
-    val liveState by vm.sessionState.collectAsStateWithLifecycle()
-    val snapshot = liveState.snapshot ?: return
+    val hasSnapshot by vm.hasSnapshot.collectAsStateWithLifecycle()
+    if (!hasSnapshot) return
+    val liveState = vm.sessionState.collectAsStateWithLifecycle()
+    val initialSnapshot = vm.sessionState.value.snapshot ?: return
+    val snapshot = remember(liveState) { LatestSnapshotState(liveState, initialSnapshot) }
 
     Box(modifier = modifier) {
         TerminalCanvas(
@@ -329,6 +332,19 @@ internal fun TerminalViewport(
             modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth(),
         )
     }
+}
+
+private class LatestSnapshotState(
+    private val source: State<SessionState>,
+    initial: TerminalSnapshot,
+) : State<TerminalSnapshot> {
+    private var last = initial
+
+    override val value: TerminalSnapshot
+        get() {
+            source.value.snapshot?.let { last = it }
+            return last
+        }
 }
 
 @Composable

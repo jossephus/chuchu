@@ -20,11 +20,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -55,7 +57,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 @Composable
 fun TerminalCanvas(
-    snapshot: TerminalSnapshot,
+    snapshot: State<TerminalSnapshot>,
     modifier: Modifier = Modifier,
     fontSizeSp: Float = 14f,
     fitSnapshotToCanvas: Boolean = false,
@@ -200,7 +202,7 @@ fun TerminalCanvas(
     val cursorTextColorArgb = cursorTextColor?.toArgb()
 
     val currentOnSelectionChanged = rememberUpdatedState(onSelectionChanged)
-    val currentSnapshot = rememberUpdatedState(snapshot)
+    val currentSnapshot = snapshot
     val currentSelectionState = rememberUpdatedState(selection)
     val currentOnSelectionChange = rememberUpdatedState(onSelectionChange)
     val currentOnTap = rememberUpdatedState(onTap)
@@ -247,18 +249,20 @@ fun TerminalCanvas(
     val currentSelection = selection
     if (currentSelection != null) {
         LaunchedEffect(snapshot, currentSelection, cellWidth, cellHeight, canvasSize, terminalHandle) {
-            currentOnSelectionChanged.value(
-                buildSelectionState(
-                    snapshot = snapshot,
-                    selection = currentSelection,
-                    cellWidth = cellWidth,
-                    cellHeight = cellHeight,
-                    canvasWidthPx = canvasSize.width,
-                    canvasHeightPx = canvasSize.height,
-                    terminalHandle = terminalHandle,
-                    ghosttyBridge = ghosttyBridge,
-                ),
-            )
+            snapshotFlow { snapshot.value }.collect { latest ->
+                currentOnSelectionChanged.value(
+                    buildSelectionState(
+                        snapshot = latest,
+                        selection = currentSelection,
+                        cellWidth = cellWidth,
+                        cellHeight = cellHeight,
+                        canvasWidthPx = canvasSize.width,
+                        canvasHeightPx = canvasSize.height,
+                        terminalHandle = terminalHandle,
+                        ghosttyBridge = ghosttyBridge,
+                    ),
+                )
+            }
         }
     } else {
         LaunchedEffect(currentSelection) {
@@ -271,14 +275,16 @@ fun TerminalCanvas(
     }
 
     LaunchedEffect(snapshot) {
-        remapSelectionForViewportScroll(
-            snapshot = snapshot,
-            selection = currentSelectionState.value,
-            baseline = selectionViewportBaseline,
-            autoScrollingSelection = autoScrollingSelection,
-            onBaselineChange = { selectionViewportBaseline = it },
-            onSelectionChange = currentOnSelectionChange.value,
-        )
+        snapshotFlow { snapshot.value }.collect { latest ->
+            remapSelectionForViewportScroll(
+                snapshot = latest,
+                selection = currentSelectionState.value,
+                baseline = selectionViewportBaseline,
+                autoScrollingSelection = autoScrollingSelection,
+                onBaselineChange = { selectionViewportBaseline = it },
+                onSelectionChange = currentOnSelectionChange.value,
+            )
+        }
     }
 
     LaunchedEffect(canvasSize, cellWidth, cellHeight) {
@@ -572,6 +578,7 @@ fun TerminalCanvas(
         }
 
     Canvas(modifier = canvasModifier) {
+        val snapshot = currentSnapshot.value
         Trace.beginSection("term.draw")
         val cols = max(snapshot.cols, 1)
         val rows = max(snapshot.rows, 1)
