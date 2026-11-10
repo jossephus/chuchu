@@ -14,6 +14,11 @@ import android.os.Trace
 import androidx.core.content.res.ResourcesCompat
 import android.view.ViewConfiguration
 import androidx.compose.foundation.Canvas
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.animation.splineBasedDecay
+import androidx.compose.animation.core.animateDecay
+import androidx.compose.animation.core.AnimationState
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.fillMaxSize
@@ -54,6 +59,8 @@ import kotlin.math.max
 import kotlin.math.round
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.withTimeoutOrNull
 
 @Composable
@@ -230,6 +237,11 @@ fun TerminalCanvas(
     var autoScrollingSelection by remember { mutableStateOf(false) }
 
     val scrollDeltaChannel = remember { Channel<TerminalScrollDelta>(capacity = Channel.UNLIMITED) }
+    val flingScope = rememberCoroutineScope()
+    val flingHolder = remember { TerminalFlingHolder() }
+    val flingDecay = remember(density) { splineBasedDecay<Float>(density) }
+    val minFlingVelocity = remember(androidViewConfiguration) { androidViewConfiguration.scaledMinimumFlingVelocity.toFloat() }
+    val maxFlingVelocity = remember(androidViewConfiguration) { androidViewConfiguration.scaledMaximumFlingVelocity.toFloat() }
     LaunchedEffect(scrollDeltaChannel) {
         while (isActive) {
             val first = scrollDeltaChannel.receive()
@@ -312,6 +324,9 @@ fun TerminalCanvas(
                 baseModifier.pointerInput(Unit) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
+                        flingHolder.job?.cancel()
+                        val velocityTracker = VelocityTracker()
+                        velocityTracker.addPosition(down.uptimeMillis, down.position)
                         fun toSnapshotSpace(position: Offset, s: TerminalSnapshot): Offset {
                             if (!currentFitSnapshotToCanvas.value) return position
                             val cols = max(s.cols, 1)
@@ -445,6 +460,30 @@ fun TerminalCanvas(
                                             }
                                         }
                                     }
+                                    if (didScroll && !didPinch) {
+                                        val velocityY = velocityTracker.calculateVelocity().y
+                                            .coerceIn(-maxFlingVelocity, maxFlingVelocity)
+                                        if (abs(velocityY) >= minFlingVelocity) {
+                                            val flingPos = toSnapshotSpace(lastPointerPos, currentSnapshot.value)
+                                            flingHolder.job = flingScope.launch {
+                                                var lastValue = 0f
+                                                var lineRemainder = 0f
+                                                AnimationState(initialValue = 0f, initialVelocity = velocityY)
+                                                    .animateDecay(flingDecay) {
+                                                        val dy = value - lastValue
+                                                        lastValue = value
+                                                        lineRemainder += dy / currentCellHeight.value
+                                                        val lines = lineRemainder.toInt()
+                                                        if (lines != 0) {
+                                                            lineRemainder -= lines
+                                                            scrollDeltaChannel.trySend(
+                                                                TerminalScrollDelta(-lines, flingPos.x, flingPos.y),
+                                                            )
+                                                        }
+                                                    }
+                                            }
+                                        }
+                                    }
                                     break
                                 }
 
@@ -484,6 +523,7 @@ fun TerminalCanvas(
                                     lastSinglePointerId = it.id
                                 }
 
+                                velocityTracker.addPosition(change.uptimeMillis, change.position)
                                 // Selection drag takes priority once activated
                                 val s = currentSnapshot.value
                                 val changePos = toSnapshotSpace(change.position, s)
@@ -971,6 +1011,10 @@ private fun rowSelectionTo(hasSel: Boolean, selStart: Int, selEnd: Int, rowStart
     val rowLast = rowStart + cols - 1
     if (!hasSel || selEnd < rowStart || selStart > rowLast) return -1
     return minOf(selEnd, rowLast) - rowStart
+}
+
+private class TerminalFlingHolder {
+    var job: Job? = null
 }
 
 private data class TerminalScrollDelta(
