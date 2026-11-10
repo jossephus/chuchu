@@ -129,7 +129,7 @@ fun KeyboardAccessoryBar(
                     buttonPadding = buttonPadding,
                 )
             }
-            return
+            return@Column
         }
 
         TwoRowAccessoryLayout(
