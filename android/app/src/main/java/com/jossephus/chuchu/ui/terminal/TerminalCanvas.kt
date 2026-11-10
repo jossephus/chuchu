@@ -59,6 +59,9 @@ import kotlin.math.max
 import kotlin.math.round
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.first
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.withTimeoutOrNull
@@ -239,6 +242,7 @@ fun TerminalCanvas(
     val scrollDeltaChannel = remember { Channel<TerminalScrollDelta>(capacity = Channel.UNLIMITED) }
     val flingScope = rememberCoroutineScope()
     val flingHolder = remember { TerminalFlingHolder() }
+    val smoothScroll = remember { TerminalSmoothScroll() }
     val flingDecay = remember(density) { splineBasedDecay<Float>(density) }
     val minFlingVelocity = remember(androidViewConfiguration) { androidViewConfiguration.scaledMinimumFlingVelocity.toFloat() }
     val maxFlingVelocity = remember(androidViewConfiguration) { androidViewConfiguration.scaledMaximumFlingVelocity.toFloat() }
@@ -325,6 +329,7 @@ fun TerminalCanvas(
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         flingHolder.job?.cancel()
+                        smoothScroll.reset()
                         val velocityTracker = VelocityTracker()
                         velocityTracker.addPosition(down.uptimeMillis, down.position)
                         fun toSnapshotSpace(position: Offset, s: TerminalSnapshot): Offset {
@@ -463,11 +468,14 @@ fun TerminalCanvas(
                                     if (didScroll && !didPinch) {
                                         val velocityY = velocityTracker.calculateVelocity().y
                                             .coerceIn(-maxFlingVelocity, maxFlingVelocity)
-                                        if (abs(velocityY) >= minFlingVelocity) {
+                                        if (abs(velocityY) < minFlingVelocity) {
+                                            smoothScroll.remainder = 0f
+                                            flingHolder.job = flingScope.launch { smoothScroll.settle(currentSnapshot) }
+                                        } else {
                                             val flingPos = toSnapshotSpace(lastPointerPos, currentSnapshot.value)
                                             flingHolder.job = flingScope.launch {
                                                 var lastValue = 0f
-                                                var lineRemainder = 0f
+                                                var lineRemainder = smoothScroll.remainder
                                                 AnimationState(initialValue = 0f, initialVelocity = velocityY)
                                                     .animateDecay(flingDecay) {
                                                         val dy = value - lastValue
@@ -476,11 +484,15 @@ fun TerminalCanvas(
                                                         val lines = lineRemainder.toInt()
                                                         if (lines != 0) {
                                                             lineRemainder -= lines
+                                                            smoothScroll.sentLines += lines
                                                             scrollDeltaChannel.trySend(
                                                                 TerminalScrollDelta(-lines, flingPos.x, flingPos.y),
                                                             )
                                                         }
+                                                        smoothScroll.track(lineRemainder)
                                                     }
+                                                smoothScroll.remainder = 0f
+                                                smoothScroll.settle(currentSnapshot)
                                             }
                                         }
                                     }
@@ -589,14 +601,17 @@ fun TerminalCanvas(
                                     dragRemainder += dragY / currentCellHeight.value
                                 }
 
+                                if (didDragGesture && verticalIntent) smoothScroll.begin(s)
                                 if (didDragGesture && abs(dragRemainder) >= 1f) {
                                     val delta = dragRemainder.toInt()
                                     dragRemainder -= delta
                                     if (delta != 0) {
                                         didScroll = true
+                                        smoothScroll.sentLines += delta
                                         scrollDeltaChannel.trySend(TerminalScrollDelta(-delta, changePos.x, changePos.y))
                                     }
                                 }
+                                if (didDragGesture) smoothScroll.track(dragRemainder)
 
                                 if (change.position != change.previousPosition) {
                                     change.consume()
@@ -648,17 +663,19 @@ fun TerminalCanvas(
 
         drawRect(color = Color(snapshot.defaultBgArgb))
 
+        val smoothOffsetPx = smoothScroll.offsetPx(snapshot, cellHeight)
         drawIntoCanvas { canvas ->
             val nCanvas = canvas.nativeCanvas
             nCanvas.save()
-            nCanvas.translate(contentOffsetX, contentOffsetY)
+            if (smoothOffsetPx != 0f) nCanvas.clipRect(0f, 0f, size.width, size.height)
+            nCanvas.translate(contentOffsetX, contentOffsetY + smoothOffsetPx)
             if (previewScale != 1f) {
                 nCanvas.scale(previewScale, previewScale)
             }
             val sb = drawBuffer
             val defaultBg = snapshot.defaultBgArgb
 
-            fun drawRow(target: android.graphics.Canvas, row: Int, y: Float) {
+            fun drawRow(target: android.graphics.Canvas, src: TerminalSnapshot, row: Int, y: Float, selOn: Boolean) {
                 val rowStart = row * cols
                 val baseline = y + baselineOffset
 
@@ -666,23 +683,23 @@ fun TerminalCanvas(
                 var i = rowStart
                 val rowEnd = rowStart + cols
                 while (i < rowEnd) {
-                    val iSelected = hasSel && i in selStart..selEnd
+                    val iSelected = selOn && i in selStart..selEnd
                     val iInverse = !iSelected &&
-                        (snapshot.flags[i].toInt() and TerminalSnapshot.CELL_FLAG_INVERSE) != 0
+                        (src.flags[i].toInt() and TerminalSnapshot.CELL_FLAG_INVERSE) != 0
                     val bg = when {
                         iSelected -> selectionBackgroundArgb
-                        iInverse -> snapshot.fgArgb[i]
-                        else -> snapshot.bgArgb[i]
+                        iInverse -> src.fgArgb[i]
+                        else -> src.bgArgb[i]
                     }
                     var j = i + 1
                     while (j < rowEnd) {
-                        val jSelected = hasSel && j in selStart..selEnd
+                        val jSelected = selOn && j in selStart..selEnd
                         val jInverse = !jSelected &&
-                            (snapshot.flags[j].toInt() and TerminalSnapshot.CELL_FLAG_INVERSE) != 0
+                            (src.flags[j].toInt() and TerminalSnapshot.CELL_FLAG_INVERSE) != 0
                         val nextBg = when {
                             jSelected -> selectionBackgroundArgb
-                            jInverse -> snapshot.fgArgb[j]
-                            else -> snapshot.bgArgb[j]
+                            jInverse -> src.fgArgb[j]
+                            else -> src.bgArgb[j]
                         }
                         if (nextBg != bg || jInverse != iInverse) break
                         j++
@@ -703,24 +720,24 @@ fun TerminalCanvas(
                 // Text runs
                 i = rowStart
                 while (i < rowEnd) {
-                    val cp = snapshot.codepoints[i]
+                    val cp = src.codepoints[i]
                     if (cp == 0 || cp == 32) {
                         i++
                         continue
                     }
 
-                    val firstFlags = snapshot.flags[i].toInt()
-                    val firstSelected = hasSel && i in selStart..selEnd
+                    val firstFlags = src.flags[i].toInt()
+                    val firstSelected = selOn && i in selStart..selEnd
                     val firstInverse = !firstSelected &&
                         (firstFlags and TerminalSnapshot.CELL_FLAG_INVERSE) != 0
                     val fg = when {
                         firstSelected && hasSelectionFg -> selectionForegroundArgb
-                        firstInverse -> snapshot.bgArgb[i]
-                        else -> snapshot.fgArgb[i]
+                        firstInverse -> src.bgArgb[i]
+                        else -> src.fgArgb[i]
                     }
                     val styleBits = firstFlags and TEXT_STYLE_MASK
-                    val firstExtras = snapshot.graphemeExtras[i]
-                    val firstGlyph = if (firstExtras == null || firstExtras.isEmpty()) null else snapshot.glyphAt(i)
+                    val firstExtras = src.graphemeExtras[i]
+                    val firstGlyph = if (firstExtras == null || firstExtras.isEmpty()) null else src.glyphAt(i)
                     val firstPaintChoice = if (firstGlyph == null) {
                         pickPaintChoice(
                             codepoint = cp,
@@ -744,23 +761,23 @@ fun TerminalCanvas(
                     sb.setLength(0)
                     if (firstGlyph == null) sb.appendCodePoint(cp) else sb.append(firstGlyph)
                     val startCol = i - rowStart
-                    val firstIsWide = i + 1 < rowEnd && snapshot.isSpacerContinuation(i + 1)
+                    val firstIsWide = i + 1 < rowEnd && src.isSpacerContinuation(i + 1)
                     var j = if (firstIsWide) i + 2 else i + 1
 
                     while (j < rowEnd) {
-                        val c = snapshot.codepoints[j]
+                        val c = src.codepoints[j]
                         if (c == 0) break
-                        if (c == 32 && !snapshot.isSpacerContinuation(j)) break
-                        if (j + 1 < rowEnd && snapshot.isSpacerContinuation(j + 1)) break
+                        if (c == 32 && !src.isSpacerContinuation(j)) break
+                        if (j + 1 < rowEnd && src.isSpacerContinuation(j + 1)) break
 
-                        val jFlags = snapshot.flags[j].toInt()
-                        val jSelected = hasSel && j in selStart..selEnd
+                        val jFlags = src.flags[j].toInt()
+                        val jSelected = selOn && j in selStart..selEnd
                         val jInverse = !jSelected &&
                             (jFlags and TerminalSnapshot.CELL_FLAG_INVERSE) != 0
                         val nextFg = when {
                             jSelected && hasSelectionFg -> selectionForegroundArgb
-                            jInverse -> snapshot.bgArgb[j]
-                            else -> snapshot.fgArgb[j]
+                            jInverse -> src.bgArgb[j]
+                            else -> src.fgArgb[j]
                         }
                         if (nextFg != fg) break
                         if ((jFlags and TEXT_STYLE_MASK) != styleBits) break
@@ -770,8 +787,8 @@ fun TerminalCanvas(
                             continue
                         }
 
-                        val extras = snapshot.graphemeExtras[j]
-                        val glyph = if (extras == null || extras.isEmpty()) null else snapshot.glyphAt(j)
+                        val extras = src.graphemeExtras[j]
+                        val glyph = if (extras == null || extras.isEmpty()) null else src.glyphAt(j)
                         val nextPaintChoice = if (glyph == null) {
                             pickPaintChoice(
                                 codepoint = c,
@@ -860,19 +877,23 @@ fun TerminalCanvas(
                             width = rowWidth,
                             height = cellHeightInt,
                             padTop = pad,
-                        ) { target -> drawRow(target, row, 0f) } ?: continue
+                        ) { target -> drawRow(target, snapshot, row, 0f, hasSel) } ?: continue
                         nCanvas.save()
                         nCanvas.translate(0f, row * cellHeight - pad)
                         nCanvas.drawRenderNode(node)
                         nCanvas.restore()
                     }
                 } else {
-                    for (row in 0 until rows) drawRow(nCanvas, row, row * cellHeight)
+                    for (row in 0 until rows) drawRow(nCanvas, snapshot, row, row * cellHeight, hasSel)
                 }
                 cache.endFrame()
             } else {
-                for (row in 0 until rows) drawRow(nCanvas, row, row * cellHeight)
+                for (row in 0 until rows) drawRow(nCanvas, snapshot, row, row * cellHeight, hasSel)
             }
+            val rowAbove = snapshot.rowAbove
+            if (smoothOffsetPx > 0f && rowAbove != null) drawRow(nCanvas, rowAbove, 0, -cellHeight, false)
+            val rowBelow = snapshot.rowBelow
+            if (smoothOffsetPx < 0f && rowBelow != null) drawRow(nCanvas, rowBelow, 0, rows * cellHeight, false)
 
             // Images: origin from cell coords (same cell size as text, so it lands
             // on the grid); size is libghostty's scaled dest_w/dest_h, already
@@ -1015,6 +1036,50 @@ private fun rowSelectionTo(hasSel: Boolean, selStart: Int, selEnd: Int, rowStart
 
 private class TerminalFlingHolder {
     var job: Job? = null
+}
+
+private class TerminalSmoothScroll {
+    var baseScrollY by mutableStateOf<Int?>(null)
+    var sentLines by mutableIntStateOf(0)
+    var remainder by mutableFloatStateOf(0f)
+
+    fun reset() {
+        baseScrollY = null
+        sentLines = 0
+        remainder = 0f
+    }
+
+    fun track(lines: Float) {
+        if (baseScrollY != null) remainder = lines
+    }
+
+    fun begin(snapshot: TerminalSnapshot) {
+        if (baseScrollY == null && snapshot.scrollsLocally) baseScrollY = snapshot.viewportScrollY
+    }
+
+    fun offsetPx(snapshot: TerminalSnapshot, cellHeight: Float): Float {
+        val base = baseScrollY ?: return 0f
+        if (!snapshot.scrollsLocally) return 0f
+        val shownLines = base - snapshot.viewportScrollY
+        val lines = (sentLines - shownLines + remainder).coerceIn(-1f, 1f)
+        return when {
+            lines > 0f && snapshot.rowAbove != null -> lines * cellHeight
+            lines < 0f && snapshot.rowBelow != null -> lines * cellHeight
+            else -> 0f
+        }
+    }
+
+    suspend fun settle(snapshot: State<TerminalSnapshot>) {
+        val base = baseScrollY ?: return
+        withTimeoutOrNull(SETTLE_TIMEOUT_MS) {
+            snapshotFlow { base - snapshot.value.viewportScrollY }.first { it == sentLines }
+        }
+        baseScrollY = null
+    }
+
+    private companion object {
+        const val SETTLE_TIMEOUT_MS = 250L
+    }
 }
 
 private data class TerminalScrollDelta(
