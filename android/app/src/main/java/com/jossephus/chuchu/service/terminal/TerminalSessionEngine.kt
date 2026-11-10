@@ -795,7 +795,7 @@ class TerminalSessionEngine(
         if (handle == 0L) return
         val wasImageLoading = bridge.nativeIsImageLoading(handle)
         flushPtyWrites()
-        bridge.nativeWriteRemote(handle, chunk)
+        traceSection("term.feed") { bridge.nativeWriteRemote(handle, chunk) }
         flushPtyWrites()
         val isImageLoading = bridge.nativeIsImageLoading(handle)
         when {
@@ -1342,11 +1342,16 @@ class TerminalSessionEngine(
 
     private fun emitSnapshot() {
         if (handle == 0L) return
+        traceSection("term.emitSnapshot") { emitSnapshotTraced() }
+    }
+
+    private fun emitSnapshotTraced() {
         try {
-            val raw = bridge.nativeSnapshot(handle)
-            val rawImages = bridge.nativeSnapshotImages(handle)
-            images = TerminalSnapshot.parseImages(rawImages)
-            val snap = TerminalSnapshot.fromByteBuffer(raw, images)
+            val raw = traceSection("term.nativeSnapshot") { bridge.nativeSnapshot(handle) }
+            images = traceSection("term.images") {
+                TerminalSnapshot.parseImages(bridge.nativeSnapshotImages(handle))
+            }
+            val snap = traceSection("term.parseSnapshot") { TerminalSnapshot.fromByteBuffer(raw, images) }
             val nextTitle = bridge.nativePollTitle(handle)
             val nextPwd = bridge.nativePollPwd(handle)
             val nextClipboard = bridge.nativePollClipboard(handle)
