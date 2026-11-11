@@ -81,6 +81,7 @@
     <string name="server_list_swipe_disconnect">[disconnect]</string>
     <string name="server_list_cd_connect_to">Connect to %1$s</string>
     <string name="server_list_cd_disconnect_from">Disconnect from %1$s</string>
+    <string name="shortcut_host_missing">This server no longer exists</string>
 
     <!-- Add / edit server -->
     <string name="add_server_title_edit">edit server</string>
