@@ -78,6 +78,7 @@
     <string name="server_list_swipe_disconnect">[断开]</string>
     <string name="server_list_cd_connect_to">连接到 %1$s</string>
     <string name="server_list_cd_disconnect_from">断开与 %1$s 的连接</string>
+    <string name="shortcut_host_missing">该服务器已不存在</string>
 
     <!-- Add / edit server -->
     <string name="add_server_title_edit">编辑主机</string>

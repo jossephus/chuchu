@@ -1,15 +1,24 @@
 package com.jossephus.chuchu.ui
 
+import android.Manifest
 import android.app.Application
+import android.content.Context
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -17,13 +26,17 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavHostController
+import androidx.navigation.NavOptionsBuilder
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.jossephus.chuchu.R
+import com.jossephus.chuchu.data.db.AppDatabase
+import com.jossephus.chuchu.data.repository.HostRepository
 import com.jossephus.chuchu.data.repository.SettingsRepository
+import com.jossephus.chuchu.model.HostProfile
 import com.jossephus.chuchu.ui.screens.AddServer.AddServerScreen
 import com.jossephus.chuchu.ui.screens.AddServer.AddServerViewModel
 import com.jossephus.chuchu.ui.screens.Keys.KeysViewModel
@@ -41,7 +54,7 @@ import com.jossephus.chuchu.ui.security.VerificationResult
 import com.jossephus.chuchu.ui.security.requireUserVerification
 
 @Composable
-fun ApplicationNavController() {
+fun ApplicationNavController(launchHostId: Long? = null, onLaunchHostConsumed: () -> Unit = {}) {
     val navController = rememberNavController()
     val context = LocalContext.current
     val application = context.applicationContext as Application
@@ -102,28 +115,14 @@ fun ApplicationNavController() {
                 onEditServer = { id -> navController.navigate("servers/edit/$id") },
                 onCopyServer = { id -> navController.navigate("servers/copy/$id") },
                 onConnectServer = { id ->
-                    val host = hosts.firstOrNull { it.id == id }
-                    val hostRequiresAuth = host?.requireAuthOnConnect == true
-                    val mustVerify = requireAuthOnConnect || hostRequiresAuth
-                    val route =
-                        if (sessionPickerStyle == SessionPickerStyle.Browser && host != null && host.opensSessionBrowser()) {
-                            "sessions/$id"
-                        } else {
-                            "terminal/$id"
-                        }
-                    if (!mustVerify) {
-                        navController.navigate(route)
-                    } else {
-                        requireUserVerification(
-                            context = context,
-                            title = context.getString(R.string.verification_connect_title),
-                            subtitle = context.getString(R.string.verification_connect_subtitle),
-                        ) { result ->
-                            if (result == VerificationResult.Success) {
-                                navController.navigate(route)
-                            }
-                        }
-                    }
+                    connectToHost(
+                        context = context,
+                        navController = navController,
+                        id = id,
+                        host = hosts.firstOrNull { it.id == id },
+                        requireAuthOnConnect = requireAuthOnConnect,
+                        sessionPickerStyle = sessionPickerStyle,
+                    )
                 },
                 onDeleteServer = vm::deleteServer,
                 onOpenSettings = { navController.navigate("settings") },
@@ -336,9 +335,85 @@ fun ApplicationNavController() {
             }
         }
     }
+
+    val connectFromShortcut: (HostProfile) -> Unit = { host ->
+        connectToHost(
+            context = context,
+            navController = navController,
+            id = host.id,
+            host = host,
+            requireAuthOnConnect = settingsRepo.requireAuthOnConnect.value,
+            sessionPickerStyle = settingsRepo.sessionPickerStyle.value,
+        ) {
+            // A shortcut can arrive over any screen; start from the server list, as a tap there does.
+            popUpTo("servers")
+            launchSingleTop = true
+        }
+    }
+    var shortcutHostAwaitingPermission by remember { mutableStateOf<HostProfile?>(null) }
+    val shortcutPermissionLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+            shortcutHostAwaitingPermission?.let(connectFromShortcut)
+            shortcutHostAwaitingPermission = null
+        }
+
+    LaunchedEffect(launchHostId, appLockEnabled, appUnlocked, appLockBlockedUntilToggle) {
+        val id = launchHostId ?: return@LaunchedEffect
+        // Wait for the app lock prompt so it does not overlap the connect prompt; drop the shortcut if unlocking failed.
+        if (appLockEnabled && !appUnlocked) {
+            if (appLockBlockedUntilToggle) onLaunchHostConsumed()
+            return@LaunchedEffect
+        }
+        val host = HostRepository(AppDatabase.getInstance(application).hostProfileDao()).getById(id)
+        when {
+            host == null -> Toast.makeText(context, R.string.shortcut_host_missing, Toast.LENGTH_SHORT).show()
+            // Ask first, as the server list does, so the session notification can show.
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+                PackageManager.PERMISSION_GRANTED -> {
+                shortcutHostAwaitingPermission = host
+                shortcutPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+            else -> connectFromShortcut(host)
+        }
+        // Consume last: clearing the key restarts this effect and would cancel the lookup above.
+        onLaunchHostConsumed()
+    }
 }
 
 private const val NEW_JUMP_HOST_ID = "newJumpHostId"
+
+/** Opens a saved server from the server list or a launcher shortcut, verifying the user first when required. */
+private fun connectToHost(
+    context: Context,
+    navController: NavHostController,
+    id: Long,
+    host: HostProfile?,
+    requireAuthOnConnect: Boolean,
+    sessionPickerStyle: SessionPickerStyle,
+    navOptions: NavOptionsBuilder.() -> Unit = {},
+) {
+    val mustVerify = requireAuthOnConnect || host?.requireAuthOnConnect == true
+    val route =
+        if (sessionPickerStyle == SessionPickerStyle.Browser && host != null && host.opensSessionBrowser()) {
+            "sessions/$id"
+        } else {
+            "terminal/$id"
+        }
+    if (!mustVerify) {
+        navController.navigate(route, navOptions)
+        return
+    }
+    requireUserVerification(
+        context = context,
+        title = context.getString(R.string.verification_connect_title),
+        subtitle = context.getString(R.string.verification_connect_subtitle),
+    ) { result ->
+        if (result == VerificationResult.Success) {
+            navController.navigate(route, navOptions)
+        }
+    }
+}
 
 @Composable
 private fun ServerFormRoute(
