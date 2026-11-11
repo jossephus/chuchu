@@ -9,7 +9,7 @@ import org.junit.Test
 
 /**
  * Focused tests for pure accessory-bar logic:
- * sticky modifier persistence, catalog entries, and dispatch behavior.
+ * sticky and one-shot modifiers, catalog entries, and dispatch behavior.
  *
  * These test only Kotlin/non-Android APIs so they run as plain JUnit.
  */
@@ -153,6 +153,63 @@ class AccessoryLogicTest {
         assertNull(r.specialKey)
         assertNull(r.text)
         assertFalse(r.suppressImeInput)
+    }
+
+    @Test
+    fun `one-shot modifier applies to the next key only`() {
+        val armed = ModifierState(oneShot = true).toggle(TerminalModifier.Ctrl)
+        val text = TerminalAccessoryDispatcher.dispatch(AccessoryAction.SendText("a"), armed)
+        assertEquals(0x01.toChar().toString(), text.text)
+        assertFalse(text.modifierState.ctrl)
+        assertTrue(text.modifierState.oneShot)
+
+        val key = TerminalAccessoryDispatcher.dispatch(AccessoryAction.SendSpecialKey(TerminalSpecialKey.Tab), armed)
+        assertFalse(key.modifierState.ctrl)
+    }
+
+    @Test
+    fun `locked modifier survives keys until tapped`() {
+        val locked = TerminalAccessoryDispatcher.dispatch(
+            AccessoryAction.LockModifier(TerminalModifier.Ctrl),
+            ModifierState(oneShot = true, alt = true),
+        ).modifierState
+        assertTrue(locked.isLocked(TerminalModifier.Ctrl))
+
+        val afterKey = TerminalAccessoryDispatcher.dispatch(AccessoryAction.SendText("a"), locked).modifierState
+        assertTrue(afterKey.ctrl)
+        assertFalse(afterKey.alt)
+
+        val released = afterKey.toggle(TerminalModifier.Ctrl)
+        assertFalse(released.ctrl)
+        assertFalse(released.isLocked(TerminalModifier.Ctrl))
+    }
+
+    @Test
+    fun `long-press locks an armed modifier and releases a locked one`() {
+        val armed = ModifierState(oneShot = true).toggle(TerminalModifier.Shift)
+        val locked = armed.toggleLock(TerminalModifier.Shift)
+        assertTrue(locked.shift)
+        assertTrue(locked.isLocked(TerminalModifier.Shift))
+
+        val released = locked.toggleLock(TerminalModifier.Shift)
+        assertFalse(released.shift)
+        assertFalse(released.isLocked(TerminalModifier.Shift))
+    }
+
+    @Test
+    fun `one-shot modifier covers only the first key of a multi-character commit`() {
+        val armed = ModifierState(oneShot = true).toggle(TerminalModifier.Ctrl)
+        val released = armed.consumeOneShot()
+        assertEquals(listOf("l" to armed, "s" to released), armed.textRuns("ls"))
+        assertEquals(listOf("\uD83D\uDE00" to armed, "x" to released), armed.textRuns("\uD83D\uDE00x"))
+
+        val lockedCtrl = ModifierState(oneShot = true).toggleLock(TerminalModifier.Ctrl)
+        val rest = lockedCtrl.toggle(TerminalModifier.Alt).textRuns("ls")[1].second
+        assertTrue(rest.ctrl)
+        assertFalse(rest.alt)
+
+        val sticky = ModifierState().toggle(TerminalModifier.Ctrl)
+        assertEquals(listOf("ls" to sticky), sticky.textRuns("ls"))
     }
 
     // ── Catalog entries ───────────────────────────────────────────────────

@@ -54,6 +54,7 @@ internal fun TerminalHiddenInput(
     )
 }
 
+/** Returns true when the key was forwarded to the terminal rather than consumed by an overlay. */
 internal fun handleTerminalKey(
     key: Int,
     codepoint: Int,
@@ -67,7 +68,7 @@ internal fun handleTerminalKey(
     chuchuKeys: ChuchuKeyBindings,
     modifierState: ModifierState,
     vm: TerminalViewModel,
-) {
+): Boolean {
     var shouldForwardToTerminal = true
     val overlayOpen = ui.showTabSheet || ui.showGlobalTabManager
     val overlayTabs = if (ui.showGlobalTabManager) tabs else tabsForHost
@@ -161,4 +162,5 @@ internal fun handleTerminalKey(
             charCode,
         )
     }
+    return shouldForwardToTerminal
 }

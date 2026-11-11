@@ -413,6 +413,8 @@
     <string name="settings_single_row_bar_hint">off = two rows (default), on = one horizontal row</string>
     <string name="settings_bar_only_with_keyboard">show only with keyboard</string>
     <string name="settings_bar_only_with_keyboard_hint">hide the accessory bar while the on-screen keyboard is closed</string>
+    <string name="settings_one_shot_modifiers">one-shot modifiers</string>
+    <string name="settings_one_shot_modifiers_hint">a tapped modifier applies to the next key only; long-press to keep it on</string>
     <string name="settings_choose_keys_hint">choose the accessory keys you want in the terminal bar.</string>
     <string name="settings_choose_keys_hint_short">choose which keys appear in the bar.</string>
     <string name="settings_custom_actions">custom actions</string>

@@ -396,6 +396,8 @@
     <string name="settings_single_row_bar_hint">关闭 = 两行（默认），开启 = 单行横向排列</string>
     <string name="settings_bar_only_with_keyboard">仅在键盘打开时显示</string>
     <string name="settings_bar_only_with_keyboard_hint">屏幕键盘收起时隐藏辅助键栏</string>
+    <string name="settings_one_shot_modifiers">单次修饰键</string>
+    <string name="settings_one_shot_modifiers_hint">点按的修饰键只作用于下一个按键；长按可保持开启</string>
     <string name="settings_choose_keys_hint">选择要显示在终端辅助键栏里的按键。</string>
     <string name="settings_choose_keys_hint_short">选择要出现在栏里的按键。</string>
     <string name="settings_custom_actions">自定义操作</string>

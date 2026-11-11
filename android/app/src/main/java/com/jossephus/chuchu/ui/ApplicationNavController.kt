@@ -145,6 +145,8 @@ fun ApplicationNavController() {
                 settingsRepo.accessoryBarSingleRow.collectAsStateWithLifecycle()
             val accessoryBarOnlyWithKeyboard by
                 settingsRepo.accessoryBarOnlyWithKeyboard.collectAsStateWithLifecycle()
+            val accessoryOneShotModifiers by
+                settingsRepo.accessoryOneShotModifiers.collectAsStateWithLifecycle()
             val customKeyGroups by
                 settingsRepo.terminalCustomKeyGroups.collectAsStateWithLifecycle()
             val showCustomActionsFab by
@@ -176,6 +178,7 @@ fun ApplicationNavController() {
                 currentAccessoryLayoutIds = accessoryLayoutIds,
                 accessoryBarSingleRow = accessoryBarSingleRow,
                 accessoryBarOnlyWithKeyboard = accessoryBarOnlyWithKeyboard,
+                accessoryOneShotModifiers = accessoryOneShotModifiers,
                 currentTerminalCustomKeyGroups = customKeyGroups,
                 showCustomActionsFab = showCustomActionsFab,
                 onShowCustomActionsFabChanged = settingsRepo::setShowCustomActionsFab,
@@ -202,6 +205,7 @@ fun ApplicationNavController() {
                 onAccessoryLayoutChanged = settingsRepo::setAccessoryLayoutIds,
                 onAccessoryBarSingleRowChanged = settingsRepo::setAccessoryBarSingleRow,
                 onAccessoryBarOnlyWithKeyboardChanged = settingsRepo::setAccessoryBarOnlyWithKeyboard,
+                onAccessoryOneShotModifiersChanged = settingsRepo::setAccessoryOneShotModifiers,
                 currentTerminalFontSize = terminalFontSize,
                 onTerminalFontSizeChanged = settingsRepo::setTerminalFontSize,
                 onTerminalCustomActionsChanged = settingsRepo::setTerminalCustomKeyGroups,
