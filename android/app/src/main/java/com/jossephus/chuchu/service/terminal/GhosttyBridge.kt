@@ -67,6 +67,8 @@ class GhosttyBridge {
     external fun nativeDrainPtyWrites(handle: Long): ByteArray
     external fun nativeSnapshotImages(handle: Long): ByteBuffer
     external fun nativeIsImageLoading(handle: Long): Boolean
+    external fun nativeRenderHoldActive(handle: Long): Boolean
+    external fun nativeTakeHeldFrame(handle: Long): ByteBuffer
     external fun nativeFormatSelectionRange(handle: Long, startCell: Int, endCell: Int): String?
     external fun nativeFormatSelectionScreenRange(handle: Long, startScreenCell: Int, endScreenCell: Int): String?
     external fun nativeSelectWordAt(handle: Long, cellX: Int, cellY: Int): String?
