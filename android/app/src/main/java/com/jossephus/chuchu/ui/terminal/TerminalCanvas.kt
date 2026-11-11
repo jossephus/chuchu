@@ -11,6 +11,11 @@ import android.graphics.Typeface
 
 import androidx.core.content.res.ResourcesCompat
 import android.view.ViewConfiguration
+import androidx.compose.animation.core.AnimationState
+import androidx.compose.animation.core.DecayAnimationSpec
+import androidx.compose.animation.core.animateDecay
+import androidx.compose.animation.core.calculateTargetValue
+import androidx.compose.animation.rememberSplineBasedDecay
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -23,7 +28,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
@@ -31,6 +38,8 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.input.pointer.util.addPointerInputChange
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -49,6 +58,9 @@ import kotlin.math.round
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 @Composable
 fun TerminalCanvas(
@@ -93,6 +105,11 @@ fun TerminalCanvas(
     val autoScrollIntervalMs = 55L
     val doubleTapTimeoutMillis = remember { ViewConfiguration.getDoubleTapTimeout().toLong() }
     val doubleTapSlopPx = remember(androidViewConfiguration) { androidViewConfiguration.scaledDoubleTapSlop.toFloat() }
+    val flingState = remember { ScrollFlingState() }
+    val flingScope = rememberCoroutineScope()
+    val flingDecay = rememberSplineBasedDecay<Float>()
+    val minFlingVelocityPx = remember(androidViewConfiguration) { androidViewConfiguration.scaledMinimumFlingVelocity.toFloat() }
+    val maxFlingVelocityPx = remember(androidViewConfiguration) { androidViewConfiguration.scaledMaximumFlingVelocity.toFloat() }
     val primaryTypeface = remember(context, fontOption) {
         runCatching {
             ResourcesCompat.getFont(context, fontOption.regularFontResId)
@@ -214,12 +231,17 @@ fun TerminalCanvas(
     val currentAutoScrollEdgeZonePx = rememberUpdatedState(autoScrollEdgeZonePx)
     val currentDoubleTapTimeoutMillis = rememberUpdatedState(doubleTapTimeoutMillis)
     val currentDoubleTapSlopPx = rememberUpdatedState(doubleTapSlopPx)
+    val currentFlingDecay = rememberUpdatedState(flingDecay)
+    val currentMinFlingVelocityPx = rememberUpdatedState(minFlingVelocityPx)
+    val currentMaxFlingVelocityPx = rememberUpdatedState(maxFlingVelocityPx)
     val ghosttyBridge = remember { GhosttyBridge() }
 
     var selectionViewportBaseline by remember { mutableStateOf<Int?>(null) }
     var autoScrollingSelection by remember { mutableStateOf(false) }
 
     val scrollDeltaChannel = remember { Channel<TerminalScrollDelta>(capacity = Channel.UNLIMITED) }
+    LaunchedEffect(terminalHandle) { flingState.stop() }
+
     LaunchedEffect(scrollDeltaChannel) {
         while (isActive) {
             val first = scrollDeltaChannel.receive()
@@ -297,6 +319,7 @@ fun TerminalCanvas(
                 baseModifier.pointerInput(Unit) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
+                        val interruptedFling = flingState.stop()
                         fun toSnapshotSpace(position: Offset, s: TerminalSnapshot): Offset {
                             if (!currentFitSnapshotToCanvas.value) return position
                             val cols = max(s.cols, 1)
@@ -324,6 +347,9 @@ fun TerminalCanvas(
                         val longPressDeadline = down.uptimeMillis + currentLongPressTimeoutMillis.value
                         var lastPointerPos = down.position
                         var autoScrollDir = 0
+                        val velocityTracker = VelocityTracker()
+                        var lastScrollPos = Offset.Zero
+                        velocityTracker.addPointerInputChange(down)
 
                         try {
                             while (true) {
@@ -391,7 +417,26 @@ fun TerminalCanvas(
                                     if (releasedDragMode != DragMode.None) {
                                         break
                                     }
-                                    if (!didScroll && !didPinch && !didDragGesture) {
+                                    if (didScroll && !didPinch) {
+                                        // The up event drops samples from before a pause, so hold-then-lift does not fling.
+                                        event.changes.firstOrNull { it.id == lastSinglePointerId }
+                                            ?.let(velocityTracker::addPointerInputChange)
+                                        val v = velocityTracker.calculateVelocity()
+                                        val maxVelocity = currentMaxFlingVelocityPx.value
+                                        if (abs(v.y) >= currentMinFlingVelocityPx.value && abs(v.y) > abs(v.x)) {
+                                            flingState.job = flingScope.launchScrollFling(
+                                                initialVelocityPxPerSec = v.y.coerceIn(-maxVelocity, maxVelocity),
+                                                initialRemainderRows = dragRemainder,
+                                                cellHeightPx = currentCellHeight.value,
+                                                decay = currentFlingDecay.value,
+                                                x = lastScrollPos.x,
+                                                y = lastScrollPos.y,
+                                                send = { scrollDeltaChannel.trySend(it) },
+                                            )
+                                        }
+                                        break
+                                    }
+                                    if (!didScroll && !didPinch && !didDragGesture && !interruptedFling) {
                                         val tapTime = event.changes.maxOfOrNull { it.uptimeMillis } ?: lastEventUptime
                                         val s = currentSnapshot.value
                                         val tapPos = toSnapshotSpace(down.position, s)
@@ -434,6 +479,7 @@ fun TerminalCanvas(
                                 }
 
                                 if (pressed.size >= 2) {
+                                    velocityTracker.resetTracking()
                                     didPinch = true
                                     val first = pressed[0].position
                                     val second = pressed[1].position
@@ -511,6 +557,8 @@ fun TerminalCanvas(
 
                                 val dragX = changePos.x - changePrevPos.x
                                 val dragY = changePos.y - changePrevPos.y
+                                velocityTracker.addPointerInputChange(change)
+                                lastScrollPos = changePos
                                 val movedDistance = hypot(
                                     (changePos.x - downPos.x).toDouble(),
                                     (changePos.y - downPos.y).toDouble(),
@@ -1067,4 +1115,60 @@ private enum class DragMode {
 private class DoubleTapState {
     var lastTime: Long = 0L
     var lastPos: Offset = Offset.Zero
+}
+
+/** Holds the running scroll fling so a new touch or session switch can stop it. */
+private class ScrollFlingState {
+    var job: Job? = null
+
+    /** Cancels any running fling; returns true if one was still moving. */
+    fun stop(): Boolean {
+        val wasActive = job?.isActive == true
+        job?.cancel()
+        job = null
+        return wasActive
+    }
+}
+
+/**
+ * Keeps scrolling after a flick by decaying the release velocity. Output uses
+ * the same sign as the drag path: a downward fling scrolls up into history.
+ * Returns null when the fling would not move a whole row.
+ */
+private fun CoroutineScope.launchScrollFling(
+    initialVelocityPxPerSec: Float,
+    initialRemainderRows: Float,
+    cellHeightPx: Float,
+    decay: DecayAnimationSpec<Float>,
+    x: Float,
+    y: Float,
+    send: (TerminalScrollDelta) -> Unit,
+): Job? {
+    val targetPx = decay.calculateTargetValue(0f, initialVelocityPxPerSec)
+    if (abs(targetPx / cellHeightPx + initialRemainderRows) < 1f) return null
+    return launch(FlingMotionDurationScale) {
+        var carryRows = initialRemainderRows
+        var lastValue = 0f
+        AnimationState(initialValue = 0f, initialVelocity = initialVelocityPxPerSec).animateDecay(decay) {
+            carryRows += (value - lastValue) / cellHeightPx
+            lastValue = value
+            val whole = carryRows.toInt()
+            if (whole != 0) {
+                carryRows -= whole
+                send(TerminalScrollDelta(-whole, x, y))
+            }
+            // Stop once no further whole row can move, so a tap during the still tail is a normal tap.
+            if (abs((targetPx - value) / cellHeightPx + carryRows) < 1f) {
+                cancelAnimation()
+            }
+        }
+    }
+}
+
+/**
+ * Flings ignore the system animator duration scale, as Compose's own scrollables do;
+ * with animations removed, a scaled fling would jump straight to its end.
+ */
+private object FlingMotionDurationScale : MotionDurationScale {
+    override val scaleFactor: Float = 1f
 }
