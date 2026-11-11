@@ -39,6 +39,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.channels.Channel
 import org.json.JSONObject
 
 enum class SessionStatus {
@@ -128,7 +130,10 @@ class TerminalSessionEngine(
     private var cellWidth = 1
     private var cellHeight = 1
     private var lastSnapshotAtMs = 0L
-    private var snapshotScheduled = false
+    private var snapshotJob: Job? = null
+    private val readWake = Channel<Unit>(Channel.CONFLATED)
+    private var lastInputAtMs = 0L
+    private var viewportAtActive = true
     private val snapshotIntervalMs = 16L
     private var title: String? = null
     private var pwd: String? = null
@@ -489,6 +494,7 @@ class TerminalSessionEngine(
                 return@launch
             }
             bridge.nativeScroll(handle, delta, x, y)
+            viewportAtActive = false
             flushPtyWrites()
             requestSnapshot(force = true)
         }
@@ -496,8 +502,9 @@ class TerminalSessionEngine(
 
     fun scrollToActive() {
         scope.launch(dispatcher) {
-            if (handle == 0L) return@launch
+            if (handle == 0L || viewportAtActive) return@launch
             bridge.nativeScrollToActive(handle)
+            viewportAtActive = true
             requestSnapshot(force = true)
         }
     }
@@ -637,7 +644,8 @@ class TerminalSessionEngine(
                 bridge.nativeDestroy(handle)
                 handle = 0L
             }
-            snapshotScheduled = false
+            snapshotJob?.cancel()
+            snapshotJob = null
             title = null
             pwd = null
             images = emptyList()
@@ -766,7 +774,7 @@ class TerminalSessionEngine(
             if (chunk.isEmpty()) {
                 // Adaptive poll: stay snappy while data is flowing, back off when
                 // idle so a quiet session doesn't spin at 500 wakeups/sec.
-                delay(idleReadDelayMs(System.currentTimeMillis() - lastActivityMs))
+                awaitReadable(lastActivityMs)
                 continue
             }
             lastActivityMs = System.currentTimeMillis()
@@ -783,7 +791,7 @@ class TerminalSessionEngine(
                 break
             }
             if (chunk.isEmpty()) {
-                delay(idleReadDelayMs(System.currentTimeMillis() - lastActivityMs))
+                awaitReadable(lastActivityMs)
                 continue
             }
             lastActivityMs = System.currentTimeMillis()
@@ -795,7 +803,7 @@ class TerminalSessionEngine(
         if (handle == 0L) return
         val wasImageLoading = bridge.nativeIsImageLoading(handle)
         flushPtyWrites()
-        bridge.nativeWriteRemote(handle, chunk)
+        traceSection("term.feed") { bridge.nativeWriteRemote(handle, chunk) }
         flushPtyWrites()
         val isImageLoading = bridge.nativeIsImageLoading(handle)
         when {
@@ -875,7 +883,7 @@ class TerminalSessionEngine(
 
             // Adaptive cadence: Mosh's retransmit/heartbeat timers are coarse, so
             // backing the pump off while idle is safe and avoids a 500 Hz spin.
-            delay(idleReadDelayMs(System.currentTimeMillis() - lastActivityMs))
+            awaitReadable(lastActivityMs)
         }
         Log.d("TerminalSession", "MOSH: read loop exited after $loopCount iterations")
         return failureCode
@@ -1216,10 +1224,14 @@ class TerminalSessionEngine(
     }
 
     private fun writeRemote(data: ByteArray) {
-        when (lastConnectionParams?.transport) {
-            Transport.Mosh -> moshService.sendInput(data)
-            Transport.LocalShell -> localShellService.write(data)
-            else -> nativeSsh.write(data)
+        lastInputAtMs = System.currentTimeMillis()
+        readWake.trySend(Unit)
+        traceSection("term.write") {
+            when (lastConnectionParams?.transport) {
+                Transport.Mosh -> moshService.sendInput(data)
+                Transport.LocalShell -> localShellService.write(data)
+                else -> nativeSsh.write(data)
+            }
         }
     }
 
@@ -1310,6 +1322,12 @@ class TerminalSessionEngine(
     // MIN while data is flowing (snappy echo), ramping to MAX once quiet so an idle
     // terminal stops spinning. The first byte after idle restores MIN within one
     // MAX interval.
+    private suspend fun awaitReadable(lastActivityMs: Long) {
+        val lastEventMs = maxOf(lastActivityMs, lastInputAtMs)
+        val waitMs = idleReadDelayMs(System.currentTimeMillis() - lastEventMs)
+        withTimeoutOrNull(waitMs) { readWake.receive() }
+    }
+
     private fun idleReadDelayMs(idleForMs: Long): Long =
         when {
             idleForMs < ACTIVE_WINDOW_MS -> MIN_READ_DELAY_MS
@@ -1323,17 +1341,17 @@ class TerminalSessionEngine(
         val now = System.currentTimeMillis()
         val elapsed = now - lastSnapshotAtMs
         if (force || elapsed >= snapshotIntervalMs) {
-            snapshotScheduled = false
+            snapshotJob?.cancel()
+            snapshotJob = null
             emitSnapshot()
             lastSnapshotAtMs = now
             return
         }
-        if (snapshotScheduled) return
-        snapshotScheduled = true
+        if (snapshotJob?.isActive == true) return
         val waitMs = (snapshotIntervalMs - elapsed).coerceAtLeast(1L)
-        scope.launch(dispatcher) {
+        snapshotJob = scope.launch(dispatcher) {
             delay(waitMs)
-            snapshotScheduled = false
+            snapshotJob = null
             if (handle == 0L) return@launch
             emitSnapshot()
             lastSnapshotAtMs = System.currentTimeMillis()
@@ -1342,11 +1360,16 @@ class TerminalSessionEngine(
 
     private fun emitSnapshot() {
         if (handle == 0L) return
+        traceSection("term.emitSnapshot") { emitSnapshotTraced() }
+    }
+
+    private fun emitSnapshotTraced() {
         try {
-            val raw = bridge.nativeSnapshot(handle)
-            val rawImages = bridge.nativeSnapshotImages(handle)
-            images = TerminalSnapshot.parseImages(rawImages)
-            val snap = TerminalSnapshot.fromByteBuffer(raw, images)
+            val raw = traceSection("term.nativeSnapshot") { bridge.nativeSnapshot(handle) }
+            images = traceSection("term.images") {
+                TerminalSnapshot.parseImages(bridge.nativeSnapshotImages(handle))
+            }
+            val snap = traceSection("term.parseSnapshot") { TerminalSnapshot.fromByteBuffer(raw, images) }
             val nextTitle = bridge.nativePollTitle(handle)
             val nextPwd = bridge.nativePollPwd(handle)
             val nextClipboard = bridge.nativePollClipboard(handle)

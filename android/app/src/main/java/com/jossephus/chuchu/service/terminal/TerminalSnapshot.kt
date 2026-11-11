@@ -55,6 +55,9 @@ data class TerminalSnapshot(
      * building a grid-wide client-side selection that crosses pane borders.
      */
     val appHandlesSelectionDrag: Boolean = false,
+    val scrollsLocally: Boolean = false,
+    val rowAbove: TerminalSnapshot? = null,
+    val rowBelow: TerminalSnapshot? = null,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -72,7 +75,10 @@ data class TerminalSnapshot(
             graphemeExtrasEquals(graphemeExtras, other.graphemeExtras) &&
             images == other.images &&
             viewportScrollY == other.viewportScrollY &&
-            appHandlesSelectionDrag == other.appHandlesSelectionDrag
+            appHandlesSelectionDrag == other.appHandlesSelectionDrag &&
+            scrollsLocally == other.scrollsLocally &&
+            rowAbove == other.rowAbove &&
+            rowBelow == other.rowBelow
     }
 
     override fun hashCode(): Int {
@@ -94,6 +100,9 @@ data class TerminalSnapshot(
         result = 31 * result + images.hashCode()
         result = 31 * result + viewportScrollY
         result = 31 * result + appHandlesSelectionDrag.hashCode()
+        result = 31 * result + scrollsLocally.hashCode()
+        result = 31 * result + (rowAbove?.hashCode() ?: 0)
+        result = 31 * result + (rowBelow?.hashCode() ?: 0)
         return result
     }
 
@@ -110,7 +119,7 @@ data class TerminalSnapshot(
         const val CURSOR_STYLE_BAR: Int = 1
         const val CURSOR_STYLE_UNDERLINE: Int = 2
         const val CURSOR_STYLE_BLOCK_HOLLOW: Int = 3
-        private const val HEADER_I32_COUNT = 15
+        private const val HEADER_I32_COUNT = 18
         private const val CELL_SIZE_BYTES = 11
         private const val IMAGE_HEADER_BYTES = 52
 
@@ -124,6 +133,34 @@ data class TerminalSnapshot(
                 if (!v.contentEquals(o)) return false
             }
             return true
+        }
+
+        private fun parseCells(
+            cellBytes: ByteArray,
+            firstCell: Int,
+            count: Int,
+            codepoints: IntArray,
+            fgArgb: IntArray,
+            bgArgb: IntArray,
+            flags: ByteArray,
+        ) {
+            var off = firstCell * CELL_SIZE_BYTES
+            for (i in 0 until count) {
+                codepoints[i] = (cellBytes[off].toInt() and 0xFF) or
+                    ((cellBytes[off + 1].toInt() and 0xFF) shl 8) or
+                    ((cellBytes[off + 2].toInt() and 0xFF) shl 16) or
+                    ((cellBytes[off + 3].toInt() and 0xFF) shl 24)
+                off += 4
+                val fgR = cellBytes[off].toInt() and 0xFF; off++
+                val fgG = cellBytes[off].toInt() and 0xFF; off++
+                val fgB = cellBytes[off].toInt() and 0xFF; off++
+                val bgR = cellBytes[off].toInt() and 0xFF; off++
+                val bgG = cellBytes[off].toInt() and 0xFF; off++
+                val bgB = cellBytes[off].toInt() and 0xFF; off++
+                fgArgb[i] = packArgb(fgR, fgG, fgB)
+                bgArgb[i] = packArgb(bgR, bgG, bgB)
+                flags[i] = cellBytes[off]; off++
+            }
         }
 
         private fun packArgb(r: Int, g: Int, b: Int): Int =
@@ -151,9 +188,13 @@ data class TerminalSnapshot(
             val viewportScrollY = wrapped.int
             val appHandlesSelectionDrag = wrapped.int == 1
             val cursorStyle = wrapped.int
+            val scrollsLocally = wrapped.int == 1
+            val overscanAbove = wrapped.int.coerceIn(0, 1)
+            val overscanBelow = wrapped.int.coerceIn(0, 1)
 
             val cellCount = cols * rows
-            val expectedSize = (HEADER_I32_COUNT * 4) + (cellCount * CELL_SIZE_BYTES)
+            val totalCells = cols * (rows + overscanAbove + overscanBelow)
+            val expectedSize = (HEADER_I32_COUNT * 4) + (totalCells * CELL_SIZE_BYTES)
             require(buffer.capacity() >= expectedSize) {
                 "Snapshot buffer too small: cap=${buffer.capacity()} expected=$expectedSize"
             }
@@ -164,7 +205,7 @@ data class TerminalSnapshot(
             // Allocate fresh arrays each frame — the old arrays are held by the
             // previous TerminalSnapshot visible to the UI thread, so reusing
             // them would cause a data race.
-            val cellDataLen = cellCount * CELL_SIZE_BYTES
+            val cellDataLen = totalCells * CELL_SIZE_BYTES
             val cellBytes = ByteArray(cellDataLen)
             wrapped.get(cellBytes, 0, cellDataLen)
 
@@ -172,25 +213,32 @@ data class TerminalSnapshot(
             val fgArgb = IntArray(cellCount)
             val bgArgb = IntArray(cellCount)
             val flags = ByteArray(cellCount)
-
-            var off = 0
-            for (i in 0 until cellCount) {
-                // codepoint: little-endian i32 from 4 bytes
-                codepoints[i] = (cellBytes[off].toInt() and 0xFF) or
-                    ((cellBytes[off + 1].toInt() and 0xFF) shl 8) or
-                    ((cellBytes[off + 2].toInt() and 0xFF) shl 16) or
-                    ((cellBytes[off + 3].toInt() and 0xFF) shl 24)
-                off += 4
-                val fgR = cellBytes[off].toInt() and 0xFF; off++
-                val fgG = cellBytes[off].toInt() and 0xFF; off++
-                val fgB = cellBytes[off].toInt() and 0xFF; off++
-                val bgR = cellBytes[off].toInt() and 0xFF; off++
-                val bgG = cellBytes[off].toInt() and 0xFF; off++
-                val bgB = cellBytes[off].toInt() and 0xFF; off++
-                fgArgb[i] = packArgb(fgR, fgG, fgB)
-                bgArgb[i] = packArgb(bgR, bgG, bgB)
-                flags[i] = cellBytes[off]; off++
+            parseCells(cellBytes, 0, cellCount, codepoints, fgArgb, bgArgb, flags)
+            val defaultBgArgb = packArgb(defaultBgR, defaultBgG, defaultBgB)
+            val defaultFgArgb = packArgb(defaultFgR, defaultFgG, defaultFgB)
+            fun overscanRow(firstCell: Int): TerminalSnapshot {
+                val rowCodepoints = IntArray(cols)
+                val rowFg = IntArray(cols)
+                val rowBg = IntArray(cols)
+                val rowFlags = ByteArray(cols)
+                parseCells(cellBytes, firstCell, cols, rowCodepoints, rowFg, rowBg, rowFlags)
+                return TerminalSnapshot(
+                    cols = cols,
+                    rows = 1,
+                    cursorX = -1,
+                    cursorY = -1,
+                    cursorVisible = false,
+                    defaultBgArgb = defaultBgArgb,
+                    defaultFgArgb = defaultFgArgb,
+                    codepoints = rowCodepoints,
+                    fgArgb = rowFg,
+                    bgArgb = rowBg,
+                    flags = rowFlags,
+                )
             }
+            val rowAbove = if (overscanAbove == 1) overscanRow(cellCount) else null
+            val rowBelow = if (overscanBelow == 1) overscanRow(cellCount + overscanAbove * cols) else null
+
 
             val graphemeExtras: Map<Int, IntArray> =
                 if (extrasOffset > 0 && extrasOffset < wrapped.capacity()) {
@@ -230,8 +278,8 @@ data class TerminalSnapshot(
                 cursorY = cursorY,
                 cursorVisible = cursorVisible,
                 cursorStyle = cursorStyle,
-                defaultBgArgb = packArgb(defaultBgR, defaultBgG, defaultBgB),
-                defaultFgArgb = packArgb(defaultFgR, defaultFgG, defaultFgB),
+                defaultBgArgb = defaultBgArgb,
+                defaultFgArgb = defaultFgArgb,
                 codepoints = codepoints,
                 fgArgb = fgArgb,
                 bgArgb = bgArgb,
@@ -240,6 +288,9 @@ data class TerminalSnapshot(
                 images = images,
                 viewportScrollY = viewportScrollY,
                 appHandlesSelectionDrag = appHandlesSelectionDrag,
+                scrollsLocally = scrollsLocally,
+                rowAbove = rowAbove,
+                rowBelow = rowBelow,
             )
 
             return snapshot

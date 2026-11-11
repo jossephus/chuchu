@@ -31,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import kotlinx.coroutines.flow.map
 import androidx.compose.ui.Modifier
@@ -204,7 +205,7 @@ fun CommandPalette(
                           .align(Alignment.Center)
               ) {
                 TerminalCanvas(
-                    snapshot = snapshot,
+                    snapshot = rememberUpdatedState(snapshot),
                     fontSizeSp = 10.5f,
                     fitSnapshotToCanvas = true,
                     enableGestures = false,
