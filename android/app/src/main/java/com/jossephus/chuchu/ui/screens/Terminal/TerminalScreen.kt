@@ -46,6 +46,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jossephus.chuchu.data.repository.SettingsRepository
@@ -253,6 +254,20 @@ fun TerminalScreen(
     val keepScreenAwake by settingsRepo.keepScreenAwake.collectAsStateWithLifecycle()
     val disableAutocorrect by settingsRepo.disableAutocorrect.collectAsStateWithLifecycle()
     val keepAwakeView = LocalView.current
+    DisposableEffect(lifecycleOwner, vm) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> vm.onScreenVisible()
+                Lifecycle.Event.ON_STOP -> vm.onScreenHidden()
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            vm.onScreenHidden()
+        }
+    }
     DisposableEffect(hideStatusBar, keepAwakeView) {
         val window = (keepAwakeView.context as? Activity)?.window
         val controller = window?.let { WindowCompat.getInsetsController(it, keepAwakeView) }

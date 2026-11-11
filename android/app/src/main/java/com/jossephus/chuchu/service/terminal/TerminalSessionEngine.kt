@@ -77,6 +77,10 @@ class TerminalSessionEngine(
     private val hostKeyStore: HostKeyStore,
     private val tailscaleStatusChecker: TailscaleStatusChecker,
     private val onHostKeyVerificationRequired: ((HostKeyPrompt, ByteArray) -> Unit)? = null,
+    // A snapshot is only worth building while a screen is watching it: with the user on another
+    // page there is nobody to read the frames, and serialising them still burns CPU. The native
+    // terminal keeps consuming output either way, so re-attaching just paints the current state.
+    private val hasAttachedClient: () -> Boolean = { true },
 ) {
     private data class ConnectionParams(
         val host: String,
@@ -304,6 +308,26 @@ class TerminalSessionEngine(
                         error = "${e::class.simpleName}: ${e.message}",
                     )
             }
+        }
+    }
+
+    /**
+     * Paint the current terminal state now, even if no frames were being built.
+     *
+     * Called when a screen starts watching this session again: [emitSnapshot] drops frames while
+     * nobody is attached, so without this the terminal would stay blank on a quiet session until
+     * the remote happens to send another byte.
+     */
+    fun repaintNow() {
+        // Serialising a snapshot is native work, so it stays on the session thread like every other
+        // read of the terminal state; the caller is usually the UI thread.
+        scope.launch(dispatcher) {
+            if (handle == 0L) return@launch
+            // The coalescer measures against the last paint; attaching must not wait it out.
+            lastSnapshotAtMs = 0L
+            snapshotJob?.cancel()
+            snapshotScheduled = false
+            requestSnapshot(force = true)
         }
     }
 
@@ -1383,6 +1407,15 @@ class TerminalSessionEngine(
 
     private fun emitSnapshot() {
         if (handle == 0L) return
+        if (!hasAttachedClient()) {
+            // Dropped, not deferred: the terminal state is still current, so the forced paint on
+            // attach is enough and the skipped frames are never missed.
+            // An OSC 52 request received while nobody watched is dropped too: it would otherwise
+            // land on the clipboard at the next repaint, overwriting what the user copied since.
+            bridge.nativePollClipboard(handle)
+            lastSnapshotAtMs = System.currentTimeMillis()
+            return
+        }
         try {
             val raw = bridge.nativeSnapshot(handle)
             val rawImages = bridge.nativeSnapshotImages(handle)

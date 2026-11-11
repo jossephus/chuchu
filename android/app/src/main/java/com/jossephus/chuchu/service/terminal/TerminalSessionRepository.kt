@@ -129,7 +129,9 @@ class TerminalSessionRepository private constructor(application: Application) {
             }
             .stateIn(scope, SharingStarted.Eagerly, emptySet())
 
-    private var attachedClients = 0
+    // Read from the session dispatcher while attach/detach happen on the main thread; volatile keeps
+    // a detached count from looking attached and building snapshots nobody asked for.
+    @Volatile private var attachedClients = 0
     private var foregroundServiceRunning = false
     private var foregroundNotificationLabel: String? = null
 
@@ -179,6 +181,8 @@ class TerminalSessionRepository private constructor(application: Application) {
 
     fun attachClient() {
         attachedClients += 1
+        // Frames are dropped while nothing watches, so the screen needs one now.
+        activeTab.value?.engine?.repaintNow()
     }
 
     fun detachClient() {
@@ -274,6 +278,8 @@ class TerminalSessionRepository private constructor(application: Application) {
                 onHostKeyVerificationRequired = { prompt, keyBytes ->
                     verification = PreflightHostKeyVerification(prompt, keyBytes)
                 },
+                // Nothing renders a probe: listing sessions only needs the command output.
+                hasAttachedClient = { false },
             )
         preflightEngine = engine
         return try {
@@ -319,6 +325,7 @@ class TerminalSessionRepository private constructor(application: Application) {
                 newLocalShellService(),
                 hostKeyStore,
                 tailscaleStatusChecker,
+                hasAttachedClient = { attachedClients > 0 },
             )
         val tab = TabSession(id, spec, engine)
         _tabs.value = _tabs.value + tab
@@ -344,9 +351,9 @@ class TerminalSessionRepository private constructor(application: Application) {
     }
 
     fun selectTab(id: String) {
-        if (_tabs.value.any { it.id == id }) {
-            _activeTabId.value = id
-        }
+        val tab = _tabs.value.firstOrNull { it.id == id } ?: return
+        _activeTabId.value = id
+        tab.engine.repaintNow()
     }
 
     fun closeTab(id: String) {

@@ -106,8 +106,20 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     val hostsLoaded: StateFlow<Boolean> =
         hosts.map { true }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
-    init {
+    // The screen attaches while it is the one on show. Hiding it (Settings, backgrounding) drops the
+    // attachment so the session stops serialising snapshots nobody can see.
+    private var screenVisible = false
+
+    fun onScreenVisible() {
+        if (screenVisible) return
+        screenVisible = true
         sessionRepository.attachClient()
+    }
+
+    fun onScreenHidden() {
+        if (!screenVisible) return
+        screenVisible = false
+        sessionRepository.detachClient()
     }
 
     private val _connectionTabByTab = MutableStateFlow<Map<String, ConnectionTab>>(emptyMap())
@@ -834,7 +846,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     }
 
     override fun onCleared() {
-        sessionRepository.detachClient()
+        onScreenHidden()
     }
 
     companion object {
