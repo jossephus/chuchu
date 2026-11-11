@@ -23,7 +23,6 @@ import com.jossephus.chuchu.service.ssh.NativeSshService
 import com.jossephus.chuchu.service.ssh.SshJumpHost
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
 import java.util.concurrent.Executors
-import java.nio.ByteBuffer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -135,9 +134,6 @@ class TerminalSessionEngine(
     private val readWake = Channel<Unit>(Channel.CONFLATED)
     private var lastInputAtMs = 0L
     private var viewportAtActive = true
-    private var holdStartedAtMs = 0L
-    private var holdExpired = false
-    private var holdStallJob: Job? = null
     private val snapshotIntervalMs = 16L
     private var title: String? = null
     private var pwd: String? = null
@@ -650,10 +646,6 @@ class TerminalSessionEngine(
             }
             snapshotJob?.cancel()
             snapshotJob = null
-            holdStallJob?.cancel()
-            holdStallJob = null
-            holdStartedAtMs = 0L
-            holdExpired = false
             title = null
             pwd = null
             images = emptyList()
@@ -816,7 +808,7 @@ class TerminalSessionEngine(
         val isImageLoading = bridge.nativeIsImageLoading(handle)
         when {
             wasImageLoading && !isImageLoading -> {
-                requestSnapshot(force = true, fromOutput = true)
+                requestSnapshot(force = true)
             }
             !isImageLoading -> requestSnapshot()
         }
@@ -1317,8 +1309,6 @@ class TerminalSessionEngine(
         // remote program reflows promptly once the keyboard has settled.
         private const val REMOTE_RESIZE_SETTLE_MS = 150L
         // Idle thresholds and the poll delay for each tier.
-        private const val RENDER_HOLD_STALL_MS = 800L
-        private const val RENDER_HOLD_MAX_MS = 5_000L
         private const val ACTIVE_WINDOW_MS = 50L
         private const val NEAR_IDLE_WINDOW_MS = 500L
         private const val IDLE_WINDOW_MS = 3_000L
@@ -1346,14 +1336,14 @@ class TerminalSessionEngine(
             else -> MAX_READ_DELAY_MS
         }
 
-    private fun requestSnapshot(force: Boolean = false, fromOutput: Boolean = !force) {
+    private fun requestSnapshot(force: Boolean = false) {
         if (handle == 0L) return
         val now = System.currentTimeMillis()
         val elapsed = now - lastSnapshotAtMs
         if (force || elapsed >= snapshotIntervalMs) {
             snapshotJob?.cancel()
             snapshotJob = null
-            emitSnapshot(fromOutput)
+            emitSnapshot()
             lastSnapshotAtMs = now
             return
         }
@@ -1363,49 +1353,19 @@ class TerminalSessionEngine(
             delay(waitMs)
             snapshotJob = null
             if (handle == 0L) return@launch
-            emitSnapshot(fromOutput)
+            emitSnapshot()
             lastSnapshotAtMs = System.currentTimeMillis()
         }
     }
 
-    private fun emitSnapshot(fromOutput: Boolean) {
+    private fun emitSnapshot() {
         if (handle == 0L) return
-        if (fromOutput && isHoldingFrame()) {
-            val held = bridge.nativeTakeHeldFrame(handle)
-            if (held.capacity() > 0) traceSection("term.emitSnapshot") { emitSnapshotTraced(held) }
-            return
-        }
-        traceSection("term.emitSnapshot") { emitSnapshotTraced(null) }
+        traceSection("term.emitSnapshot") { emitSnapshotTraced() }
     }
 
-    private fun isHoldingFrame(): Boolean {
-        if (!bridge.nativeRenderHoldActive(handle)) {
-            holdStartedAtMs = 0L
-            holdExpired = false
-            holdStallJob?.cancel()
-            holdStallJob = null
-            return false
-        }
-        if (holdExpired) return false
-        val now = System.currentTimeMillis()
-        if (holdStartedAtMs == 0L) holdStartedAtMs = now
-        if (now - holdStartedAtMs >= RENDER_HOLD_MAX_MS) {
-            holdExpired = true
-            return false
-        }
-        holdStallJob?.cancel()
-        holdStallJob = scope.launch(dispatcher) {
-            delay(RENDER_HOLD_STALL_MS)
-            holdStallJob = null
-            holdExpired = true
-            if (handle != 0L) requestSnapshot(force = true)
-        }
-        return true
-    }
-
-    private fun emitSnapshotTraced(heldFrame: ByteBuffer?) {
+    private fun emitSnapshotTraced() {
         try {
-            val raw = heldFrame ?: traceSection("term.nativeSnapshot") { bridge.nativeSnapshot(handle) }
+            val raw = traceSection("term.nativeSnapshot") { bridge.nativeSnapshot(handle) }
             images = traceSection("term.images") {
                 TerminalSnapshot.parseImages(bridge.nativeSnapshotImages(handle))
             }

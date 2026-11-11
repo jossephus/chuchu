@@ -135,9 +135,6 @@ const ChuchuTerminal = struct {
     clipboard_dirty: bool = false,
     bell_count: u32 = 0,
     snapshot_buffer: std.ArrayList(u8) = .empty,
-    held_frame: std.ArrayList(u8) = .empty,
-    held_frame_ready: bool = false,
-    render_hold_active: bool = false,
     snapshot_extras_scratch: std.ArrayList(u32) = .empty,
     image_snapshot_buffer: std.ArrayList(u8) = .empty,
     pty_write_buffer: std.ArrayList(u8) = .empty,
@@ -402,17 +399,6 @@ fn chuchuWritePty(handler: *ghostty.TerminalStream.Handler, data: []const u8) vo
     appendPtyWrite(terminal, data);
 }
 
-fn chuchuRenderHold(handler: *ghostty.TerminalStream.Handler, held: bool) void {
-    const terminal = terminalFromHandler(handler);
-    terminal.render_hold_active = held;
-    if (!held) return;
-    var size: usize = 0;
-    const frame = chuchu_build_text_snapshot(chuchuHandleFromPtr(terminal), &size) orelse return;
-    const dest = ensureListSize(&terminal.held_frame, size) orelse return;
-    @memcpy(dest[0..size], frame[0..size]);
-    terminal.held_frame_ready = true;
-}
-
 fn chuchuBell(handler: *ghostty.TerminalStream.Handler) void {
     const terminal = terminalFromHandler(handler);
     if (terminal.bell_count < std.math.maxInt(u32)) terminal.bell_count += 1;
@@ -527,7 +513,6 @@ export fn chuchu_create_terminal(cols: c.jint, rows: c.jint, max_scrollback: c.j
     handler.effects = .readonly;
     handler.effects.write_pty = chuchuWritePty;
     handler.effects.bell = chuchuBell;
-    handler.effects.render_hold = chuchuRenderHold;
     handler.effects.color_scheme = chuchuColorScheme;
     handler.effects.device_attributes = chuchuDeviceAttributes;
     handler.effects.size = chuchuSize;
@@ -547,7 +532,6 @@ export fn chuchu_create_terminal(cols: c.jint, rows: c.jint, max_scrollback: c.j
 export fn chuchu_destroy_terminal(handle: c.jlong) callconv(.c) void {
     const terminal = chuchuFromHandle(handle) orelse return;
     terminal.snapshot_buffer.deinit(allocator);
-    terminal.held_frame.deinit(allocator);
     terminal.snapshot_extras_scratch.deinit(allocator);
     terminal.image_snapshot_buffer.deinit(allocator);
     terminal.pty_write_buffer.deinit(allocator);
@@ -629,21 +613,6 @@ export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeSnapsho
     const buffer = chuchu_build_text_snapshot(handle, &size);
     if (buffer == null or size == 0) return jniNewDirectByteBuffer(env, null, 0);
     return jniNewDirectByteBuffer(env, @ptrCast(buffer), @intCast(size));
-}
-
-export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeRenderHoldActive(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong) callconv(.c) c.jboolean {
-    _ = env;
-    _ = thiz;
-    const terminal = chuchuFromHandle(handle) orelse return c.JNI_FALSE;
-    return if (terminal.render_hold_active) c.JNI_TRUE else c.JNI_FALSE;
-}
-
-export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeTakeHeldFrame(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong) callconv(.c) c.jobject {
-    _ = thiz;
-    const terminal = chuchuFromHandle(handle) orelse return jniNewDirectByteBuffer(env, null, 0);
-    if (!terminal.held_frame_ready or terminal.held_frame.items.len == 0) return jniNewDirectByteBuffer(env, null, 0);
-    terminal.held_frame_ready = false;
-    return jniNewDirectByteBuffer(env, @ptrCast(terminal.held_frame.items.ptr), @intCast(terminal.held_frame.items.len));
 }
 
 export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeSnapshotImages(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong) callconv(.c) c.jobject {
