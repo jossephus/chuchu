@@ -71,7 +71,7 @@ If you don't have nix installed, you will need
 
 1. setup tools
 - Android Studio - This will set up the needed Android SDK, Android NDK and Java runtime (JDK 17+).
-- Zig 0.15.2
+- Zig 0.17.0
 2. build the native library
 
 Set `ANDROID_NDK_HOME` or `ANDROID_NDK_ROOT`, then build the JNI library for Android arm64:
