@@ -2,11 +2,11 @@
   "formatVersion": 1,
   "database": {
     "version": 13,
-    "identityHash": "a9b71399f7fd092bcda65f0d60920dd1",
+    "identityHash": "b07af4d5b993c0cc46a8ccff882b702a",
     "entities": [
       {
         "tableName": "host_profiles",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `host` TEXT NOT NULL, `port` INTEGER NOT NULL, `username` TEXT NOT NULL, `password` TEXT NOT NULL, `keyId` INTEGER, `keyPassphrase` TEXT NOT NULL, `transport` TEXT NOT NULL, `authMethod` TEXT NOT NULL, `requireAuthOnConnect` INTEGER NOT NULL DEFAULT 0, `postConnectCommand` TEXT, `multiplexer` TEXT DEFAULT NULL, `jumpHostId` INTEGER DEFAULT NULL, `transportId` TEXT DEFAULT NULL)",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `host` TEXT NOT NULL, `port` INTEGER NOT NULL, `username` TEXT NOT NULL, `password` TEXT NOT NULL, `keyId` INTEGER, `keyPassphrase` TEXT NOT NULL, `transport` TEXT NOT NULL, `authMethod` TEXT NOT NULL, `requireAuthOnConnect` INTEGER NOT NULL DEFAULT 0, `postConnectCommand` TEXT, `multiplexer` TEXT DEFAULT NULL, `jumpHostId` INTEGER DEFAULT NULL, `portForwards` TEXT NOT NULL DEFAULT '[]')",
         "fields": [
           {
             "fieldPath": "id",
@@ -96,11 +96,11 @@
             "defaultValue": "NULL"
           },
           {
-            "fieldPath": "transportId",
-            "columnName": "transportId",
+            "fieldPath": "portForwards",
+            "columnName": "portForwards",
             "affinity": "TEXT",
-            "notNull": false,
-            "defaultValue": "NULL"
+            "notNull": true,
+            "defaultValue": "'[]'"
           }
         ],
         "primaryKey": {
@@ -186,7 +186,7 @@
     "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'a9b71399f7fd092bcda65f0d60920dd1')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'b07af4d5b993c0cc46a8ccff882b702a')"
     ]
   }
 }

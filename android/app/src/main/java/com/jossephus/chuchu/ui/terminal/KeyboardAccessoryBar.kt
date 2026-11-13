@@ -55,6 +55,13 @@ import kotlinx.coroutines.withTimeoutOrNull
 private const val INITIAL_REPEAT_DELAY_MS = 400L
 private const val REPEAT_INTERVAL_MS = 50L
 
+/**
+ * Renders terminal accessory keys in either a horizontally scrollable
+ * single row or an adaptive two-row layout.
+ *
+ * @param entries Resolved accessory keys and groups in display order.
+ * @param useSingleRow Whether to use the single-row layout.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun KeyboardAccessoryBar(
@@ -129,17 +136,18 @@ fun KeyboardAccessoryBar(
                     buttonPadding = buttonPadding,
                 )
             }
-            return
+            // Keep the return scoped to Column instead of exiting
+            // KeyboardAccessoryBar during composition.
+            return@Column
         }
 
         TwoRowAccessoryLayout(
-            keyCount = entries.size,
+            entries = entries,
             spacing = 6.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = horizontalPadding, vertical = verticalPadding),
-            key = { index ->
-                val entry = entries[index]
+            key = { entry ->
                 AccessoryEntry(
                     entry = entry,
                     expanded = expandedGroupId == entry.id,
@@ -170,20 +178,28 @@ fun KeyboardAccessoryBar(
     }
 }
 
+/**
+ * Measures and arranges accessory entries while keeping overflow reachable.
+ *
+ * Passes entries directly to [key] rather than looking them up by index,
+ * avoiding stale positional access when the key list changes during
+ * recomposition.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TwoRowAccessoryLayout(
-    keyCount: Int,
+    entries: List<ResolvedAccessoryEntry>,
     spacing: Dp,
-    key: @Composable (Int) -> Unit,
+    key: @Composable (ResolvedAccessoryEntry) -> Unit,
     trailing: @Composable () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     SubcomposeLayout(modifier = modifier) { constraints ->
         val spacingPx = spacing.roundToPx()
         val unbounded = Constraints()
-        val keyWidths = List(keyCount) { index ->
-            subcompose("measure-key-$index") { key(index) }.sumOf { it.measure(unbounded).width }
+        val keyCount = entries.size
+        val keyWidths = entries.mapIndexed { index, entry ->
+            subcompose("measure-key-$index") { key(entry) }.sumOf { it.measure(unbounded).width }
         }
         val trailingWidths = subcompose("measure-trailing", trailing).map { it.measure(unbounded).width }
         val fits = AccessoryBarRows.fitsInTwoLines(keyWidths + trailingWidths, spacingPx, constraints.maxWidth)
@@ -200,7 +216,7 @@ private fun TwoRowAccessoryLayout(
                     horizontalArrangement = Arrangement.spacedBy(spacing),
                     verticalArrangement = Arrangement.spacedBy(spacing),
                 ) {
-                    repeat(keyCount) { key(it) }
+                    entries.forEach { key(it) }
                     trailing()
                 }
             } else {
@@ -215,7 +231,7 @@ private fun TwoRowAccessoryLayout(
                             horizontalArrangement = Arrangement.spacedBy(spacing),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            for (index in 0 until firstRowCount) key(index)
+                            for (index in 0 until firstRowCount) key(entries[index])
                         }
                         trailing()
                     }
@@ -224,7 +240,7 @@ private fun TwoRowAccessoryLayout(
                         horizontalArrangement = Arrangement.spacedBy(spacing),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        for (index in firstRowCount until keyCount) key(index)
+                        for (index in firstRowCount until keyCount) key(entries[index])
                     }
                 }
             }

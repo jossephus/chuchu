@@ -173,7 +173,7 @@ internal fun TerminalConnectedContent(
             }
 
             result.specialKey?.let { key ->
-                vm.onSpecialKeyInput(key, currentModifierState.terminalMods())
+                vm.onSpecialKeyInput(key, result.specialKeyMods)
             }
 
             result.text?.let { text -> vm.onTextInput(text) }

@@ -39,6 +39,18 @@ class NativeSshBridge {
 
     external fun nativeGetLastError(handle: Long): String?
 
+    external fun nativeAddPortForward(
+        handle: Long,
+        kind: Int,
+        bindPort: Int,
+        targetHost: String,
+        targetPort: Int,
+    ): Boolean
+
+    external fun nativeStartPortForwarding(handle: Long): Boolean
+
+    external fun nativeIsPortForwardingRunning(handle: Long): Boolean
+
     external fun nativeGetPeerAddress(handle: Long): String?
 
     external fun nativeGetHostKey(handle: Long): ByteArray?

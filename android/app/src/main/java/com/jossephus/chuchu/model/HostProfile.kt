@@ -27,6 +27,8 @@ data class HostProfile(
     val multiplexer: MultiplexerType? = null,
     @ColumnInfo(defaultValue = "NULL")
     val jumpHostId: Long? = null,
+    @ColumnInfo(defaultValue = "[]")
+    val portForwards: List<PortForward> = emptyList(),
     @ColumnInfo(defaultValue = "NULL")
     val transportId: String? = null,
 )

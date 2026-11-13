@@ -122,6 +122,7 @@ class AccessoryLogicTest {
         )
         assertTrue(r.modifierState.shift)   // sticky — preserved
         assertEquals(TerminalSpecialKey.Tab, r.specialKey)
+        assertEquals(1, r.specialKeyMods) // shift bit sent with the key
         assertTrue(r.suppressImeInput)
         assertNull(r.text)
         assertFalse(r.shouldPaste)
@@ -210,6 +211,22 @@ class AccessoryLogicTest {
             assertNotNull("$id must be a special key", key)
             assertFalse("$id must not be repeatable", key!!.isRepeatable)
         }
+    }
+
+    @Test
+    fun `shift_tab sends Tab with Shift added to the active modifiers without arming Shift`() {
+        val item = TerminalAccessoryLayoutStore.catalog().first { it.id == "shift_tab" }
+        val r = TerminalAccessoryDispatcher.dispatch(item.action, ModifierState(ctrl = true))
+        assertEquals(TerminalSpecialKey.Tab, r.specialKey)
+        assertEquals(3, r.specialKeyMods) // ctrl (bit 1) + shift (bit 0)
+        assertFalse(r.modifierState.shift)
+    }
+
+    @Test
+    fun `ctrl_b sends the tmux prefix byte`() {
+        val item = TerminalAccessoryLayoutStore.catalog().first { it.id == "ctrl_b" }
+        val r = TerminalAccessoryDispatcher.dispatch(item.action, ModifierState())
+        assertEquals("\u0002", r.text)
     }
 
     // ── Layout store ──────────────────────────────────────────────────────

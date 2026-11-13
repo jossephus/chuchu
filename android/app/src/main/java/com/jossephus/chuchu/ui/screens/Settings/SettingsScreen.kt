@@ -5,6 +5,7 @@ import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,8 +18,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -117,15 +120,16 @@ fun SettingsScreen(
     }
 
     Box(modifier = modifier.fillMaxSize().background(colors.background)) {
-        LazyColumn(
+        Column(
             modifier =
                 Modifier.fillMaxSize()
                     .windowInsetsPadding(WindowInsets.safeDrawing)
-                    .padding(16.dp)
                     .imePadding(),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            item {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -145,9 +149,7 @@ fun SettingsScreen(
                         ChuText("x", style = typography.label, color = colors.textMuted)
                     }
                 }
-            }
 
-            item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -172,58 +174,68 @@ fun SettingsScreen(
                 }
             }
 
-            item {
-                when (selectedCategory) {
-                    SettingsCategory.General ->
-                        GeneralSettings(
-                            currentTheme = currentTheme,
-                            currentFont = currentFont,
-                            onThemeSelected = onThemeSelected,
-                            onThemeModeChanged = onThemeModeChanged,
-                            themeMode = themeMode,
-                            lightThemeName = lightThemeName,
-                            onLightThemeSelected = onLightThemeSelected,
-                            onFontSelected = onFontSelected,
-                            appLockEnabled = appLockEnabled,
-                            requireAuthOnConnect = requireAuthOnConnect,
-                            onAppLockEnabledChanged = onAppLockEnabledChanged,
-                            onRequireAuthOnConnectChanged = onRequireAuthOnConnectChanged,
-                            onOpenBackup = { showBackupSheet = true },
-                        )
-                    SettingsCategory.Terminal ->
-                        TerminalSettings(
-                            currentAccessoryLayoutIds = currentAccessoryLayoutIds,
-                            onEditAccessoryLayout = { showAccessoryEditor = true },
-                            accessoryBarSingleRow = accessoryBarSingleRow,
-                            onAccessoryBarSingleRowChanged = onAccessoryBarSingleRowChanged,
-                            accessoryBarOnlyWithKeyboard = accessoryBarOnlyWithKeyboard,
-                            onAccessoryBarOnlyWithKeyboardChanged = onAccessoryBarOnlyWithKeyboardChanged,
-                            currentTerminalFontSize = currentTerminalFontSize,
-                            onTerminalFontSizeChanged = onTerminalFontSizeChanged,
-                            currentTerminalCustomKeyGroups = currentTerminalCustomKeyGroups,
-                            onEditCustomActions = { showCustomActionEditor = true },
-                            showCustomActionsFab = showCustomActionsFab,
-                            onShowCustomActionsFabChanged = onShowCustomActionsFabChanged,
-                            builtinShortcuts = builtinShortcuts,
-                            onEditChuchuCommands = { showChuchuCommandsEditor = true },
-                            currentTabMode = currentTabMode,
-                            onTabModeChanged = onTabModeChanged,
-                            currentSessionPickerStyle = currentSessionPickerStyle,
-                            onSessionPickerStyleChanged = onSessionPickerStyleChanged,
-                            localShellEnabled = localShellEnabled,
-                            onLocalShellEnabledChanged = onLocalShellEnabledChanged,
-                            keepScreenAwake = keepScreenAwake,
-                            onKeepScreenAwakeChanged = onKeepScreenAwakeChanged,
-                            hideStatusBar = hideStatusBar,
-                            onHideStatusBarChanged = onHideStatusBarChanged,
-                            hideScreenContents = hideScreenContents,
-                            onHideScreenContentsChanged = onHideScreenContentsChanged,
-                            disableAutocorrect = disableAutocorrect,
-                            onDisableAutocorrectChanged = onDisableAutocorrectChanged,
-                            remoteClipboardWriteEnabled = remoteClipboardWriteEnabled,
-                            onRemoteClipboardWriteEnabledChanged = onRemoteClipboardWriteEnabledChanged,
-                        )
-                    SettingsCategory.Keys -> KeysContent(vm = keysViewModel)
+            // A category is a fresh page: sharing the state would open the next one scrolled to
+            // wherever the previous one was left.
+            val contentState = key(selectedCategory) { rememberLazyListState() }
+            LazyColumn(
+                modifier = Modifier.weight(1f).padding(horizontal = 16.dp),
+                state = contentState,
+                contentPadding = PaddingValues(bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                item {
+                    when (selectedCategory) {
+                        SettingsCategory.General ->
+                            GeneralSettings(
+                                currentTheme = currentTheme,
+                                currentFont = currentFont,
+                                onThemeSelected = onThemeSelected,
+                                onThemeModeChanged = onThemeModeChanged,
+                                themeMode = themeMode,
+                                lightThemeName = lightThemeName,
+                                onLightThemeSelected = onLightThemeSelected,
+                                onFontSelected = onFontSelected,
+                                appLockEnabled = appLockEnabled,
+                                requireAuthOnConnect = requireAuthOnConnect,
+                                onAppLockEnabledChanged = onAppLockEnabledChanged,
+                                onRequireAuthOnConnectChanged = onRequireAuthOnConnectChanged,
+                                onOpenBackup = { showBackupSheet = true },
+                            )
+                        SettingsCategory.Terminal ->
+                            TerminalSettings(
+                                currentAccessoryLayoutIds = currentAccessoryLayoutIds,
+                                onEditAccessoryLayout = { showAccessoryEditor = true },
+                                accessoryBarSingleRow = accessoryBarSingleRow,
+                                onAccessoryBarSingleRowChanged = onAccessoryBarSingleRowChanged,
+                                accessoryBarOnlyWithKeyboard = accessoryBarOnlyWithKeyboard,
+                                onAccessoryBarOnlyWithKeyboardChanged = onAccessoryBarOnlyWithKeyboardChanged,
+                                currentTerminalFontSize = currentTerminalFontSize,
+                                onTerminalFontSizeChanged = onTerminalFontSizeChanged,
+                                currentTerminalCustomKeyGroups = currentTerminalCustomKeyGroups,
+                                onEditCustomActions = { showCustomActionEditor = true },
+                                showCustomActionsFab = showCustomActionsFab,
+                                onShowCustomActionsFabChanged = onShowCustomActionsFabChanged,
+                                builtinShortcuts = builtinShortcuts,
+                                onEditChuchuCommands = { showChuchuCommandsEditor = true },
+                                currentTabMode = currentTabMode,
+                                onTabModeChanged = onTabModeChanged,
+                                currentSessionPickerStyle = currentSessionPickerStyle,
+                                onSessionPickerStyleChanged = onSessionPickerStyleChanged,
+                                localShellEnabled = localShellEnabled,
+                                onLocalShellEnabledChanged = onLocalShellEnabledChanged,
+                                keepScreenAwake = keepScreenAwake,
+                                onKeepScreenAwakeChanged = onKeepScreenAwakeChanged,
+                                hideStatusBar = hideStatusBar,
+                                onHideStatusBarChanged = onHideStatusBarChanged,
+                                hideScreenContents = hideScreenContents,
+                                onHideScreenContentsChanged = onHideScreenContentsChanged,
+                                disableAutocorrect = disableAutocorrect,
+                                onDisableAutocorrectChanged = onDisableAutocorrectChanged,
+                                remoteClipboardWriteEnabled = remoteClipboardWriteEnabled,
+                                onRemoteClipboardWriteEnabledChanged = onRemoteClipboardWriteEnabledChanged,
+                            )
+                        SettingsCategory.Keys -> KeysContent(vm = keysViewModel)
+                    }
                 }
             }
         }

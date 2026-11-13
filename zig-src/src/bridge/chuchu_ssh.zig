@@ -4,6 +4,7 @@ const c = @import("c");
 const jni_io = @import("io.zig");
 const ipc = @import("ipc.zig");
 const JumpRelay = @import("ssh_jump_relay.zig");
+const PortForwarder = @import("ssh_port_forwarder.zig");
 
 const allocator = std.heap.c_allocator;
 const LOG_TAG = "ChuKittySSH";
@@ -45,6 +46,7 @@ const NativeSshSession = struct {
     empty_reads: u32 = 0,
     jump: ?*NativeSshSession = null,
     relay: ?*JumpRelay = null,
+    forwarder: ?*PortForwarder = null,
 };
 
 fn sessionFromHandle(handle: c.jlong) ?*NativeSshSession {
@@ -199,7 +201,15 @@ fn trySetChannelEnv(session: *NativeSshSession, channel: *c.LIBSSH2_CHANNEL, nam
     }
 }
 
+fn releaseForwarder(session: *NativeSshSession) void {
+    if (session.forwarder) |forwarder| {
+        forwarder.deinit();
+        session.forwarder = null;
+    }
+}
+
 fn destroyNativeSshSession(session: *NativeSshSession) void {
+    releaseForwarder(session);
     if (session.upload_handle) |uh| {
         _ = closeSftpHandle(session, uh, "destroy upload handle");
         session.upload_handle = null;
@@ -1352,6 +1362,7 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeClose(env:
     _ = env;
     _ = thiz;
     const session = sessionFromHandle(handle) orelse return;
+    releaseForwarder(session);
     // Best-effort SFTP teardown: even if it stalls (e.g. the peer is gone), we
     // must still free the channel, session, and socket below. libssh2_session_free
     // releases any remaining SFTP state, so a stalled shutdown is not fatal here.
@@ -2095,4 +2106,86 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeDerivePubl
     env.*.*.SetObjectArrayElement.?(env, result, 1, j_pub);
 
     return result;
+}
+
+fn portForwardSetupMessage(err: PortForwarder.SetupError) []const u8 {
+    return switch (err) {
+        error.TooManyRules => "can't be added: too many port forwards",
+        error.PortInUse => "is already in use on this device",
+        error.PortNotPermitted => "is below 1024 and can't be opened on this device",
+        error.LocalListenFailed => "could not be opened on this device",
+        error.RemoteListenRefused => "was refused by the server",
+        error.RemoteListenTimedOut => "got no answer from the server",
+        error.OutOfMemory => "can't be added: out of memory",
+    };
+}
+
+export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeAddPortForward(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong, kind: c.jint, bind_port: c.jint, target_host: c.jstring, target_port: c.jint) callconv(.c) c.jboolean {
+    _ = thiz;
+    const session = sessionFromHandle(handle) orelse return c.JNI_FALSE;
+    const ssh_session = session.session orelse {
+        setError(session, "SSH session not connected", .{});
+        return c.JNI_FALSE;
+    };
+    if (bind_port <= 0 or bind_port > std.math.maxInt(u16) or target_port <= 0 or target_port > std.math.maxInt(u16)) {
+        setError(session, "Port forward ports must be between 1 and 65535", .{});
+        return c.JNI_FALSE;
+    }
+    const host = jniDupString(env, target_host) orelse {
+        setError(session, "Missing port forward host", .{});
+        return c.JNI_FALSE;
+    };
+    defer allocator.free(host);
+    const forwarder = session.forwarder orelse created: {
+        const created = PortForwarder.init(ssh_session, session.socket_fd) catch {
+            setError(session, "Port forwarder alloc failed", .{});
+            return c.JNI_FALSE;
+        };
+        session.forwarder = created;
+        break :created created;
+    };
+    const bind: u16 = @intCast(bind_port);
+    const target: u16 = @intCast(target_port);
+    const result = switch (kind) {
+        0 => forwarder.addLocal(bind, host, target),
+        1 => forwarder.addRemote(bind, host, target),
+        else => {
+            setError(session, "Unknown port forward kind {}", .{kind});
+            return c.JNI_FALSE;
+        },
+    };
+    result catch |err| {
+        if (err == error.RemoteListenRefused) {
+            var prefix_buf: [64]u8 = undefined;
+            const prefix = std.fmt.bufPrint(&prefix_buf, "Server refused to listen on port {}", .{bind}) catch "Server refused to listen";
+            setLibssh2Error(session, prefix, c.libssh2_session_last_errno(ssh_session));
+        } else {
+            setError(session, "Port {} {s}", .{ bind, portForwardSetupMessage(err) });
+        }
+        return c.JNI_FALSE;
+    };
+    return c.JNI_TRUE;
+}
+
+export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeStartPortForwarding(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong) callconv(.c) c.jboolean {
+    _ = env;
+    _ = thiz;
+    const session = sessionFromHandle(handle) orelse return c.JNI_FALSE;
+    const forwarder = session.forwarder orelse {
+        setError(session, "No port forwards configured", .{});
+        return c.JNI_FALSE;
+    };
+    forwarder.start() catch |err| {
+        setError(session, "Port forwarding thread failed: {s}", .{@errorName(err)});
+        return c.JNI_FALSE;
+    };
+    return c.JNI_TRUE;
+}
+
+export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeIsPortForwardingRunning(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong) callconv(.c) c.jboolean {
+    _ = env;
+    _ = thiz;
+    const session = sessionFromHandle(handle) orelse return c.JNI_FALSE;
+    const forwarder = session.forwarder orelse return c.JNI_FALSE;
+    return if (forwarder.isRunning()) c.JNI_TRUE else c.JNI_FALSE;
 }

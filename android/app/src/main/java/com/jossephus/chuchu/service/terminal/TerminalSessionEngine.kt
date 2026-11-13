@@ -136,7 +136,10 @@ class TerminalSessionEngine(
     private var cellHeight = 1
     private var lastSnapshotAtMs = 0L
     private var snapshotScheduled = false
+    private var snapshotJob: Job? = null
     private val snapshotIntervalMs = 16L
+    private val renderHold = RenderHoldGate()
+    private var renderHoldJob: Job? = null
     private var title: String? = null
     private var pwd: String? = null
     private var images: List<ImagePlacement> = emptyList()
@@ -249,6 +252,15 @@ class TerminalSessionEngine(
                         status = SessionStatus.Error,
                         sessionKey = sessionKey,
                         error = "Native mosh unavailable. Check ABI/NDK build.",
+                    )
+                return@launch
+            }
+            if (transport == Transport.Mosh && jumpHost != null) {
+                _state.value =
+                    SessionState(
+                        status = SessionStatus.Error,
+                        sessionKey = sessionKey,
+                        error = "Mosh cannot connect through a jump host. Use SSH for this server.",
                     )
                 return@launch
             }
@@ -664,6 +676,7 @@ class TerminalSessionEngine(
                 handle = 0L
             }
             snapshotScheduled = false
+            renderHold.release()
             title = null
             pwd = null
             images = emptyList()
@@ -874,9 +887,9 @@ class TerminalSessionEngine(
         val isImageLoading = bridge.nativeIsImageLoading(handle)
         when {
             wasImageLoading && !isImageLoading -> {
-                requestSnapshot(force = true)
+                requestDataSnapshot(force = true)
             }
-            !isImageLoading -> requestSnapshot()
+            !isImageLoading -> requestDataSnapshot()
         }
     }
 
@@ -932,7 +945,7 @@ class TerminalSessionEngine(
             }
 
             if (hadEvent && handle != 0L) {
-                requestSnapshot()
+                requestDataSnapshot()
                 lastActivityMs = System.currentTimeMillis()
             }
 
@@ -1438,6 +1451,42 @@ class TerminalSessionEngine(
             else -> MAX_READ_DELAY_MS
         }
 
+    private fun requestDataSnapshot(force: Boolean = false) {
+        if (handle == 0L) return
+        val hold = bridge.nativeRenderHoldActive(handle)
+        when (renderHold.onChunk(hold, SystemClock.elapsedRealtime())) {
+            RenderHoldAction.Skip -> {
+                // The remote program asked us to stop painting (DECSET 2026) while it
+                // repaints, so a full-screen redraw never shows intermediate frames.
+                // PTY writes and terminal state keep flowing.
+                // A frame may already be queued from the chunk before the hold began;
+                // drop it, otherwise one half-drawn frame still gets painted.
+                snapshotJob?.cancel()
+                snapshotScheduled = false
+                scheduleRenderHoldRelease()
+            }
+            RenderHoldAction.PaintForced -> requestSnapshot(force = true)
+            RenderHoldAction.Paint -> requestSnapshot(force)
+        }
+    }
+
+    private fun scheduleRenderHoldRelease() {
+        if (disposed || renderHoldJob?.isActive == true) return
+        renderHoldJob =
+            scope.launch(dispatcher) {
+                // Keep checking while the hold lasts: a single check would give up
+                // after the first quiet tick and freeze the screen for good.
+                while (true) {
+                    delay(renderHold.stallCheckMs)
+                    if (handle == 0L || !renderHold.isHeld) return@launch
+                    if (!renderHold.stallDue(SystemClock.elapsedRealtime())) continue
+                    renderHold.release()
+                    requestSnapshot(force = true)
+                    return@launch
+                }
+            }
+    }
+
     private fun requestSnapshot(force: Boolean = false) {
         if (handle == 0L) return
         val now = System.currentTimeMillis()
@@ -1451,13 +1500,14 @@ class TerminalSessionEngine(
         if (snapshotScheduled) return
         snapshotScheduled = true
         val waitMs = (snapshotIntervalMs - elapsed).coerceAtLeast(1L)
-        scope.launch(dispatcher) {
-            delay(waitMs)
-            snapshotScheduled = false
-            if (handle == 0L) return@launch
-            emitSnapshot()
-            lastSnapshotAtMs = System.currentTimeMillis()
-        }
+        snapshotJob =
+            scope.launch(dispatcher) {
+                delay(waitMs)
+                snapshotScheduled = false
+                if (handle == 0L) return@launch
+                emitSnapshot()
+                lastSnapshotAtMs = System.currentTimeMillis()
+            }
     }
 
     private fun emitSnapshot() {
