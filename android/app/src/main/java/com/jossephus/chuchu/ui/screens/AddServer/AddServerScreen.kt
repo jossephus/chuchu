@@ -667,69 +667,6 @@ private fun JumpHostOption(label: String, detail: String, isSelected: Boolean, o
     }
 }
 
-@Composable
-private fun JumpHostSection(
-    selectedId: Long?,
-    candidates: List<HostProfile>,
-    onSelect: (Long?) -> Unit,
-    onAddJumpServer: () -> Unit,
-) {
-    val colors = ChuColors.current
-    val typography = ChuTypography.current
-
-    SectionHeader(stringResource(R.string.section_connect_via))
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        JumpHostOption(
-            label = stringResource(R.string.add_server_jump_direct),
-            detail = "",
-            isSelected = selectedId == null,
-            onClick = { onSelect(null) },
-        )
-        candidates.forEach { host ->
-            JumpHostOption(
-                label = host.name,
-                detail = "${host.username}@${host.host}",
-                isSelected = host.id == selectedId,
-                onClick = { onSelect(host.id) },
-            )
-        }
-    }
-    if (selectedId != null && candidates.none { it.id == selectedId }) {
-        ChuText(
-            stringResource(R.string.add_server_jump_unavailable),
-            style = typography.bodySmall,
-            color = colors.error,
-        )
-    }
-    ChuButton(
-        onClick = onAddJumpServer,
-        variant = ChuButtonVariant.Ghost,
-        bracketed = true,
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-    ) {
-        ChuText(stringResource(R.string.add_server_jump_new), style = typography.labelSmall, color = colors.accent)
-    }
-}
-
-@Composable
-private fun JumpHostOption(label: String, detail: String, isSelected: Boolean, onClick: () -> Unit) {
-    val colors = ChuColors.current
-    val typography = ChuTypography.current
-    Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 6.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-    ) {
-        ChuText(
-            text = (if (isSelected) "● " else "○ ") + label,
-            style = typography.body,
-            color = if (isSelected) colors.accent else colors.textPrimary,
-        )
-        ChuText(detail, style = typography.bodySmall, color = colors.textMuted)
-    }
-}
-
 // "" stands in for no multiplexer: the segmented control needs non-null options.
 private const val MULTIPLEXER_OFF = ""
 
