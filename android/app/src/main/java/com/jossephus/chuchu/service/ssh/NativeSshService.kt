@@ -1,6 +1,8 @@
 package com.jossephus.chuchu.service.ssh
 
 import com.jossephus.chuchu.model.AuthMethod
+import com.jossephus.chuchu.model.PortForward
+import com.jossephus.chuchu.model.PortForwardType
 import java.io.Closeable
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -457,6 +459,35 @@ class NativeSshService(
             )
         }
     }
+
+    fun startPortForwards(forwards: List<PortForward>) {
+        check(handle != 0L) { "Not connected" }
+        require(forwards.isNotEmpty()) { "No port forwards to start" }
+        forwards.forEach { forward ->
+            val kind = if (forward.type == PortForwardType.Local) 0 else 1
+            val added =
+                bridge.nativeAddPortForward(
+                    handle,
+                    kind,
+                    forward.listenPort,
+                    forward.destinationHost,
+                    forward.targetPort,
+                )
+            if (!added) {
+                throw IllegalStateException(
+                    bridge.nativeGetLastError(handle) ?: "Port forward failed"
+                )
+            }
+        }
+        if (!bridge.nativeStartPortForwarding(handle)) {
+            throw IllegalStateException(
+                bridge.nativeGetLastError(handle) ?: "Port forwarding failed to start"
+            )
+        }
+    }
+
+    fun isPortForwardingRunning(): Boolean =
+        handle != 0L && bridge.nativeIsPortForwardingRunning(handle)
 
     fun peerAddress(): String {
         check(handle != 0L) { "Not connected" }

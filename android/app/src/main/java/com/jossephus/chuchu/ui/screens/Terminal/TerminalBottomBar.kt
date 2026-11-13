@@ -146,10 +146,7 @@ internal fun TerminalCommandPaletteSheet(
                 }
                 else -> {
                     result.specialKey?.let { key ->
-                        vm.onSpecialKeyInput(
-                            key,
-                            preDispatchModifierState.terminalMods(),
-                        )
+                        vm.onSpecialKeyInput(key, result.specialKeyMods)
                     }
                     result.text?.let { text ->
                         if (!chuchuKeys.handleText(text)) {

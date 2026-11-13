@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -55,6 +57,8 @@ import com.jossephus.chuchu.model.HostProfile
 import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.plugin.PluginManager
 import com.jossephus.chuchu.service.terminal.TerminalSessionRepository
+import com.jossephus.chuchu.service.terminal.PortForwardStatus
+import com.jossephus.chuchu.model.label
 import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuCard
@@ -84,6 +88,7 @@ fun ServerListScreen(
     val application = context.applicationContext as Application
     val sessionRepo = remember(application) { TerminalSessionRepository.getInstance(application) }
     val connectedHostIds by sessionRepo.connectedHostIds.collectAsStateWithLifecycle()
+    val portForwardStatus by sessionRepo.portForwardStatus.collectAsStateWithLifecycle()
     val openTabs by sessionRepo.tabs.collectAsStateWithLifecycle()
     val hasOpenLocalShell = openTabs.any { it.spec.transport == Transport.LocalShell }
 
@@ -226,6 +231,7 @@ fun ServerListScreen(
                         HostCard(
                             host = host,
                             isConnected = isConnected,
+                            forwardStatus = portForwardStatus[host.id],
                             isSelected = selectedHostId == host.id,
                             onLongPress = { selectedHostId = host.id },
                             onCancelSelection = { selectedHostId = null },
@@ -425,6 +431,7 @@ private fun LocalShellCard(
 private fun HostCard(
     host: HostProfile,
     isConnected: Boolean,
+    forwardStatus: PortForwardStatus?,
     isSelected: Boolean,
     onLongPress: () -> Unit,
     onCancelSelection: () -> Unit,
@@ -503,7 +510,8 @@ private fun HostCard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(114.dp),
+                .heightIn(min = 114.dp)
+                .height(IntrinsicSize.Min),
         ) {
             if (isConnected) {
                 Box(
@@ -606,6 +614,10 @@ private fun HostCard(
                                 )
                             }
                         }
+                        if (forwardStatus != null) {
+                            Spacer(modifier = Modifier.height(2.dp))
+                            PortForwardStatusLine(forwardStatus)
+                        }
                         Spacer(modifier = Modifier.height(8.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             ChuButton(
@@ -654,4 +666,28 @@ private fun HostCard(
             }
         }
     }
+}
+
+@Composable
+private fun PortForwardStatusLine(status: PortForwardStatus) {
+    val colors = ChuColors.current
+    val (text, color) =
+        when (status) {
+            PortForwardStatus.Starting ->
+                stringResource(R.string.port_forward_status_starting) to colors.textMuted
+            is PortForwardStatus.Active ->
+                stringResource(
+                    R.string.port_forward_status_active,
+                    status.forwards.joinToString(", ") { it.label },
+                ) to colors.success
+            is PortForwardStatus.Failed ->
+                stringResource(R.string.port_forward_status_failed, status.message) to colors.error
+        }
+    ChuText(
+        text,
+        style = ChuTypography.current.bodySmall,
+        color = color,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+    )
 }

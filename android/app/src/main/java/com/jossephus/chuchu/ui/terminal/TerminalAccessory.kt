@@ -7,6 +7,9 @@ enum class TerminalModifier {
     Cmd,
 }
 
+/** Ghostty modifier bit for Shift, as used by [ModifierState.terminalMods]. */
+internal const val SHIFT_MOD = 1 shl 0
+
 data class ModifierState(
     val ctrl: Boolean = false,
     val alt: Boolean = false,
@@ -31,7 +34,7 @@ data class ModifierState(
 
     fun terminalMods(): Int {
         var mods = 0
-        if (shift) mods = mods or (1 shl 0) // shift
+        if (shift) mods = mods or SHIFT_MOD
         if (ctrl) mods = mods or (1 shl 1) // ctrl
         if (alt) mods = mods or (1 shl 2)  // alt
         if (cmd) mods = mods or (1 shl 3)  // super
@@ -98,7 +101,8 @@ enum class TerminalSpecialKey(
 sealed interface AccessoryAction {
     data class ToggleModifier(val modifier: TerminalModifier) : AccessoryAction
 
-    data class SendSpecialKey(val key: TerminalSpecialKey) : AccessoryAction
+    /** [extraMods] are added to the active modifiers, e.g. Shift for Shift+Tab, without arming them. */
+    data class SendSpecialKey(val key: TerminalSpecialKey, val extraMods: Int = 0) : AccessoryAction
 
     data class SendText(val text: String) : AccessoryAction
 
@@ -136,6 +140,8 @@ data class AccessoryDispatchResult(
     val modifierState: ModifierState,
     val text: String? = null,
     val specialKey: TerminalSpecialKey? = null,
+    /** Ghostty modifier bits to send with [specialKey]. */
+    val specialKeyMods: Int = 0,
     val shouldPaste: Boolean = false,
     val suppressImeInput: Boolean = false,
 )
@@ -152,6 +158,7 @@ object TerminalAccessoryDispatcher {
         is AccessoryAction.SendSpecialKey -> AccessoryDispatchResult(
             modifierState = modifierState,
             specialKey = action.key,
+            specialKeyMods = modifierState.terminalMods() or action.extraMods,
             suppressImeInput = true,
         )
 
@@ -170,6 +177,8 @@ object TerminalAccessoryDispatcher {
 object TerminalAccessoryLayoutStore {
     private val catalogItems: List<AccessoryKeyItem> = listOf(
         AccessoryKeyItem("tab", "Tab", AccessoryAction.SendSpecialKey(TerminalSpecialKey.Tab)),
+        AccessoryKeyItem("shift_tab", "S-Tab", AccessoryAction.SendSpecialKey(TerminalSpecialKey.Tab, extraMods = SHIFT_MOD)),
+        AccessoryKeyItem("ctrl_b", "C-b", AccessoryAction.SendText("\u0002")),
         AccessoryKeyItem("enter", TerminalSpecialKey.Enter.label, AccessoryAction.SendSpecialKey(TerminalSpecialKey.Enter)),
         AccessoryKeyItem("space", "Space", AccessoryAction.SendText(" ")),
         AccessoryKeyItem("escape", "Esc", AccessoryAction.SendSpecialKey(TerminalSpecialKey.Escape)),
