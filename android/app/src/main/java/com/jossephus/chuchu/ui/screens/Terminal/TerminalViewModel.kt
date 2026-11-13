@@ -196,13 +196,6 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         return SshJumpHost.fromHostProfile(jump, key)
     }
 
-    private suspend fun resolveJumpHost(host: HostProfile): SshJumpHost? {
-        val jumpHostId = host.jumpHostId?.takeIf { it != host.id } ?: return null
-        val jump = hostRepository.getById(jumpHostId) ?: return null
-        val key = jump.keyId?.let { sshKeyRepository.getById(it) }
-        return SshJumpHost.fromHostProfile(jump, key)
-    }
-
     fun duplicateActiveTab(): TabSession? {
         val current = sessionRepository.activeTab.value ?: return null
         return duplicate(current)
