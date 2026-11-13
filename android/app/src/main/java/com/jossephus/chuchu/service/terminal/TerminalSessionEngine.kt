@@ -22,6 +22,7 @@ import com.jossephus.chuchu.service.ssh.HostKeyStore
 import com.jossephus.chuchu.service.ssh.NativeSshService
 import com.jossephus.chuchu.service.ssh.SshJumpHost
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -918,7 +919,7 @@ class TerminalSessionEngine(
         localShellService.start(cols, rows, screenWidth, screenHeight)
     }
 
-    private fun establishSshConnection(params: ConnectionParams, username: String) {
+    private suspend fun establishSshConnection(params: ConnectionParams, username: String) {
         check(nativeSsh.isAvailable()) { "Native SSH unavailable" }
         nativeSsh.connect(
             host = params.host,
@@ -931,12 +932,60 @@ class TerminalSessionEngine(
             keyPassphrase = params.keyPassphrase,
             jumpHost = params.jumpHost,
         )
+        val term = resolveTerminalType(params, username)
         val startupCommand = params.multiplexerStartupCommand()?.trim().orEmpty()
         if (startupCommand.isNotEmpty()) {
-            nativeSsh.openExecPty(startupCommand, cols, rows, ptyWidthPx(), ptyHeightPx())
+            nativeSsh.openExecPty(startupCommand, cols, rows, ptyWidthPx(), ptyHeightPx(), term)
         } else {
-            nativeSsh.openShell(cols, rows, ptyWidthPx(), ptyHeightPx())
+            nativeSsh.openShell(cols, rows, ptyWidthPx(), ptyHeightPx(), term)
         }
+    }
+
+    /**
+     * Picks the TERM sent in the pty request. `xterm-ghostty` is what this terminal really is,
+     * but a remote whose terminfo predates ghostty treats it as unknown: zsh and p10k then render
+     * colours as `\e[3<color>m`, which is not valid SGR, so the prompt text behind it is printed
+     * literally and the input line fills with fragments. Probe once per host and fall back to
+     * `xterm-256color`, which every host knows.
+     *
+     * Costs one exec channel on the first connect to a host; the answer is cached for the process
+     * lifetime because terminfo does not change under us mid-session.
+     */
+    private suspend fun resolveTerminalType(params: ConnectionParams, username: String): String {
+        // terminfo can also live in the account's ~/.terminfo, so the user is part of the key.
+        val key = "$username@${params.host}:${params.port}"
+        terminalTypeCache[key]?.let { return it }
+        // Only a real answer gets cached: a slow or broken probe must not pin this host to the
+        // fallback for the rest of the process.
+        val known = remoteKnowsGhosttyTerminfo() ?: return NativeSshService.TERM_FALLBACK
+        val term = if (known) NativeSshService.TERM_DEFAULT else NativeSshService.TERM_FALLBACK
+        terminalTypeCache[key] = term
+        Log.d("TerminalSession", "TERM for $key is $term")
+        return term
+    }
+
+    /** True/False when the remote answered, null when the probe was inconclusive. */
+    private suspend fun remoteKnowsGhosttyTerminfo(): Boolean? {
+        val probe =
+            "command -v infocmp >/dev/null 2>&1 && " +
+                "infocmp -1 ${NativeSshService.TERM_DEFAULT} >/dev/null 2>&1 && " +
+                "printf '$TERM_PROBE_FOUND' || printf '$TERM_PROBE_MISSING'"
+        if (!nativeSsh.openExec(probe)) return null
+        val deadline = System.currentTimeMillis() + TERM_PROBE_TIMEOUT_MS
+        val output = StringBuilder()
+        while (System.currentTimeMillis() < deadline) {
+            val chunk = runCatching { nativeSsh.read(TERM_PROBE_READ_BYTES) }.getOrNull()
+            if (chunk != null && chunk.isNotEmpty()) {
+                output.append(String(chunk, Charsets.UTF_8))
+                if (output.contains(TERM_PROBE_FOUND)) return true
+                if (output.contains(TERM_PROBE_MISSING)) return false
+            } else if (nativeSsh.isChannelEof()) {
+                return null
+            } else {
+                delay(20)
+            }
+        }
+        return null
     }
 
     private suspend fun establishMoshConnection(params: ConnectionParams, username: String) {
@@ -1308,6 +1357,16 @@ class TerminalSessionEngine(
         private const val NEAR_IDLE_DELAY_MS = 8L
         private const val IDLE_DELAY_MS = 24L
         private const val MAX_READ_DELAY_MS = 64L
+
+        // TERM support probe (see resolveTerminalType).
+        private const val TERM_PROBE_TIMEOUT_MS = 1_500L
+        private const val TERM_PROBE_READ_BYTES = 1_024
+        private const val TERM_PROBE_FOUND = "CHUCHU_TERM_OK"
+        private const val TERM_PROBE_MISSING = "CHUCHU_TERM_MISSING"
+
+        // user@host:port -> TERM. Every tab builds its own engine, so this is shared so that a
+        // second tab to the same account skips the probe.
+        private val terminalTypeCache = ConcurrentHashMap<String, String>()
     }
 
     // Read-loop poll interval as a function of how long the session has been idle:
