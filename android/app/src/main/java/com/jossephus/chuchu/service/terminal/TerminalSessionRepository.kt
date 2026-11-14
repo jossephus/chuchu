@@ -92,6 +92,9 @@ class TerminalSessionRepository private constructor(application: Application) {
     private val _activeTabId = MutableStateFlow<String?>(null)
     val activeTabId: StateFlow<String?> = _activeTabId.asStateFlow()
 
+    private val _tabToShow = MutableStateFlow<TabSession?>(null)
+    val tabToShow: StateFlow<TabSession?> = _tabToShow.asStateFlow()
+
     val activeTab: StateFlow<TabSession?> =
         combine(_tabs, _activeTabId) { tabs, id -> tabs.firstOrNull { it.id == id } }
             .stateIn(scope, SharingStarted.Eagerly, null)
@@ -142,7 +145,8 @@ class TerminalSessionRepository private constructor(application: Application) {
     private var browserWatch: Pair<Long, Job>? = null
     private var mirroredGroup: MirrorKey? = null
     private val programStatusNotifier = ProgramStatusNotifier(appContext)
-    private val programStates = mutableMapOf<String, ProgramState?>()
+    private val programStates = mutableMapOf<String, Pair<String, ProgramState>?>()
+    private var visible = false
 
     private val forwardingSpecs: Flow<Map<Long, TabSpec>> =
         _tabs
@@ -208,6 +212,21 @@ class TerminalSessionRepository private constructor(application: Application) {
         _activeTabId.value?.let(programStatusNotifier::cancel)
     }
 
+    fun setVisible(isVisible: Boolean) {
+        visible = isVisible
+        if (isVisible && attachedClients > 0) _activeTabId.value?.let(programStatusNotifier::cancel)
+    }
+
+    fun showTab(id: String) {
+        val tab = _tabs.value.firstOrNull { it.id == id } ?: return
+        selectTab(id)
+        _tabToShow.value = tab
+    }
+
+    fun tabShown() {
+        _tabToShow.value = null
+    }
+
     fun detachClient() {
         attachedClients = (attachedClients - 1).coerceAtLeast(0)
     }
@@ -217,7 +236,9 @@ class TerminalSessionRepository private constructor(application: Application) {
     private fun TabSession.statusUpdates(): Flow<SessionStatus> = sessionState.map { it.status }.distinctUntilChanged()
 
     private fun TabSession.programStatusUpdates(): Flow<ProgramStatus?> =
-        programStatus.distinctUntilChanged { old, new -> old?.state == new?.state }
+        programStatus.distinctUntilChanged { old, new -> old?.identity() == new?.identity() }
+
+    private fun ProgramStatus.identity(): Pair<String, ProgramState> = id to state
 
     private fun notifyProgramStatus(tabs: List<Pair<TabSession, ProgramStatus?>>) {
         val open = tabs.map { it.first.id }.toSet()
@@ -226,13 +247,13 @@ class TerminalSessionRepository private constructor(application: Application) {
             programStatusNotifier.cancel(id)
         }
         for ((tab, status) in tabs) {
-            val previous = programStates.put(tab.id, status?.state)
-            if (status?.state == previous) continue
+            val previous = programStates.put(tab.id, status?.identity())
+            if (status?.identity() == previous) continue
             if (status == null || status.state == ProgramState.Working || status.state == ProgramState.Idle) {
                 programStatusNotifier.cancel(tab.id)
                 continue
             }
-            if (attachedClients > 0 && _activeTabId.value == tab.id) continue
+            if (visible && attachedClients > 0 && _activeTabId.value == tab.id) continue
             programStatusNotifier.notify(tab.id, tab.notificationTitle(), status)
         }
     }

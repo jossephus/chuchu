@@ -22,6 +22,7 @@ class ProgramStatusNotifier(private val context: Context) {
         val tapIntent =
             Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra(EXTRA_TAB_ID, tabId)
             }
         val tap =
             PendingIntent.getActivity(
@@ -85,9 +86,10 @@ class ProgramStatusNotifier(private val context: Context) {
 
     private fun notificationId(tabId: String): Int = NOTIFICATION_ID_BASE + (tabId.hashCode() and 0xffff)
 
-    private companion object {
-        const val CHANNEL_ID = "program_status"
-        const val NOTIFICATION_ID_BASE = 0x7501_0000
+     companion object {
+        const val EXTRA_TAB_ID = "com.jossephus.chuchu.extra.PROGRAM_STATUS_TAB"
+        private const val CHANNEL_ID = "program_status"
+        private const val NOTIFICATION_ID_BASE = 0x7501_0000
         const val BLACK = 0xFF000000
     }
 }
