@@ -27,7 +27,7 @@ class RexEndpointTest {
     fun bareHostWithRexPortIsPlaintext() {
         val endpoint = RexEndpoint.parse("192.168.1.20:7297")
         assertEquals(RexEndpoint("192.168.1.20", 7297, secure = false), endpoint)
-        assertEquals("ws://192.168.1.20/api/data", endpoint?.webSocketUrl("/api/data"))
+        assertEquals("ws://192.168.1.20:7297/api/data", endpoint?.webSocketUrl("/api/data"))
     }
 
     @Test
