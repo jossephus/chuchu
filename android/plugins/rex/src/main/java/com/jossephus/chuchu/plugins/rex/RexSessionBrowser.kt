@@ -23,7 +23,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
-data class RexPane(
+data class RexPaneSummary(
     val sessionId: String,
     val blockId: String,
     /** The window's name: one the user set, or Rex's "Window <id>". */
@@ -36,7 +36,7 @@ data class RexPane(
     val cwd: String?,
 )
 
-data class RexSessionSummary(val sessionId: String, val label: String, val panes: List<RexPane>)
+data class RexSessionSummary(val sessionId: String, val label: String, val panes: List<RexPaneSummary>)
 
 sealed interface RexBrowserState {
     data object Connecting : RexBrowserState
@@ -46,12 +46,9 @@ sealed interface RexBrowserState {
     data class Failed(val message: String) : RexBrowserState
 }
 
-/**
- * Keeps the session list for one Rex server current. It runs on a [RexHub]'s shared
- * control connection, which the hub opens before [start] and closes after [close].
- */
+/** Keeps the session list for one [RexServer] current. */
 @OptIn(ExperimentalCoroutinesApi::class)
-class RexSessionBrowser(private val control: RexControlConnection) : Closeable {
+internal class RexSessionBrowser(private val server: RexServer) : Closeable {
     private val confined = Dispatchers.IO.limitedParallelism(1)
     private val scope = CoroutineScope(SupervisorJob() + confined)
     private val dirty = Channel<String>(Channel.UNLIMITED)
@@ -74,35 +71,30 @@ class RexSessionBrowser(private val control: RexControlConnection) : Closeable {
      * shared connection is then already attached to that session, so a pane opened from
      * the list can skip session.attach and session.view.
      */
-    fun knowsBlock(sessionId: String, blockId: String): Boolean = knownBlocks[sessionId]?.contains(blockId) == true
+    fun knowsBlock(pane: RexAttachment): Boolean = knownBlocks[pane.sessionId]?.contains(pane.blockId) == true
 
     suspend fun start() =
         withContext(confined) {
             try {
-                scope.launch(start = CoroutineStart.UNDISPATCHED) { control.events.collect { handleEvent(it) } }
-                replaceOrder(control.call("session.list").optJSONArray("sessions"))
-                val ids = JSONArray().apply { order.forEach { put(it) } }
-                val boot =
-                    control.call(
-                        "session.bootstrap",
-                        JSONObject().put("event_scope", "all").put("attach_session_ids", ids),
-                    )
-                val attached = boot.optJSONArray("attached_sessions") ?: JSONArray()
+                scope.launch(start = CoroutineStart.UNDISPATCHED) { server.events.collect { handleEvent(it) } }
+                replaceOrder(server.listSessions())
+                val attached = server.bootstrap(order.toList())
                 for (i in 0 until attached.length()) {
                     attached.optJSONObject(i)?.optJSONObject("view")?.let(::storeView)
                 }
                 publish()
                 scope.launch { refreshLoop() }
-                scope.launch { fail(control.awaitEnd()) }
+                scope.launch { fail(server.awaitEnd()) }
                 order.toList().forEach { loadProcesses(it) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 fail(e)
+                throw e
             }
         }
 
-    /** Stops refreshing. The hub closes the connection afterwards, so no refresh is left waiting on it. */
+    /** Stops refreshing. The server closes the connection afterwards, so no refresh is left waiting on it. */
     override fun close() {
         scope.cancel()
     }
@@ -155,10 +147,9 @@ class RexSessionBrowser(private val control: RexControlConnection) : Closeable {
             for (id in pending) {
                 try {
                     if (id == RELIST) {
-                        replaceOrder(control.call("session.list").optJSONArray("sessions"))
+                        replaceOrder(server.listSessions())
                     } else if (id in order) {
-                        val attached = control.call("session.attach", JSONObject().put("session_id", id))
-                        attached.optJSONObject("view")?.let(::storeView)
+                        server.attach(id).optJSONObject("view")?.let(::storeView)
                         loadProcesses(id)
                     }
                 } catch (e: CancellationException) {
@@ -182,7 +173,7 @@ class RexSessionBrowser(private val control: RexControlConnection) : Closeable {
      */
     private suspend fun loadProcesses(sessionId: String) {
         val view = views[sessionId] ?: return
-        val missing = RexPanePicker.terminalBlockIds(view).filter { it !in processes }
+        val missing = RexLayout.terminalBlockIds(view).filter { it !in processes }
         if (missing.isEmpty()) return
         val limit = Semaphore(PANE_LOOKUP_CONCURRENCY)
         coroutineScope {
@@ -193,11 +184,11 @@ class RexSessionBrowser(private val control: RexControlConnection) : Closeable {
     }
 
     private suspend fun loadPane(sessionId: String, blockId: String) {
-        val target = JSONObject().put("session_id", sessionId).put("block_id", blockId)
+        val pane = RexAttachment(sessionId, blockId)
         try {
             coroutineScope {
-                val title = async { control.call(TITLE_METHOD, JSONObject(target.toString())) }
-                val result = control.call(PROCESS_METHOD, target)
+                val title = async { server.title(pane) }
+                val result = server.process(pane)
                 result.stringOrNull("home")?.let { home = it }
                 processes[blockId] = result.optJSONObject("foreground")?.let(RexProcess::from) ?: RexProcess(null, null, null)
                 titles[blockId] = RexTitle.from(title.await())
@@ -231,20 +222,20 @@ class RexSessionBrowser(private val control: RexControlConnection) : Closeable {
     }
 
     private fun publish() {
-        knownBlocks = views.mapValues { (_, view) -> RexPanePicker.terminalBlockIds(view).toSet() }
+        knownBlocks = views.mapValues { (_, view) -> RexLayout.terminalBlockIds(view).toSet() }
         if (_state.value is RexBrowserState.Failed) return
         _state.value = RexBrowserState.Ready(order.mapNotNull(::summary))
     }
 
     private fun summary(sessionId: String): RexSessionSummary? {
         val view = views[sessionId] ?: return null
-        val shared = RexPanePicker.sharedNameBlockIds(view).toSet()
-        val customNamed = RexPanePicker.customNamedBlockIds(view).toSet()
+        val shared = RexLayout.sharedNameBlockIds(view).toSet()
+        val customNamed = RexLayout.customNamedBlockIds(view).toSet()
         val panes =
-            RexPanePicker.terminalBlocks(view).map { (blockId, label) ->
+            RexLayout.terminalBlocks(view).map { (blockId, label) ->
                 val process = processes[blockId]
                 val detail = process?.takeIf { blockId in shared }
-                RexPane(
+                RexPaneSummary(
                     sessionId = sessionId,
                     blockId = blockId,
                     label = label,
@@ -269,7 +260,6 @@ class RexSessionBrowser(private val control: RexControlConnection) : Closeable {
     private fun fail(cause: Throwable) {
         if (_state.value is RexBrowserState.Failed) return
         _state.value = RexBrowserState.Failed(cause.message ?: "Lost the connection to Rex")
-        control.close()
     }
 
     private data class RexProcess(val pid: Int?, val name: String?, val cwd: String?) {
@@ -308,8 +298,6 @@ class RexSessionBrowser(private val control: RexControlConnection) : Closeable {
 
     private companion object {
         const val TAG = "RexSessionBrowser"
-        const val PROCESS_METHOD = "com.superlogical.terminal.process"
-        const val TITLE_METHOD = "com.superlogical.terminal.title"
         // Enough to fill a list quickly without flooding the server with one request per pane.
         const val PANE_LOOKUP_CONCURRENCY = 6
         const val RELIST = "\u0000relist"

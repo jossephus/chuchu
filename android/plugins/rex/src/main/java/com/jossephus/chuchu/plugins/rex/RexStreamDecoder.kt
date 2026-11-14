@@ -9,8 +9,6 @@ sealed interface RexStreamItem {
     class Output(val bytes: ByteArray) : RexStreamItem
 
     data class Resize(val columns: Int, val rows: Int) : RexStreamItem
-
-    data class ChildExited(val exitCode: Int?) : RexStreamItem
 }
 
 class RexStreamDecoder(nonce: ULong) {
@@ -83,10 +81,6 @@ class RexStreamDecoder(nonce: ULong) {
                 val rows = message.optInt("rows")
                 if (columns > 0 && rows > 0) RexStreamItem.Resize(columns, rows) else null
             }
-            "child_exited" ->
-                RexStreamItem.ChildExited(
-                    if (message.has("exit_code") && !message.isNull("exit_code")) message.optInt("exit_code") else null
-                )
             else -> null
         }
     }

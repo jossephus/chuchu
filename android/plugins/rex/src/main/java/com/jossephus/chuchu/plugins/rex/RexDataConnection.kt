@@ -126,15 +126,15 @@ class RexDataConnection(private val http: OkHttpClient) : Closeable {
             else -> "Rex refused the terminal stream (reason $code)"
         }
 
-    private companion object {
+    companion object {
         const val PROTOCOL = "rex.data.terminal.v1"
-        const val TICKET_BYTES = 16
-        const val WELCOME_BYTES = 32
-        const val OP_HELLO: Byte = 0x01
-        const val OP_WELCOME: Byte = 0x81.toByte()
-        const val OP_REJECT: Byte = 0x82.toByte()
-        const val NORMAL_CLOSURE = 1000
-        const val CLOSE_BLOCK_CLOSED = 4000
-        const val OPEN_TIMEOUT_MS = 12_000L
+        private const val TICKET_BYTES = 16
+        private const val WELCOME_BYTES = 32
+        private const val OP_HELLO: Byte = 0x01
+        private const val OP_WELCOME: Byte = 0x81.toByte()
+        private const val OP_REJECT: Byte = 0x82.toByte()
+        private const val NORMAL_CLOSURE = 1000
+        private const val CLOSE_BLOCK_CLOSED = 4000
+        private const val OPEN_TIMEOUT_MS = 12_000L
     }
 }

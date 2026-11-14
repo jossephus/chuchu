@@ -8,22 +8,19 @@ import com.jossephus.chuchu.plugin.api.HostBrowserFactory
 import com.jossephus.chuchu.plugin.api.HostBrowserState
 import com.jossephus.chuchu.plugin.api.PairingPrompt
 import com.jossephus.chuchu.plugin.api.PluginHost
-import com.jossephus.chuchu.plugin.api.PtySize
 import com.jossephus.chuchu.plugin.api.TransportBehavior
 import com.jossephus.chuchu.plugin.api.TransportConnectRequest
 import com.jossephus.chuchu.plugin.api.TransportConnection
-import com.jossephus.chuchu.plugin.api.TransportEndedException
-import com.jossephus.chuchu.plugin.api.TransportFrame
 import com.jossephus.chuchu.plugin.api.TransportHostForm
 import com.jossephus.chuchu.plugin.api.TransportProvider
+import java.net.URLDecoder
+import java.net.URLEncoder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
@@ -66,23 +63,20 @@ class RexTransportProvider : TransportProvider {
     override fun addressFromPairingCode(code: String): String? = RexEndpoint.fromPairingCode(code)?.url
 
     override suspend fun test(address: String): String {
-        val count = RexTerminalSession.probeSessionCount(endpointFor(address))
+        val count = RexServer.probeSessionCount(endpointFor(address))
         return "Connected · $count ${if (count == 1) "session" else "sessions"}"
     }
 
-    override suspend fun connect(request: TransportConnectRequest): TransportConnection {
-        val session = RexTerminalSession(endpointFor(request.address), RexTargets.decode(request.target))
-        try {
-            session.connect(request.size.toRexSize())
-        } catch (e: Exception) {
-            session.close()
-            throw e
-        }
-        return RexTransportConnection(session)
-    }
+    override suspend fun connect(request: TransportConnectRequest): TransportConnection =
+        RexPane.open(endpointFor(request.address), RexTargets.decode(request.target), request.size)
 
     override fun duplicateTarget(target: String?): String? {
-        val sessionId = RexTargets.decode(target).sessionId
+        val sessionId =
+            when (val request = RexTargets.decode(target)) {
+                is RexOpenRequest.Block -> request.pane.sessionId
+                is RexOpenRequest.NewWindow -> request.sessionId
+                else -> null
+            }
         return sessionId?.let(RexTargets::newWindow) ?: RexTargets.newSession()
     }
 
@@ -90,65 +84,24 @@ class RexTransportProvider : TransportProvider {
         RexEndpoint.parse(address) ?: throw IllegalArgumentException("Not a Rex server address: $address")
 }
 
-private class RexTransportConnection(private val session: RexTerminalSession) : TransportConnection {
-    override val target: String? =
-        session.attachment?.let(RexTargets::pane)
-
-    override val frames: Flow<TransportFrame> =
-        flow {
-            try {
-                for (item in session.stream) {
-                    when (item) {
-                        is RexStreamItem.Snapshot -> emit(TransportFrame.Snapshot(item.bytes))
-                        is RexStreamItem.Output -> emit(TransportFrame.Output(item.bytes))
-                        is RexStreamItem.Resize ->
-                            if (session.shouldApplyRemoteResize(item.columns, item.rows)) {
-                                emit(TransportFrame.Resize(item.columns, item.rows))
-                            }
-                        is RexStreamItem.ChildExited -> Unit
-                    }
-                }
-            } catch (e: RexPaneClosedException) {
-                throw TransportEndedException("The Rex pane was closed. Reconnect to open the pane that has focus now.")
-            }
-        }
-
-    override fun write(bytes: ByteArray) = session.write(bytes)
-
-    override fun resize(size: PtySize) = session.resize(size.toRexSize())
-
-    override fun onUserInteraction() = session.takeBackIfLost()
-
-    override fun setActive(active: Boolean) = session.setActive(active)
-
-    override fun close() = session.close()
-}
-
 /** A view of the server's shared session list; every browser on one server reads the same hub. */
 private class RexHostBrowser(endpoint: RexEndpoint) : HostBrowser {
-    private val hub = RexHubs.acquire(endpoint)
+    private val server = RexServer.acquire(endpoint)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     // Server events keep the list current.
     override val updatesLive: Boolean = true
 
     override val state: StateFlow<HostBrowserState> =
-        hub.browser.state
+        server.browser.state
             .map(::toBrowserState)
             .stateIn(scope, SharingStarted.Eagerly, HostBrowserState.Connecting)
 
-    override suspend fun start() {
-        try {
-            hub.awaitReady()
-        } catch (e: Exception) {
-            // The browser state already says Failed; the screen shows it from there.
-            if (e is kotlinx.coroutines.CancellationException) throw e
-        }
-    }
+    override suspend fun start() = server.awaitReady()
 
     override fun close() {
         scope.cancel()
-        RexHubs.release(hub)
+        RexServer.release(server)
     }
 
     private fun toBrowserState(state: RexBrowserState): HostBrowserState =
@@ -182,7 +135,7 @@ private class RexHostBrowser(endpoint: RexEndpoint) : HostBrowser {
  * Names a pane the way the official Rex clients do: a window name the user set, then
  * the live terminal title (e.g. Claude's task summary), then Rex's "Window <id>".
  */
-internal fun paneName(pane: RexPane): String =
+internal fun paneName(pane: RexPaneSummary): String =
     pane.label?.takeIf { pane.labelIsCustom }
         ?: pane.title
         ?: pane.label
@@ -199,10 +152,38 @@ internal fun folderName(path: String): String {
     return trimmed.substringAfterLast('/')
 }
 
-private fun PtySize.toRexSize(): RexTerminalSize =
-    RexTerminalSize(
-        columns = cols,
-        rows = rows,
-        cellWidthPx = if (widthPx > 0 && cols > 0) widthPx / cols else 0,
-        cellHeightPx = if (heightPx > 0 && rows > 0) heightPx / rows else 0,
-    )
+sealed interface RexOpenRequest {
+    data object Focused : RexOpenRequest
+
+    data object NewSession : RexOpenRequest
+
+    data class NewWindow(val sessionId: String) : RexOpenRequest
+
+    data class Block(val pane: RexAttachment) : RexOpenRequest
+}
+
+internal object RexTargets {
+    private const val PANE = "pane"
+    private const val WINDOW = "window"
+    private const val SESSION = "session"
+
+    fun pane(pane: RexAttachment): String = "$PANE:${escape(pane.sessionId)}:${escape(pane.blockId)}"
+
+    fun newWindow(sessionId: String): String = "$WINDOW:${escape(sessionId)}"
+
+    fun newSession(): String = SESSION
+
+    fun decode(target: String?): RexOpenRequest {
+        val parts = target?.split(':') ?: return RexOpenRequest.Focused
+        return when {
+            parts == listOf(SESSION) -> RexOpenRequest.NewSession
+            parts.size == 2 && parts[0] == WINDOW -> RexOpenRequest.NewWindow(unescape(parts[1]))
+            parts.size == 3 && parts[0] == PANE -> RexOpenRequest.Block(RexAttachment(unescape(parts[1]), unescape(parts[2])))
+            else -> RexOpenRequest.Focused
+        }
+    }
+
+    private fun escape(value: String): String = URLEncoder.encode(value, Charsets.UTF_8.name())
+
+    private fun unescape(value: String): String = URLDecoder.decode(value, Charsets.UTF_8.name())
+}

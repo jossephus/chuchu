@@ -5,7 +5,7 @@ import org.junit.Test
 
 class RexPaneNameTest {
     private fun pane(label: String?, custom: Boolean, title: String?) =
-        RexPane("session:s", "block:b", label, custom, title, program = "bash", cwd = null)
+        RexPaneSummary("session:s", "block:b", label, custom, title, program = "bash", cwd = null)
 
     @Test
     fun liveTitleBeatsRexsDefaultWindowName() {

@@ -53,7 +53,6 @@ class RexStreamDecoderTest {
                 "out:a",
                 "Resize(columns=120, rows=40)",
                 "out:b",
-                "ChildExited(exitCode=3)",
                 "out:c",
             ),
             items.map(::describe),
@@ -95,7 +94,7 @@ class RexStreamDecoderTest {
     @Test
     fun splitUtf8KeepsMultibyteCharactersWhole() {
         val text = "aé€😀".repeat(50)
-        val chunks = RexTerminalSession.splitUtf8(text.toByteArray(), maxBytes = 7)
+        val chunks = RexPane.splitUtf8(text.toByteArray(), maxBytes = 7)
 
         assertTrue(chunks.all { it.size <= 7 })
         assertEquals(text, chunks.joinToString("") { String(it, Charsets.UTF_8) })
