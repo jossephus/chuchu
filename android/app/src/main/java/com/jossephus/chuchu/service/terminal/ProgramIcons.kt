@@ -9,6 +9,7 @@ object ProgramIcons {
     private val icons =
         listOf(
             ProgramIcon(R.drawable.ic_program_claude, 0xFFD97757, listOf("claude", "claude-code", "claude code")),
+            ProgramIcon(R.drawable.ic_program_opencode, 0xFF000000, listOf("opencode")),
             ProgramIcon(R.drawable.ic_program_googlegemini, 0xFF8E75B2, listOf("gemini", "gemini-cli")),
             ProgramIcon(R.drawable.ic_program_cursor, 0xFF000000, listOf("cursor", "cursor-agent")),
             ProgramIcon(R.drawable.ic_program_githubcopilot, 0xFF000000, listOf("copilot", "github-copilot", "gh-copilot")),
