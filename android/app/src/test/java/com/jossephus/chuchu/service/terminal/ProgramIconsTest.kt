@@ -12,6 +12,7 @@ class ProgramIconsTest {
         assertEquals(R.drawable.ic_program_rust, ProgramIcons.forName("cargo")?.drawable)
         assertEquals(R.drawable.ic_program_neovim, ProgramIcons.forName("nvim")?.drawable)
         assertEquals(R.drawable.ic_program_opencode, ProgramIcons.forName("opencode")?.drawable)
+        assertEquals(R.drawable.ic_program_pi, ProgramIcons.forName("pi")?.drawable)
     }
 
     @Test
