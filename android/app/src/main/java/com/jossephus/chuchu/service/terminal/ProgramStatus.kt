@@ -48,8 +48,12 @@ class ProgramStatusRecords {
             if (id.isEmpty()) records.clear() else records.keys.removeAll { it == id || it.startsWith("$id/") }
             return
         }
+        if (stateName == PROMPT) {
+            records.values.removeAll { it.state == ProgramState.Working || it.state == ProgramState.Blocked }
+            return
+        }
         val state = ProgramState.entries.firstOrNull { it.name.equals(stateName, ignoreCase = true) } ?: return
-        records.remove(id)
+        if (records.remove(id) == null && records.size >= MAX_RECORDS) records.remove(records.keys.first())
         records[id] =
             ProgramStatus(
                 state = state,
@@ -76,5 +80,7 @@ class ProgramStatusRecords {
         const val RECORD_SEPARATOR = '\u001e'
         const val FIELD_COUNT = 7
         const val CLEAR = "clear"
+        const val PROMPT = "prompt"
+        const val MAX_RECORDS = 256
     }
 }

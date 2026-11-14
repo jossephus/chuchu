@@ -1,5 +1,6 @@
 package com.jossephus.chuchu
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.SystemBarStyle
@@ -16,6 +17,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
 import com.jossephus.chuchu.data.repository.SettingsRepository
+import com.jossephus.chuchu.service.terminal.ProgramStatusNotifier
+import com.jossephus.chuchu.service.terminal.TerminalSessionRepository
 import com.jossephus.chuchu.ui.ApplicationNavController
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTheme
@@ -43,6 +46,28 @@ class MainActivity : FragmentActivity() {
         setContent {
             AppRoot()
         }
+        if (savedInstanceState == null) showRequestedTab(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        showRequestedTab(intent)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        TerminalSessionRepository.getInstance(application).setVisible(true)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        TerminalSessionRepository.getInstance(application).setVisible(false)
+    }
+
+    private fun showRequestedTab(intent: Intent?) {
+        val tabId = intent?.getStringExtra(ProgramStatusNotifier.EXTRA_TAB_ID) ?: return
+        intent.removeExtra(ProgramStatusNotifier.EXTRA_TAB_ID)
+        TerminalSessionRepository.getInstance(application).showTab(tabId)
     }
 }
 

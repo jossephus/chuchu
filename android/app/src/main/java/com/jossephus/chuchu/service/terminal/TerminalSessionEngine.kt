@@ -793,7 +793,8 @@ class TerminalSessionEngine(
                     ReadLoopExitAction.Disconnect -> {
                         localShellService.close()
                         if (!disconnectRequested && !failed) {
-                            _state.value = _state.value.copy(status = SessionStatus.Disconnected)
+                            programStatus.clear()
+                            _state.value = _state.value.copy(status = SessionStatus.Disconnected, programStatus = null)
                         }
                     }
                     ReadLoopExitAction.RequireManualReconnect -> {
@@ -993,6 +994,7 @@ class TerminalSessionEngine(
         closePluginConnection()
         handle = bridge.nativeCreate(cols, rows, 1000)
         programStatus.clear()
+        _state.value = _state.value.copy(programStatus = null)
         applyTerminalOptions()
 
         when (params.transport) {
