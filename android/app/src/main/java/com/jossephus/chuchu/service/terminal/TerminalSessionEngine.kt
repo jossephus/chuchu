@@ -113,6 +113,8 @@ class TerminalSessionEngine(
             .asCoroutineDispatcher()
     @Volatile private var disposed = false
 
+    private val paintPace = PaintPaceGate()
+
     private val bridge = GhosttyBridge()
     private val moshContact = MoshContactTracker()
     private val nativeSsh = NativeSshService(hostKeyPolicy = ::verifyHostKey)
@@ -880,6 +882,7 @@ class TerminalSessionEngine(
 
     private fun feedRemoteChunk(chunk: ByteArray) {
         if (handle == 0L) return
+        paintPace.onBytes(chunk.size, SystemClock.elapsedRealtime())
         val wasImageLoading = bridge.nativeIsImageLoading(handle)
         flushPtyWrites(fromRemoteOutput = true)
         bridge.nativeWriteRemote(handle, chunk)
@@ -1491,7 +1494,11 @@ class TerminalSessionEngine(
         if (handle == 0L) return
         val now = System.currentTimeMillis()
         val elapsed = now - lastSnapshotAtMs
-        if (force || elapsed >= snapshotIntervalMs) {
+        // Interactive sessions coalesce at the frame rate; a flood is paced down to the gate's
+        // floor so the phone stops drawing frames nobody can read.
+        val intervalMs =
+            maxOf(snapshotIntervalMs, paintPace.paintIntervalFloorMs(SystemClock.elapsedRealtime()))
+        if (force || elapsed >= intervalMs) {
             snapshotScheduled = false
             emitSnapshot()
             lastSnapshotAtMs = now
@@ -1499,7 +1506,7 @@ class TerminalSessionEngine(
         }
         if (snapshotScheduled) return
         snapshotScheduled = true
-        val waitMs = (snapshotIntervalMs - elapsed).coerceAtLeast(1L)
+        val waitMs = (intervalMs - elapsed).coerceAtLeast(1L)
         snapshotJob =
             scope.launch(dispatcher) {
                 delay(waitMs)
