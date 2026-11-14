@@ -9,13 +9,16 @@ import com.jossephus.chuchu.R
 import com.jossephus.chuchu.data.db.AppDatabase
 import com.jossephus.chuchu.data.repository.HostRepository
 import com.jossephus.chuchu.data.repository.SshKeyRepository
-import com.jossephus.chuchu.service.multiplexer.MultiplexerRegistry
-import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerSession
+import com.jossephus.chuchu.model.HostProfile
+import com.jossephus.chuchu.model.MultiplexerType
+import com.jossephus.chuchu.plugin.PluginManager
+import com.jossephus.chuchu.plugin.api.BrowserGroup
+import com.jossephus.chuchu.plugin.api.HostBrowser
+import com.jossephus.chuchu.plugin.api.HostBrowserState
 import com.jossephus.chuchu.service.terminal.HostKeyPrompt
 import com.jossephus.chuchu.service.terminal.TabSpec
 import com.jossephus.chuchu.service.terminal.TerminalSessionRepository
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -24,15 +27,16 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 data class SessionBrowserUiState(
     val hostName: String = "",
-    val multiplexerLabel: String = "",
-    val sessions: List<RemoteMultiplexerSession> = emptyList(),
+    val sourceLabel: String = "",
+    val groups: List<BrowserGroup> = emptyList(),
+    val newGroupTarget: String? = null,
     val loaded: Boolean = false,
     val loading: Boolean = true,
     val error: String? = null,
+    val updatesLive: Boolean = false,
 )
 
 class SessionBrowserViewModel(
@@ -40,75 +44,119 @@ class SessionBrowserViewModel(
     private val hostId: Long,
 ) : AndroidViewModel(application) {
     private val app = application
+    private val plugins = PluginManager.instance
     private val sessionRepository = TerminalSessionRepository.getInstance(application)
     private val database = AppDatabase.getInstance(application)
     private val hostRepository = HostRepository(database.hostProfileDao())
     private val sshKeyRepository = SshKeyRepository(database.sshKeyDao())
     private val _state = MutableStateFlow(SessionBrowserUiState())
-    private var spec: TabSpec? = null
-    private var loadJob: Job? = null
+    private var job: Job? = null
+    private var browser: HostBrowser? = null
 
     val state: StateFlow<SessionBrowserUiState> = _state.asStateFlow()
 
     val hostKeyPrompt: StateFlow<HostKeyPrompt?> = sessionRepository.hostKeyPrompt
 
-    val openSessionNames: StateFlow<Set<String>> =
+    val openTargets: StateFlow<Set<String>> =
         sessionRepository.tabs
-            .map { tabs ->
-                tabs.filter { it.spec.hostId == hostId }.mapNotNullTo(HashSet()) { it.spec.multiplexerSessionName }
-            }
+            .map { tabs -> tabs.filter { it.spec.hostId == hostId }.mapNotNullTo(HashSet()) { it.target } }
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
-    fun refresh() {
-        loadJob?.cancel()
+    fun start() {
+        if (browser != null && _state.value.error == null) return
+        stop()
         _state.value = _state.value.copy(loading = true, error = null)
-        loadJob =
+        job =
             viewModelScope.launch {
-                val current = spec ?: loadSpec() ?: return@launch
+                val profile = loadHost() ?: return@launch
+                val opened = openBrowser(profile) ?: return@launch
+                browser = opened
+                _state.value = _state.value.copy(updatesLive = opened.updatesLive)
+                launch { opened.state.collect(::apply) }
                 try {
-                    val sessions = withContext(Dispatchers.IO) { sessionRepository.listMultiplexerSessions(current) }
-                    _state.value = _state.value.copy(sessions = sessions, loaded = true, loading = false, error = null)
+                    opened.start()
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    _state.value =
-                        _state.value.copy(
-                            loading = false,
-                            error = e.message ?: app.getString(R.string.terminal_error_prepare_mux),
-                        )
+                    fail(e.message ?: app.getString(R.string.session_browser_connect_failed))
                 }
             }
     }
 
-    fun newSessionName(): String? {
-        val type = spec?.multiplexer ?: return null
-        val multiplexer = MultiplexerRegistry.forType(type) ?: return null
-        return multiplexer.defaultSessionName(
-            _state.value.sessions,
-            sessionRepository.openMultiplexerSessionNamesForHost(hostId, type),
-        )
+    fun refresh() {
+        stop()
+        start()
+    }
+
+    fun stop() {
+        job?.cancel()
+        job = null
+        browser?.close()
+        browser = null
     }
 
     fun onHostKeyDecision(accepted: Boolean) {
         sessionRepository.respondToHostKey(accepted)
     }
 
-    private suspend fun loadSpec(): TabSpec? {
-        val host = hostRepository.getById(hostId)
-        if (host == null) {
-            _state.value = _state.value.copy(loading = false, error = app.getString(R.string.session_browser_host_missing))
+    override fun onCleared() {
+        stop()
+    }
+
+    private suspend fun loadHost(): HostProfile? {
+        val profile = hostRepository.getById(hostId)
+        if (profile == null) {
+            fail(app.getString(R.string.session_browser_host_missing))
             return null
         }
-        val key = host.keyId?.let { sshKeyRepository.getById(it) }
+        _state.value = _state.value.copy(hostName = profile.name)
+        return profile
+    }
+
+    private suspend fun openBrowser(profile: HostProfile): HostBrowser? {
+        val transportId = profile.transportId ?: return multiplexerBrowser(profile)
+        val provider = plugins.transports[transportId]
+        val factory = provider?.hostBrowser
+        if (factory == null) {
+            fail(app.getString(R.string.add_server_transport_unavailable, transportId))
+            return null
+        }
+        _state.value = _state.value.copy(sourceLabel = provider.displayName)
+        return factory.open(profile.host)
+    }
+
+    private suspend fun multiplexerBrowser(profile: HostProfile): HostBrowser {
+        val key = profile.keyId?.let { sshKeyRepository.getById(it) }
         val built =
             TabSpec.fromHostProfile(
-                host = host,
+                host = profile,
+                multiplexers = plugins.multiplexers,
                 publicKeyOpenSsh = key?.publicKeyOpenSsh.orEmpty(),
                 privateKeyPem = key?.privateKeyPem.orEmpty(),
-            ).let { it.copy(multiplexer = it.multiplexer ?: MultiplexerRegistry.defaultType) }
-        spec = built
-        _state.value = _state.value.copy(hostName = host.name, multiplexerLabel = built.multiplexer?.label.orEmpty())
-        return built
+            )
+        val spec = built.copy(multiplexer = built.multiplexer ?: MultiplexerType.Default)
+        _state.value = _state.value.copy(sourceLabel = spec.multiplexer?.label.orEmpty())
+        return MultiplexerHostBrowser(app, sessionRepository, spec)
+    }
+
+    private fun apply(update: HostBrowserState) {
+        _state.value =
+            when (update) {
+                HostBrowserState.Connecting -> _state.value.copy(loading = true, error = null)
+                is HostBrowserState.Ready ->
+                    _state.value.copy(
+                        groups = update.groups,
+                        newGroupTarget = update.newGroupTarget,
+                        loaded = true,
+                        loading = false,
+                        error = null,
+                    )
+                is HostBrowserState.Failed -> _state.value.copy(loading = false, error = update.message)
+            }
+    }
+
+    private fun fail(message: String) {
+        _state.value = _state.value.copy(loading = false, error = message)
     }
 
     companion object {

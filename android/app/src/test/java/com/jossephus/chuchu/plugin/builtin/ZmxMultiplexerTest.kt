@@ -1,5 +1,6 @@
-package com.jossephus.chuchu.service.multiplexer
+package com.jossephus.chuchu.plugin.builtin
 
+import com.jossephus.chuchu.plugin.api.RemoteMultiplexerSession
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -9,7 +10,6 @@ class ZmxMultiplexerTest {
         val command = ZmxMultiplexer.launchCommand(
             sessionName = "chuchu-1",
             createIfMissing = true,
-            trustedRemoteName = false,
         )
 
         assertEquals("exec zmx attach 'chuchu-1'", command)
@@ -20,7 +20,6 @@ class ZmxMultiplexerTest {
         val command = ZmxMultiplexer.launchCommand(
             sessionName = "main",
             createIfMissing = false,
-            trustedRemoteName = true,
         )
 
         assertEquals(
@@ -31,11 +30,10 @@ class ZmxMultiplexerTest {
     }
 
     @Test
-    fun launchQuotesTrustedRemoteNames() {
+    fun launchQuotesSessionNames() {
         val command = ZmxMultiplexer.launchCommand(
             sessionName = "work'space; rm -rf /",
             createIfMissing = true,
-            trustedRemoteName = true,
         )
 
         assertEquals("exec zmx attach 'work'\\''space; rm -rf /'", command)

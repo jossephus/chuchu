@@ -8,14 +8,15 @@ import androidx.compose.ui.res.stringResource
 import com.jossephus.chuchu.R
 
 internal fun terminalTabDisplayLabel(tab: TabSession): String =
-    if (tab.spec.transport == Transport.LocalShell) tab.spec.tabLabel else terminalTabAlias(tab)
+    tab.titleOverride.value?.takeIf(String::isNotBlank)
+        ?: if (tab.spec.transport == Transport.LocalShell) tab.spec.tabLabel else terminalTabAlias(tab)
 
 @Composable
 internal fun terminalTabEndpointLabel(tab: TabSession): String =
     if (tab.spec.transport == Transport.LocalShell) {
         stringResource(R.string.terminal_endpoint_local_shell)
     } else {
-        "${tab.spec.username}@${tab.spec.host}:${tab.spec.port}"
+        tab.spec.transport.endpoint(tab.spec.username, tab.spec.host, tab.spec.port)
     }
 
 internal fun terminalTabAlias(tab: TabSession): String {

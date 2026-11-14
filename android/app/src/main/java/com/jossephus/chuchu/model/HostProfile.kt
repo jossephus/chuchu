@@ -29,7 +29,9 @@ data class HostProfile(
     val jumpHostId: Long? = null,
     @ColumnInfo(defaultValue = "[]")
     val portForwards: List<PortForward> = emptyList(),
+    @ColumnInfo(defaultValue = "NULL")
+    val transportId: String? = null,
 )
 
 fun HostProfile.canServeAsJumpHostFor(hostId: Long?): Boolean =
-    id != hostId && transport != Transport.LocalShell && jumpHostId == null
+    id != hostId && transport != Transport.LocalShell && transport != Transport.Plugin && jumpHostId == null

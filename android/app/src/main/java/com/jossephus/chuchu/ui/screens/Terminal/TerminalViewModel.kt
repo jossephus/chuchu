@@ -11,9 +11,10 @@ import com.jossephus.chuchu.data.repository.HostRepository
 import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.data.repository.SshKeyRepository
 import com.jossephus.chuchu.model.HostProfile
+import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.Transport
-import com.jossephus.chuchu.service.multiplexer.MultiplexerRegistry
-import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerSession
+import com.jossephus.chuchu.plugin.PluginManager
+import com.jossephus.chuchu.plugin.api.RemoteMultiplexerSession
 import com.jossephus.chuchu.service.ssh.SshJumpHost
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
 import com.jossephus.chuchu.service.terminal.HostKeyPrompt
@@ -62,6 +63,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     private val hostRepository = HostRepository(database.hostProfileDao())
     private val sshKeyRepository = SshKeyRepository(database.sshKeyDao())
     private val settingsRepository = SettingsRepository.getInstance(application)
+    private val plugins = PluginManager.instance
 
     private sealed class PendingMultiplexerAction(open val spec: TabSpec) {
         data class Open(override val spec: TabSpec) : PendingMultiplexerAction(spec)
@@ -140,10 +142,8 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         return target
     }
 
-    fun selectMultiplexerTab(hostId: Long, sessionName: String): TabSession? {
-        val existing =
-            sessionRepository.tabsForHost(hostId).firstOrNull { it.spec.multiplexerSessionName == sessionName }
-                ?: return null
+    fun selectTabForTarget(hostId: Long, target: String): TabSession? {
+        val existing = sessionRepository.tabsForHost(hostId).firstOrNull { it.target == target } ?: return null
         sessionRepository.selectTab(existing.id)
         return existing
     }
@@ -179,6 +179,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         val key = host.keyId?.let { sshKeyRepository.getById(it) }
         val spec = TabSpec.fromHostProfile(
             host = host,
+            multiplexers = plugins.multiplexers,
             publicKeyOpenSsh = key?.publicKeyOpenSsh.orEmpty(),
             privateKeyPem = key?.privateKeyPem.orEmpty(),
             jumpHost = resolveJumpHost(host),
@@ -197,20 +198,20 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
 
     fun duplicateActiveTab(): TabSession? {
         val current = sessionRepository.activeTab.value ?: return null
-        if (current.spec.usesRuntimeMultiplexer) {
-            startMultiplexerDuplicate(current.spec)
-            return null
-        }
-        return openTab(current.spec)
+        return duplicate(current)
     }
 
     fun duplicateTab(tabId: String): TabSession? {
         val tab = sessionRepository.tabs.value.firstOrNull { it.id == tabId } ?: return null
+        return duplicate(tab)
+    }
+
+    private fun duplicate(tab: TabSession): TabSession? {
         if (tab.spec.usesRuntimeMultiplexer) {
             startMultiplexerDuplicate(tab.spec)
             return null
         }
-        return openTab(tab.spec)
+        return openTab(sessionRepository.duplicateSpec(tab))
     }
 
     private fun startMultiplexerDuplicate(spec: TabSpec) {
@@ -222,7 +223,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 preflightError = null,
             )
         val duplicateSpec = spec.copy(
-            multiplexer = spec.multiplexer ?: MultiplexerRegistry.defaultType,
+            multiplexer = spec.multiplexer ?: MultiplexerType.Default,
             multiplexerSessionName = null,
             multiplexerCreateIfMissing = true,
         )
@@ -263,10 +264,10 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     private fun beginMultiplexerAction(action: PendingMultiplexerAction) {
         val preparedAction = when (action) {
             is PendingMultiplexerAction.Open -> action.copy(
-                spec = action.spec.copy(multiplexer = action.spec.multiplexer ?: MultiplexerRegistry.defaultType),
+                spec = action.spec.copy(multiplexer = action.spec.multiplexer ?: MultiplexerType.Default),
             )
             is PendingMultiplexerAction.Reconnect -> action.copy(
-                spec = action.spec.copy(multiplexer = action.spec.multiplexer ?: MultiplexerRegistry.defaultType),
+                spec = action.spec.copy(multiplexer = action.spec.multiplexer ?: MultiplexerType.Default),
             )
         }
         if (
@@ -279,7 +280,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         val actionGeneration = ++multiplexerActionGeneration
         pendingMultiplexerAction = preparedAction
         val spec = preparedAction.spec
-        val label = spec.multiplexer?.label ?: MultiplexerRegistry.defaultType.label
+        val label = spec.multiplexer?.label ?: MultiplexerType.Default.label
         val reconnectRecovery = preparedAction is PendingMultiplexerAction.Reconnect
         if (spec.transport == Transport.Mosh) {
             _multiplexerState.value = MultiplexerUiState(
@@ -289,7 +290,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             )
             return
         }
-        if (spec.multiplexer != null && spec.multiplexer.runtimeSupported.not()) {
+        if (spec.multiplexer != null && plugins.multiplexers[spec.multiplexer.id] == null) {
             _multiplexerState.value = MultiplexerUiState(
                 preflightError =
                     app.getString(
@@ -344,7 +345,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     ) {
         if (!isCurrentMultiplexerAction(actionGeneration, action)) return
         val nextSpec = action.spec.copy(
-            multiplexer = action.spec.multiplexer ?: MultiplexerRegistry.defaultType,
+            multiplexer = action.spec.multiplexer ?: MultiplexerType.Default,
             multiplexerSessionName = sessionName,
             multiplexerCreateIfMissing = action.spec.multiplexerCreateIfMissing,
         )
@@ -376,7 +377,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         val requestGeneration = ++multiplexerSessionListGeneration
         val sourceTabId = tab.id
         val sourceHostId = tab.spec.hostId
-        val spec = tab.spec.copy(multiplexer = tab.spec.multiplexer ?: MultiplexerRegistry.defaultType)
+        val spec = tab.spec.copy(multiplexer = tab.spec.multiplexer ?: MultiplexerType.Default)
         _multiplexerState.value = _multiplexerState.value.copy(
             sessions = emptyList(),
             sessionsLoading = true,
@@ -420,7 +421,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     fun createNextMultiplexerSession() {
         val tab = sessionRepository.activeTab.value ?: return
         val nextSpec = tab.spec.copy(
-            multiplexer = tab.spec.multiplexer ?: MultiplexerRegistry.defaultType,
+            multiplexer = tab.spec.multiplexer ?: MultiplexerType.Default,
             multiplexerSessionName = null,
             multiplexerCreateIfMissing = true,
         )
@@ -742,6 +743,11 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         screenHeight: Int,
     ) {
         sessionRepository.resize(cols, rows, cellWidth, cellHeight, screenWidth, screenHeight)
+    }
+
+    /** A tap on the terminal: lets a shared transport hand the terminal back to this device. */
+    fun onTerminalTap() {
+        sessionRepository.onUserInteraction()
     }
 
     fun onScroll(delta: Int, x: Float, y: Float) {

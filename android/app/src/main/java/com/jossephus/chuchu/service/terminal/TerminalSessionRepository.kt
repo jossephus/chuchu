@@ -8,8 +8,10 @@ import com.jossephus.chuchu.data.repository.HostRepository
 import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.model.MultiplexerType
 import com.jossephus.chuchu.model.Transport
-import com.jossephus.chuchu.service.multiplexer.MultiplexerRegistry
-import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerSession
+import com.jossephus.chuchu.plugin.PluginManager
+import com.jossephus.chuchu.plugin.api.BrowserGroup
+import com.jossephus.chuchu.plugin.api.HostBrowserState
+import com.jossephus.chuchu.plugin.api.RemoteMultiplexerSession
 import com.jossephus.chuchu.service.ssh.HostKeyStore
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
 import java.util.UUID
@@ -19,6 +21,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -32,6 +35,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -60,6 +64,7 @@ class TerminalSessionRepository private constructor(application: Application) {
     private val tailscaleStatusChecker = TailscaleStatusChecker(appContext)
     private val clipboard = appContext.getSystemService(ClipboardManager::class.java)
     private val settingsRepository = SettingsRepository.getInstance(appContext)
+    private val plugins = PluginManager.instance
     private val hostRepository = HostRepository(AppDatabase.getInstance(appContext).hostProfileDao())
     private val portForwards =
         PortForwardManager(
@@ -132,6 +137,7 @@ class TerminalSessionRepository private constructor(application: Application) {
     private var attachedClients = 0
     private var foregroundServiceRunning = false
     private var foregroundNotificationLabel: String? = null
+    private var browserWatch: Pair<Long, Job>? = null
 
     private val forwardingSpecs: Flow<Map<Long, TabSpec>> =
         _tabs
@@ -147,34 +153,35 @@ class TerminalSessionRepository private constructor(application: Application) {
             .map(::forwardingSpecsFor)
 
     init {
+        scope.launch { activeTab.collect(::followBrowserGroup) }
         scope.launch {
             forwardingSpecs
                 .distinctUntilChanged { old, new -> old.keys == new.keys }
                 .collect { portForwards.sync(it) }
         }
         scope.launch {
-            combine(_tabs, _activeTabId) { tabs, _ -> tabs }
-                .flatMapLatest { tabs ->
-                    if (tabs.isEmpty()) {
-                        flowOf(emptyList())
-                    } else {
-                        combine(tabs.map { tab -> tab.statusUpdates() }) { it.toList() }
-                    }
+        combine(_tabs, _activeTabId) { tabs, _ -> tabs }
+            .flatMapLatest { tabs ->
+                if (tabs.isEmpty()) {
+                    flowOf(emptyList())
+                } else {
+                    combine(tabs.map { tab -> tab.statusUpdates() }) { it.toList() }
                 }
-                .collect { statuses ->
-                    val anyAlive = statuses.any { it.isAlive() }
-                    val label = if (anyAlive) currentNotificationLabel() else null
-                    if (anyAlive && (!foregroundServiceRunning || foregroundNotificationLabel != label)) {
-                        SessionForegroundService.start(appContext, label ?: "Active session")
-                        foregroundServiceRunning = true
-                        foregroundNotificationLabel = label
-                    } else if (!anyAlive && foregroundServiceRunning) {
-                        SessionForegroundService.stop(appContext)
-                        foregroundServiceRunning = false
-                        foregroundNotificationLabel = null
-                    }
+            }
+            .collect { statuses ->
+                val anyAlive = statuses.any { it.isAlive() }
+                val label = if (anyAlive) currentNotificationLabel() else null
+                if (anyAlive && (!foregroundServiceRunning || foregroundNotificationLabel != label)) {
+                    SessionForegroundService.start(appContext, label ?: "Active session")
+                    foregroundServiceRunning = true
+                    foregroundNotificationLabel = label
+                } else if (!anyAlive && foregroundServiceRunning) {
+                    SessionForegroundService.stop(appContext)
+                    foregroundServiceRunning = false
+                    foregroundNotificationLabel = null
                 }
-        }
+            }
+    }
     }
 
     fun attachClient() {
@@ -218,7 +225,7 @@ class TerminalSessionRepository private constructor(application: Application) {
             spec = spec,
             localSessionNames = openMultiplexerSessionNamesForHost(
                 hostId = spec.hostId,
-                multiplexer = spec.multiplexer ?: MultiplexerRegistry.defaultType,
+                multiplexer = spec.multiplexer ?: MultiplexerType.Default,
             ),
             reuseDetachedChuchuSession = reuseDetachedChuchuSession,
         )
@@ -271,6 +278,8 @@ class TerminalSessionRepository private constructor(application: Application) {
                 newLocalShellService(),
                 hostKeyStore,
                 tailscaleStatusChecker,
+                plugins.multiplexers,
+                plugins.transports,
                 onHostKeyVerificationRequired = { prompt, keyBytes ->
                     verification = PreflightHostKeyVerification(prompt, keyBytes)
                 },
@@ -310,7 +319,7 @@ class TerminalSessionRepository private constructor(application: Application) {
         }
     }
 
-    fun openTab(spec: TabSpec): TabSession {
+    fun openTab(spec: TabSpec, select: Boolean = true, connect: Boolean = true): TabSession {
         val id = UUID.randomUUID().toString()
         val engine =
             TerminalSessionEngine(
@@ -319,45 +328,173 @@ class TerminalSessionRepository private constructor(application: Application) {
                 newLocalShellService(),
                 hostKeyStore,
                 tailscaleStatusChecker,
+                plugins.multiplexers,
+                plugins.transports,
             )
         val tab = TabSession(id, spec, engine)
         _tabs.value = _tabs.value + tab
-        _activeTabId.value = id
-        engine.connect(
-            host = spec.host,
-            port = spec.port,
-            username = spec.username,
-            password = spec.password,
-            authMethod = spec.authMethod,
-            publicKeyOpenSsh = spec.publicKeyOpenSsh,
-            privateKeyPem = spec.privateKeyPem,
-            keyPassphrase = spec.keyPassphrase,
-            transport = spec.transport,
-            sessionKey = sessionKeyFor(tab),
-            postConnectCommand = spec.postConnectCommand,
-            multiplexer = spec.multiplexer,
-            multiplexerSessionName = spec.multiplexerSessionName,
-            multiplexerCreateIfMissing = spec.multiplexerCreateIfMissing,
-            jumpHost = spec.jumpHost,
-        )
+        if (select) {
+            activate(_activeTabId.value, next = tab)
+            _activeTabId.value = id
+        }
+        if (connect) reconnectTab(tab)
         return tab
     }
 
     fun selectTab(id: String) {
-        if (_tabs.value.any { it.id == id }) {
-            _activeTabId.value = id
+        val tab = _tabs.value.firstOrNull { it.id == id } ?: return
+        if (_activeTabId.value == id) return
+        activate(_activeTabId.value, next = tab)
+        _activeTabId.value = id
+        reconnectIfReleased(tab)
+    }
+
+    private fun reconnectIfReleased(tab: TabSession) {
+        if (tab.connectsOnlyWhileActive() && tab.sessionState.value.status == SessionStatus.Disconnected) {
+            reconnectTab(tab)
         }
     }
 
-    fun closeTab(id: String) {
-        val tab = _tabs.value.firstOrNull { it.id == id } ?: return
-        val remaining = _tabs.value.filterNot { it.id == id }
-        _tabs.value = remaining
-        if (_activeTabId.value == id) {
-            val nextSameHost = remaining.firstOrNull { it.spec.hostId == tab.spec.hostId }
-            _activeTabId.value = nextSameHost?.id ?: remaining.firstOrNull()?.id
+    fun leaveHost(hostId: Long) {
+        val tabs = tabsForHost(hostId)
+        if (tabs.none { it.followsBrowserGroup() }) return
+        closeTabs(tabs.mapTo(HashSet()) { it.id })
+    }
+
+    fun duplicateSpec(tab: TabSession): TabSpec {
+        val provider = plugins.transports[tab.spec.transportId] ?: return tab.spec
+        val target = provider.duplicateTarget(tab.engine.attachedTarget.value)
+        return tab.spec.copy(transportTarget = target?.let { TransportTarget(it, creates = true) })
+    }
+
+    private fun arrangeHostTabs(hostId: Long, orderedIds: List<String>) {
+        val current = _tabs.value
+        val rank = orderedIds.withIndex().associate { it.value to it.index }
+        val hostTabs = current.filter { it.spec.hostId == hostId }.sortedBy { rank[it.id] ?: Int.MAX_VALUE }
+        if (hostTabs.map { it.id } == current.filter { it.spec.hostId == hostId }.map { it.id }) return
+        val queue = ArrayDeque(hostTabs)
+        _tabs.value = current.map { if (it.spec.hostId == hostId) queue.removeFirst() else it }
+    }
+
+    /**
+     * Makes [next] the tab on screen. For transports that connect only while active,
+     * the tabs on either side of it stay connected too, like the official Rex client,
+     * so swiping to a neighbour shows it at once; tabs further away are released.
+     * Only the active tab claims its terminal (see TransportConnection.setActive).
+     */
+    private fun activate(previousId: String?, next: TabSession) {
+        _tabs.value.firstOrNull { it.id == previousId && it !== next }?.engine?.setActive(false)
+        next.fitCanvas()
+        next.engine.setActive(true)
+        warmNeighbours(next)
+    }
+
+    private fun warmNeighbours(next: TabSession) {
+        if (!next.connectsOnlyWhileActive()) return
+        val hostTabs = tabsForHost(next.spec.hostId).filter { it.connectsOnlyWhileActive() }
+        val index = hostTabs.indexOf(next)
+        val warm = hostTabs.subList(maxOf(0, index - WARM_NEIGHBOURS), minOf(hostTabs.size, index + WARM_NEIGHBOURS + 1)).toSet()
+        for (tab in hostTabs) {
+            when {
+                tab === next -> Unit
+                tab in warm ->
+                    if (tab.sessionState.value.status == SessionStatus.Disconnected) {
+                        tab.fitCanvas()
+                        reconnectIfReleased(tab)
+                    }
+                // A tab without a target would reopen a different pane, so it is never released.
+                tab.target != null && tab.sessionState.value.status != SessionStatus.Disconnected -> tab.engine.disconnect()
+            }
         }
-        tab.engine.dispose()
+    }
+
+    private fun TabSession.connectsOnlyWhileActive(): Boolean =
+        plugins.transports[spec.transportId]?.behavior?.activeTabOnly == true
+
+    private fun TabSession.followsBrowserGroup(): Boolean =
+        plugins.transports[spec.transportId]?.behavior?.tabsFollowBrowserGroup == true
+
+    private fun followBrowserGroup(tab: TabSession?) {
+        val hostId = tab?.spec?.hostId ?: return
+        if (!tab.followsBrowserGroup()) return
+        val factory = plugins.transports[tab.spec.transportId]?.hostBrowser ?: return
+        if (browserWatch?.first == hostId && browserWatch?.second?.isActive == true) return
+        browserWatch?.second?.cancel()
+        val job =
+            scope.launch {
+                val browser = runCatching { factory.open(tab.spec.host) }.getOrNull() ?: return@launch
+                try {
+                    launch { runCatching { browser.start() } }
+                    val watcher = coroutineContext[Job]
+                    launch {
+                        _tabs.first { tabs -> tabs.none { it.spec.hostId == hostId } }
+                        watcher?.cancel()
+                    }
+                    val activeTarget =
+                        activeTab.flatMapLatest { active ->
+                            if (active?.spec?.hostId == hostId) active.engine.attachedTarget else flowOf(null)
+                        }
+                    combine(browser.state, activeTarget) { state, target -> state to target }
+                        .collect { (state, target) ->
+                            if (state !is HostBrowserState.Ready || target == null) return@collect
+                            state.groups.firstOrNull { group -> group.items.any { it.target == target } }
+                                ?.let { mirrorBrowserGroup(hostId, it) }
+                        }
+                } finally {
+                    browser.close()
+                }
+            }
+        browserWatch = hostId to job
+    }
+
+    private fun mirrorBrowserGroup(hostId: Long, group: BrowserGroup) {
+        val hostTabs = tabsForHost(hostId)
+        val template = hostTabs.firstOrNull()?.spec ?: return
+        val activeId = _activeTabId.value
+        val itemTargets = group.items.mapTo(HashSet()) { it.target }
+        closeTabs(
+            hostTabs
+                .filter { tab -> tab.id != activeId && tab.target.let { it != null && it !in itemTargets } }
+                .mapTo(HashSet()) { it.id },
+        )
+        val opening =
+            hostTabs.any { tab ->
+                tab.target == null &&
+                    tab.sessionState.value.status.let { it == SessionStatus.Connecting || it == SessionStatus.Reconnecting }
+            }
+        val byTarget = hostTabs.filter { it.target != null }.associateBy { it.target }
+        val ordered =
+            group.items.mapNotNull { item ->
+                val tab =
+                    byTarget[item.target]
+                        ?: if (opening) {
+                            null
+                        } else {
+                            openTab(template.copy(transportTarget = TransportTarget(item.target)), select = false, connect = false)
+                        }
+                tab?.titleOverride?.value = item.title
+                tab
+            }
+        arrangeHostTabs(hostId, ordered.map { it.id })
+        // The mirrored tabs appear after the opened one, so its neighbours exist only now.
+        activeTab.value?.takeIf { it.spec.hostId == hostId }?.let(::warmNeighbours)
+    }
+
+    fun closeTab(id: String) = closeTabs(setOf(id))
+
+    private fun closeTabs(ids: Set<String>) {
+        val closing = _tabs.value.filter { it.id in ids }
+        if (closing.isEmpty()) return
+        val remaining = _tabs.value.filterNot { it.id in ids }
+        _tabs.value = remaining
+        val active = closing.firstOrNull { it.id == _activeTabId.value }
+        if (active != null) {
+            val next = remaining.firstOrNull { it.spec.hostId == active.spec.hostId } ?: remaining.firstOrNull()
+            next?.let { activate(previousId = null, next = it) }
+            _activeTabId.value = next?.id
+            next?.let(::reconnectIfReleased)
+        }
+        closing.forEach { it.engine.dispose() }
     }
 
     fun reconnectActive() {
@@ -367,8 +504,8 @@ class TerminalSessionRepository private constructor(application: Application) {
 
     fun switchActiveMultiplexerSession(sessionName: String): Boolean {
         val tab = activeTab.value ?: return false
-        val type = tab.spec.multiplexer ?: MultiplexerRegistry.defaultType
-        MultiplexerRegistry.forType(type) ?: return false
+        val type = tab.spec.multiplexer ?: MultiplexerType.Default
+        plugins.multiplexers[type.id] ?: return false
         val updatedSpec = tab.spec.copy(
             multiplexer = type,
             multiplexerSessionName = sessionName,
@@ -397,6 +534,8 @@ class TerminalSessionRepository private constructor(application: Application) {
             multiplexerSessionName = spec.multiplexerSessionName,
             multiplexerCreateIfMissing = spec.multiplexerCreateIfMissing,
             jumpHost = spec.jumpHost,
+            transportId = spec.transportId,
+            transportTarget = spec.transportTarget?.value,
         )
     }
 
@@ -426,10 +565,10 @@ class TerminalSessionRepository private constructor(application: Application) {
         NativeLocalShellService(appContext.filesDir, appContext.cacheDir)
 
     private fun activeSftpEngine(): TerminalSessionEngine? =
-        activeTab.value?.takeIf { it.spec.transport != Transport.LocalShell }?.engine
+        activeTab.value?.takeIf { it.spec.transport.supportsSftp }?.engine
 
     private fun sftpTab(tabId: String): TabSession? =
-        _tabs.value.firstOrNull { it.id == tabId && it.spec.transport != Transport.LocalShell }
+        _tabs.value.firstOrNull { it.id == tabId && it.spec.transport.supportsSftp }
 
     private fun sftpEngineForTab(tabId: String): TerminalSessionEngine? = sftpTab(tabId)?.engine
 
@@ -479,11 +618,34 @@ class TerminalSessionRepository private constructor(application: Application) {
         screenWidth: Int,
         screenHeight: Int,
     ) {
+        canvasSize = CanvasSize(cols, rows, cellWidth, cellHeight, screenWidth, screenHeight)
         activeEngine()?.resize(cols, rows, cellWidth, cellHeight, screenWidth, screenHeight)
+    }
+
+    private data class CanvasSize(
+        val cols: Int,
+        val rows: Int,
+        val cellWidth: Int,
+        val cellHeight: Int,
+        val screenWidth: Int,
+        val screenHeight: Int,
+    )
+
+    // The canvas is shared by all tabs and only reports a change, so a tab that was
+    // never on screen (a preloaded neighbour) gets the size from here.
+    @Volatile private var canvasSize: CanvasSize? = null
+
+    private fun TabSession.fitCanvas() {
+        val size = canvasSize ?: return
+        engine.resize(size.cols, size.rows, size.cellWidth, size.cellHeight, size.screenWidth, size.screenHeight)
     }
 
     fun scroll(delta: Int, x: Float, y: Float) {
         activeEngine()?.scroll(delta, x, y)
+    }
+
+    fun onUserInteraction() {
+        activeEngine()?.onUserInteraction()
     }
 
     fun scrollToActive() {
@@ -575,6 +737,8 @@ class TerminalSessionRepository private constructor(application: Application) {
 
     companion object {
         private const val SFTP_RECONNECT_TIMEOUT_MS = 20_000L
+        // Tabs kept connected on each side of the active one for active-only transports.
+        private const val WARM_NEIGHBOURS = 1
         private const val SFTP_DROP_DETECTION_MS = 1_000L
 
         @Volatile private var instance: TerminalSessionRepository? = null

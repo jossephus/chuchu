@@ -55,6 +55,7 @@ import kotlinx.coroutines.launch
 import com.jossephus.chuchu.R
 import com.jossephus.chuchu.model.HostProfile
 import com.jossephus.chuchu.model.Transport
+import com.jossephus.chuchu.plugin.PluginManager
 import com.jossephus.chuchu.service.terminal.TerminalSessionRepository
 import com.jossephus.chuchu.service.terminal.PortForwardStatus
 import com.jossephus.chuchu.model.label
@@ -447,7 +448,7 @@ private fun HostCard(
     val maxSwipePx = with(density) { 132.dp.toPx() }
     val disconnectThresholdPx = with(density) { 72.dp.toPx() }
     val swipeOffsetX = remember(host.id) { Animatable(0f) }
-    val hostLabel = "> ${host.username}@${host.host}:${host.port}"
+    val hostLabel = "> ${host.transport.endpoint(host.username, host.host, host.port)}"
 
     LaunchedEffect(isConnected) {
         if (!isConnected) {
@@ -603,6 +604,12 @@ private fun HostCard(
                             if (host.transport == Transport.TailscaleSSH) {
                                 TuiBadge(
                                     text = stringResource(R.string.badge_tailscale),
+                                    color = colors.accent,
+                                )
+                            }
+                            host.transportId?.let { id ->
+                                TuiBadge(
+                                    text = (PluginManager.instance.transports[id]?.displayName ?: id).lowercase(),
                                     color = colors.accent,
                                 )
                             }

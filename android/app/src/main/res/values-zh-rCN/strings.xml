@@ -42,6 +42,13 @@
     <string name="section_authentication">认证</string>
     <string name="section_session_persistence">会话保持</string>
     <string name="section_connect_via">连接方式</string>
+    <string name="add_server_pairing_invalid">该二维码不是 %1$s 配对码</string>
+    <string name="add_server_transport_unavailable">传输插件“%1$s”不可用。</string>
+    <string name="add_server_scan_pairing">扫描配对二维码</string>
+    <string name="add_server_scan_again">重新扫描</string>
+    <string name="add_server_connects_to">将连接到 %1$s</string>
+    <string name="add_server_invalid_address">不是有效的 %1$s 地址</string>
+    <string name="add_server_multiplexer_missing">%1$s（缺失）</string>
     <string name="section_port_forwarding">端口转发</string>
 
     <!-- Shared option labels -->
@@ -267,6 +274,10 @@
     <string name="session_browser_retry">重试</string>
     <string name="session_browser_refresh">刷新</string>
     <string name="session_browser_host_missing">该服务器已不存在</string>
+    <string name="session_browser_connect_failed">无法连接</string>
+    <string name="session_browser_new_item">在 %1$s 中新建窗格</string>
+    <string name="session_browser_expand">展开 %1$s</string>
+    <string name="session_browser_collapse">折叠 %1$s</string>
 
     <!-- Terminal session -->
     <string name="terminal_new_session_on">在 %1$s 上新建会话</string>

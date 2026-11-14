@@ -1,9 +1,11 @@
-package com.jossephus.chuchu.service.multiplexer
+package com.jossephus.chuchu.plugin.builtin
 
-import com.jossephus.chuchu.model.MultiplexerType
+import com.jossephus.chuchu.plugin.api.MultiplexerProvider
+import com.jossephus.chuchu.plugin.api.RemoteMultiplexerSession
+import com.jossephus.chuchu.plugin.api.Shell
 
-object ZmxMultiplexer : Multiplexer {
-    override val type: MultiplexerType = MultiplexerType.Zmx
+object ZmxMultiplexer : MultiplexerProvider {
+    override val id: String = "zmx"
 
     override fun availabilityCommand(): String = "command -v zmx >/dev/null 2>&1"
 
@@ -33,12 +35,8 @@ object ZmxMultiplexer : Multiplexer {
             }
             .toList()
 
-    override fun launchCommand(
-        sessionName: String,
-        createIfMissing: Boolean,
-        trustedRemoteName: Boolean,
-    ): String {
-        val target = shellQuote(sessionName)
+    override fun launchCommand(sessionName: String, createIfMissing: Boolean): String {
+        val target = Shell.quote(sessionName)
         return if (createIfMissing) {
             "exec zmx attach $target"
         } else {
@@ -46,15 +44,4 @@ object ZmxMultiplexer : Multiplexer {
                 "else printf 'zmx session %s is no longer available\\n' $target; exec \"\${SHELL:-/bin/sh}\" -l; fi"
         }
     }
-
-    override fun defaultSessionName(
-        remoteSessions: Collection<RemoteMultiplexerSession>,
-        localSessionNames: Collection<String>,
-    ): String = MultiplexerSessionAllocator.nextChuchuSessionName(
-        remoteSessions = remoteSessions,
-        localSessionNames = localSessionNames,
-    )
-
-    private fun shellQuote(value: String): String =
-        "'" + value.replace("'", "'\\''") + "'"
 }

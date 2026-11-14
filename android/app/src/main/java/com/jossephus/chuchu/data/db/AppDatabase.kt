@@ -14,7 +14,7 @@ import com.jossephus.chuchu.model.SshKey
 
 @Database(
     entities = [HostProfile::class, SshKey::class],
-    version = 13,
+    version = 14,
     autoMigrations = [
         AutoMigration(from = 5, to = 6),
         AutoMigration(from = 6, to = 7, spec = AppDatabase.Migration6To7::class),
@@ -24,6 +24,7 @@ import com.jossephus.chuchu.model.SshKey
         AutoMigration(from = 10, to = 11),
         AutoMigration(from = 11, to = 12),
         AutoMigration(from = 12, to = 13),
+        AutoMigration(from = 13, to = 14),
     ],
 )
 @TypeConverters(Converters::class)

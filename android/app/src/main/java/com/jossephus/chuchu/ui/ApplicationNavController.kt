@@ -2,6 +2,7 @@ package com.jossephus.chuchu.ui
 
 import android.app.Application
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -24,6 +25,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.jossephus.chuchu.R
 import com.jossephus.chuchu.data.repository.SettingsRepository
+import com.jossephus.chuchu.plugin.PluginManager
+import com.jossephus.chuchu.service.terminal.TerminalSessionRepository
 import com.jossephus.chuchu.ui.screens.AddServer.AddServerScreen
 import com.jossephus.chuchu.ui.screens.AddServer.AddServerViewModel
 import com.jossephus.chuchu.ui.screens.Keys.KeysViewModel
@@ -106,11 +109,7 @@ fun ApplicationNavController() {
                     val hostRequiresAuth = host?.requireAuthOnConnect == true
                     val mustVerify = requireAuthOnConnect || hostRequiresAuth
                     val route =
-                        if (sessionPickerStyle == SessionPickerStyle.Browser && host != null && host.opensSessionBrowser()) {
-                            "sessions/$id"
-                        } else {
-                            "terminal/$id"
-                        }
+                        if (host != null && host.opensSessionBrowser(sessionPickerStyle, PluginManager.instance)) "sessions/$id" else "terminal/$id"
                     if (!mustVerify) {
                         navController.navigate(route)
                     } else {
@@ -283,30 +282,38 @@ fun ApplicationNavController() {
             val vm: SessionBrowserViewModel = viewModel(factory = SessionBrowserViewModel.factory(application, id))
             SessionBrowserScreen(
                 vm = vm,
-                onOpenSession = { name, create ->
-                    navController.navigate("terminal/$id?session=${Uri.encode(name)}&create=$create")
+                onOpen = { target, create ->
+                    navController.navigate("terminal/$id?target=${Uri.encode(target)}&create=$create")
                 },
                 onBack = { navController.popBackStack() },
             )
         }
         composable(
-            route = "terminal/{id}?session={session}&create={create}",
+            route = "terminal/{id}?target={target}&create={create}",
             arguments =
                 listOf(
                     navArgument("id") { type = NavType.LongType },
-                    navArgument("session") { type = NavType.StringType; nullable = true; defaultValue = null },
+                    navArgument("target") { type = NavType.StringType; nullable = true; defaultValue = null },
                     navArgument("create") { type = NavType.BoolType; defaultValue = false },
                 ),
         ) { backStackEntry ->
             val id = backStackEntry.arguments?.getLong("id")
             val vm: TerminalViewModel = viewModel(factory = TerminalViewModel.factory(application))
+            val openTarget = backStackEntry.arguments?.getString("target")
+            val back: () -> Unit = {
+                if (navController.currentBackStackEntry?.id == backStackEntry.id) {
+                    navController.popBackStack()
+                    id?.let(TerminalSessionRepository.getInstance(application)::leaveHost)
+                }
+            }
+            BackHandler(enabled = openTarget != null, onBack = back)
             TerminalScreen(
                 vm = vm,
                 hostId = id,
+                openTarget = openTarget,
+                createTarget = backStackEntry.arguments?.getBoolean("create") == true,
                 onOpenSettings = { navController.navigate("settings") },
-                onBack = { navController.popBackStack() },
-                multiplexerSession = backStackEntry.arguments?.getString("session"),
-                createMultiplexerSession = backStackEntry.arguments?.getBoolean("create") == true,
+                onBack = back,
             )
         }
     }

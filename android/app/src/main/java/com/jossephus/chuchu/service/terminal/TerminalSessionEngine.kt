@@ -12,11 +12,18 @@ import com.jossephus.chuchu.service.mosh.MoshEventType
 import com.jossephus.chuchu.service.mosh.MoshReconnectPolicy
 import com.jossephus.chuchu.service.mosh.MoshState
 import com.jossephus.chuchu.service.mosh.NativeMoshService
+import com.jossephus.chuchu.plugin.Registry
+import com.jossephus.chuchu.plugin.api.MultiplexerProvider
+import com.jossephus.chuchu.plugin.api.PtySize
+import com.jossephus.chuchu.plugin.api.RemoteMultiplexerSession
+import com.jossephus.chuchu.plugin.api.TransportConnectRequest
+import com.jossephus.chuchu.plugin.api.TransportConnection
+import com.jossephus.chuchu.plugin.api.TransportEndedException
+import com.jossephus.chuchu.plugin.api.TransportFrame
+import com.jossephus.chuchu.plugin.api.TransportProvider
 import com.jossephus.chuchu.service.multiplexer.MultiplexerAvailability
 import com.jossephus.chuchu.service.multiplexer.MultiplexerCommandResult
-import com.jossephus.chuchu.service.multiplexer.MultiplexerRegistry
 import com.jossephus.chuchu.service.multiplexer.MultiplexerSessionAllocator
-import com.jossephus.chuchu.service.multiplexer.RemoteMultiplexerSession
 import com.jossephus.chuchu.service.ssh.HostKeyCheck
 import com.jossephus.chuchu.service.ssh.HostKeyStore
 import com.jossephus.chuchu.service.ssh.NativeSshService
@@ -76,6 +83,8 @@ class TerminalSessionEngine(
     private val localShellService: NativeLocalShellService,
     private val hostKeyStore: HostKeyStore,
     private val tailscaleStatusChecker: TailscaleStatusChecker,
+    private val multiplexers: Registry<MultiplexerProvider>,
+    private val transports: Registry<TransportProvider>,
     private val onHostKeyVerificationRequired: ((HostKeyPrompt, ByteArray) -> Unit)? = null,
 ) {
     private data class ConnectionParams(
@@ -93,19 +102,9 @@ class TerminalSessionEngine(
         val multiplexerSessionName: String? = null,
         val multiplexerCreateIfMissing: Boolean = true,
         val jumpHost: SshJumpHost? = null,
-    ) {
-        fun multiplexerStartupCommand(): String? {
-            val type = multiplexer ?: return null
-            if (!type.runtimeSupported || transport == Transport.Mosh || transport == Transport.LocalShell) return null
-            val sessionName = multiplexerSessionName?.takeIf { it.isNotBlank() } ?: return null
-            val runtime = MultiplexerRegistry.forType(type) ?: return null
-            return runtime.launchCommand(
-                sessionName = sessionName,
-                createIfMissing = multiplexerCreateIfMissing,
-                trustedRemoteName = true,
-            )
-        }
-    }
+        val transportId: String? = null,
+        val transportTarget: String? = null,
+    )
 
     private val dispatcher: ExecutorCoroutineDispatcher =
         Executors.newSingleThreadExecutor { r ->
@@ -118,6 +117,14 @@ class TerminalSessionEngine(
     private val moshContact = MoshContactTracker()
     private val nativeSsh = NativeSshService(hostKeyPolicy = ::verifyHostKey)
     private val moshService = NativeMoshService()
+    private var pluginConnection: TransportConnection? = null
+    private var pluginProvider: TransportProvider? = null
+    private class PinnedTarget(val value: String?)
+    @Volatile private var pinnedTarget: PinnedTarget? = null
+    private val _attachedTarget = MutableStateFlow<String?>(null)
+
+    val attachedTarget: StateFlow<String?>
+        get() = _attachedTarget
 
     private var handle: Long = 0L
     private var readJob: Job? = null
@@ -181,6 +188,8 @@ class TerminalSessionEngine(
         multiplexerSessionName: String? = null,
         multiplexerCreateIfMissing: Boolean = true,
         jumpHost: SshJumpHost? = null,
+        transportId: String? = null,
+        transportTarget: String? = null,
     ) {
         disconnectRequested = false
         val params =
@@ -199,6 +208,8 @@ class TerminalSessionEngine(
                 multiplexerSessionName = multiplexerSessionName,
                 multiplexerCreateIfMissing = multiplexerCreateIfMissing,
                 jumpHost = jumpHost,
+                transportId = transportId,
+                transportTarget = transportTarget,
             )
         lastConnectionParams = params
         scope.launch(dispatcher) {
@@ -224,6 +235,7 @@ class TerminalSessionEngine(
             if (
                 transport != Transport.Mosh &&
                     transport != Transport.LocalShell &&
+                    transport != Transport.Plugin &&
                     !nativeSsh.isAvailable()
             ) {
                 _state.value =
@@ -252,7 +264,16 @@ class TerminalSessionEngine(
                     )
                 return@launch
             }
-            if (transport != Transport.LocalShell && username.isBlank()) {
+            if (transport == Transport.Mosh && jumpHost != null) {
+                _state.value =
+                    SessionState(
+                        status = SessionStatus.Error,
+                        sessionKey = sessionKey,
+                        error = "Mosh cannot connect through a jump host. Use SSH for this server.",
+                    )
+                return@launch
+            }
+            if (transport.needsUsername && username.isBlank()) {
                 _state.value =
                     SessionState(
                         status = SessionStatus.Error,
@@ -421,7 +442,7 @@ class TerminalSessionEngine(
                     bridge.nativeResize(handle, cols, rows, cellWidth, cellHeight)
                     // Flush pty output from the resize (e.g. the DEC 2048 in-band
                     // size report) so Textual-based TUIs detect the resize.
-                    flushPtyWrites()
+                    flushPtyWrites(fromRemoteOutput = true)
                     bridge.nativeSetMouseEncodingSize(
                         handle,
                         screenWidth,
@@ -486,6 +507,19 @@ class TerminalSessionEngine(
         }
     }
 
+    fun onUserInteraction() {
+        pluginConnection?.onUserInteraction()
+    }
+
+    // Read on the connect path, written from the repository when the selected tab changes.
+    @Volatile private var isActive = false
+
+    /** Marks this tab as the one on screen (or not); see TransportConnection.setActive. */
+    fun setActive(active: Boolean) {
+        isActive = active
+        pluginConnection?.setActive(active)
+    }
+
     fun scroll(delta: Int, x: Float, y: Float) {
         scope.launch(dispatcher) {
             if (handle == 0L || delta == 0) {
@@ -533,9 +567,9 @@ class TerminalSessionEngine(
 
     private fun checkMultiplexerAvailability(params: ConnectionParams): MultiplexerAvailability {
         val type = params.multiplexer ?: return MultiplexerAvailability.Available
-        val multiplexer = MultiplexerRegistry.forType(type)
+        val multiplexer = multiplexers[type.id]
             ?: return MultiplexerAvailability.UnsupportedMultiplexer(type)
-        if (params.transport == Transport.Mosh || params.transport == Transport.LocalShell) {
+        if (!params.transport.hostsMultiplexer) {
             return MultiplexerAvailability.UnsupportedTransport(params.transport)
         }
         return runCatching {
@@ -569,9 +603,9 @@ class TerminalSessionEngine(
     suspend fun listMultiplexerSessions(spec: TabSpec): List<RemoteMultiplexerSession> =
         withContext(dispatcher) {
             val type = spec.multiplexer ?: throw IllegalStateException("No multiplexer selected")
-            val multiplexer = MultiplexerRegistry.forType(type)
+            val multiplexer = multiplexers[type.id]
                 ?: throw IllegalStateException("${type.label} is not supported yet")
-            if (spec.transport == Transport.Mosh || spec.transport == Transport.LocalShell) {
+            if (!spec.transport.hostsMultiplexer) {
                 throw IllegalStateException("${type.label} is not supported for ${spec.transport} connections")
             }
             val result = runMultiplexerCommand(spec.toConnectionParams(), multiplexer.listSessionsCommand())
@@ -586,10 +620,10 @@ class TerminalSessionEngine(
         localSessionNames: Collection<String>,
         reuseDetachedChuchuSession: Boolean = false,
     ): String = withContext(dispatcher) {
-        val type = spec.multiplexer ?: MultiplexerRegistry.defaultType
-        val multiplexer = MultiplexerRegistry.forType(type)
+        val type = spec.multiplexer ?: MultiplexerType.Default
+        val multiplexer = multiplexers[type.id]
             ?: throw IllegalStateException("${type.label} is not supported yet")
-        if (spec.transport == Transport.Mosh || spec.transport == Transport.LocalShell) {
+        if (!spec.transport.hostsMultiplexer) {
             throw IllegalStateException("${type.label} is not supported for ${spec.transport} connections")
         }
         when (val availability = checkMultiplexerAvailability(spec.copy(multiplexer = type))) {
@@ -618,7 +652,7 @@ class TerminalSessionEngine(
                 localSessionNames = localSessionNames,
             )?.let { return@withContext it }
         }
-        multiplexer.defaultSessionName(remoteSessions, localSessionNames)
+        MultiplexerSessionAllocator.nextChuchuSessionName(remoteSessions, localSessionNames)
     }
 
     fun disconnect() {
@@ -636,6 +670,7 @@ class TerminalSessionEngine(
             nativeSsh.close()
             moshService.close()
             localShellService.close()
+            closePluginConnection()
             if (handle != 0L) {
                 bridge.nativeDestroy(handle)
                 handle = 0L
@@ -650,6 +685,8 @@ class TerminalSessionEngine(
                     status = SessionStatus.Disconnected,
                     nativeVersion = nativeVersion,
                     sessionKey = _state.value.sessionKey,
+                    snapshot = _state.value.snapshot,
+                    title = _state.value.title,
                 )
         }
     }
@@ -721,10 +758,23 @@ class TerminalSessionEngine(
                     when (transport) {
                         Transport.Mosh -> moshFailureCode = startMoshReadLoop()
                         Transport.LocalShell -> startLocalShellReadLoop()
+                        Transport.Plugin -> startPluginReadLoop()
                         else -> startSshReadLoop()
                     }
                 } catch (e: CancellationException) {
                     throw e
+                } catch (e: TransportEndedException) {
+                    closePluginConnection()
+                    pinnedTarget = PinnedTarget(null)
+                    _attachedTarget.value = null
+                    if (!disconnectRequested) {
+                        _state.value =
+                            _state.value.copy(
+                                status = SessionStatus.Error,
+                                error = e.message,
+                            )
+                    }
+                    return@launch
                 } catch (e: Exception) {
                     failed = true
                     Log.e("TerminalSession", "Read loop failed", e)
@@ -795,12 +845,45 @@ class TerminalSessionEngine(
         }
     }
 
+    private suspend fun startPluginReadLoop() {
+        val connection = pluginConnection ?: return
+        connection.frames.collect { frame ->
+            when (frame) {
+                is TransportFrame.Snapshot -> restoreSnapshot(frame.bytes)
+                is TransportFrame.Output -> feedRemoteChunk(frame.bytes)
+                is TransportFrame.Resize -> applyRemoteSize(frame.cols, frame.rows)
+            }
+        }
+    }
+
+    private fun restoreSnapshot(bytes: ByteArray) {
+        if (handle == 0L) return
+        check(bridge.nativeRestoreSnapshot(handle, bytes)) { "Could not restore the terminal snapshot" }
+        applyTerminalOptions()
+        requestSnapshot(force = true)
+    }
+
+    private fun applyRemoteSize(newCols: Int, newRows: Int) {
+        if (handle == 0L || newCols <= 0 || newRows <= 0) return
+        cols = newCols
+        rows = newRows
+        bridge.nativeResize(handle, cols, rows, cellWidth, cellHeight)
+        flushPtyWrites(fromRemoteOutput = true)
+        requestSnapshot(force = true)
+    }
+
+    private fun closePluginConnection() {
+        pluginConnection?.let { connection -> runCatching { connection.close() } }
+        pluginConnection = null
+        pluginProvider = null
+    }
+
     private fun feedRemoteChunk(chunk: ByteArray) {
         if (handle == 0L) return
         val wasImageLoading = bridge.nativeIsImageLoading(handle)
-        flushPtyWrites()
+        flushPtyWrites(fromRemoteOutput = true)
         bridge.nativeWriteRemote(handle, chunk)
-        flushPtyWrites()
+        flushPtyWrites(fromRemoteOutput = true)
         val isImageLoading = bridge.nativeIsImageLoading(handle)
         when {
             wasImageLoading && !isImageLoading -> {
@@ -904,15 +987,46 @@ class TerminalSessionEngine(
         nativeSsh.close()
         moshService.close()
         localShellService.close()
+        closePluginConnection()
         handle = bridge.nativeCreate(cols, rows, 1000)
         applyTerminalOptions()
 
         when (params.transport) {
             Transport.Mosh -> establishMoshConnection(params, username)
             Transport.LocalShell -> establishLocalShellConnection()
+            Transport.Plugin -> establishPluginConnection(params)
             else -> establishSshConnection(params, username)
         }
     }
+
+    private suspend fun establishPluginConnection(params: ConnectionParams) {
+        val provider =
+            transports[params.transportId]
+                ?: throw IllegalStateException("The '${params.transportId}' transport plugin isn't available")
+        val pinned = pinnedTarget
+        val target = if (pinned != null) pinned.value else params.transportTarget
+        val connection =
+            provider.connect(
+                TransportConnectRequest(
+                    address = params.host,
+                    target = target,
+                    size = pluginPtySize(),
+                ),
+            )
+        pluginConnection = connection
+        pluginProvider = provider
+        pinnedTarget = PinnedTarget(connection.target)
+        _attachedTarget.value = connection.target
+        connection.setActive(isActive)
+    }
+
+    private fun pluginPtySize(): PtySize =
+        PtySize(
+            cols = cols,
+            rows = rows,
+            widthPx = if (screenWidth > 0) cols * cellWidth else 0,
+            heightPx = if (screenHeight > 0) rows * cellHeight else 0,
+        )
 
     private fun establishLocalShellConnection() {
         localShellService.start(cols, rows, screenWidth, screenHeight)
@@ -931,7 +1045,7 @@ class TerminalSessionEngine(
             keyPassphrase = params.keyPassphrase,
             jumpHost = params.jumpHost,
         )
-        val startupCommand = params.multiplexerStartupCommand()?.trim().orEmpty()
+        val startupCommand = multiplexerStartupCommand(params)?.trim().orEmpty()
         if (startupCommand.isNotEmpty()) {
             nativeSsh.openExecPty(startupCommand, cols, rows, ptyWidthPx(), ptyHeightPx())
         } else {
@@ -1053,6 +1167,13 @@ class TerminalSessionEngine(
         Log.d("TerminalSession", "MOSH: Phase 2 — mosh client ready")
     }
 
+    private fun multiplexerStartupCommand(params: ConnectionParams): String? {
+        val type = params.multiplexer ?: return null
+        if (!params.transport.hostsMultiplexer) return null
+        val sessionName = params.multiplexerSessionName?.takeIf { it.isNotBlank() } ?: return null
+        return multiplexers[type.id]?.launchCommand(sessionName, params.multiplexerCreateIfMissing)
+    }
+
     private fun TabSpec.toConnectionParams(): ConnectionParams = ConnectionParams(
         host = host,
         port = port,
@@ -1068,6 +1189,8 @@ class TerminalSessionEngine(
         multiplexerSessionName = multiplexerSessionName,
         multiplexerCreateIfMissing = multiplexerCreateIfMissing,
         jumpHost = jumpHost,
+        transportId = transportId,
+        transportTarget = transportTarget?.value,
     )
 
     private fun runMultiplexerCommand(
@@ -1156,7 +1279,7 @@ class TerminalSessionEngine(
                         )
                     val delayMs = (1_000L shl (attempt - 1).coerceAtMost(5)).coerceAtMost(60_000L)
                     delay(delayMs)
-                    if (params.username.isBlank()) {
+                    if (params.transport.needsUsername && params.username.isBlank()) {
                         _state.value =
                             _state.value.copy(
                                 status = SessionStatus.Error,
@@ -1223,6 +1346,7 @@ class TerminalSessionEngine(
         when (lastConnectionParams?.transport) {
             Transport.Mosh -> moshService.sendInput(data)
             Transport.LocalShell -> localShellService.write(data)
+            Transport.Plugin -> pluginConnection?.write(data)
             else -> nativeSsh.write(data)
         }
     }
@@ -1257,8 +1381,12 @@ class TerminalSessionEngine(
         }
     }
 
-    private fun flushPtyWrites() {
+    private fun flushPtyWrites(fromRemoteOutput: Boolean = false) {
         if (handle == 0L) return
+        if (fromRemoteOutput && pluginProvider?.behavior?.remoteAnswersQueries == true) {
+            bridge.nativeDrainPtyWrites(handle)
+            return
+        }
         repeat(8) {
             val ptyWrites = bridge.nativeDrainPtyWrites(handle)
             if (ptyWrites.isEmpty()) return
@@ -1292,6 +1420,7 @@ class TerminalSessionEngine(
                 moshService.resize(cols, rows)
             }
             Transport.LocalShell -> localShellService.resize(cols, rows, widthPx, heightPx)
+            Transport.Plugin -> pluginConnection?.resize(pluginPtySize())
             else -> nativeSsh.resize(cols, rows, widthPx, heightPx)
         }
     }

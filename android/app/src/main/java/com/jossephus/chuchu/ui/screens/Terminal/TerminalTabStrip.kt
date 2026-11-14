@@ -32,6 +32,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jossephus.chuchu.R
 import com.jossephus.chuchu.service.terminal.SessionStatus
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlin.math.roundToInt
 import com.jossephus.chuchu.service.terminal.TabSession
@@ -78,7 +79,9 @@ fun TerminalTabStrip(
     val tabBounds = remember { mutableStateMapOf<String, IntRange>() }
     val titles = tabs.map { tab ->
         val title by remember(tab) {
-            tab.sessionState.map { it.title?.takeIf(String::isNotBlank) }
+            combine(tab.sessionState.map { it.title?.takeIf(String::isNotBlank) }, tab.titleOverride) { terminal, override ->
+                override?.takeIf(String::isNotBlank) ?: terminal
+            }
         }.collectAsStateWithLifecycle(initialValue = null)
         title
     }

@@ -37,6 +37,7 @@ class SshJumpHostTest {
         assertTrue(profile().canServeAsJumpHostFor(hostId = null))
         assertFalse(profile().canServeAsJumpHostFor(hostId = 1L))
         assertFalse(profile(transport = Transport.LocalShell).canServeAsJumpHostFor(hostId = 9L))
+        assertFalse(profile(transport = Transport.Plugin).canServeAsJumpHostFor(hostId = 9L))
         assertFalse(profile().copy(jumpHostId = 5L).canServeAsJumpHostFor(hostId = 9L))
     }
 

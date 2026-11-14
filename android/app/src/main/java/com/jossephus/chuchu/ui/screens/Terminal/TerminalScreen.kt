@@ -177,7 +177,7 @@ private fun NewTabHostPicker(
                                     color = colors.textPrimary,
                                 )
                                 ChuText(
-                                    "${host.username}@${host.host}:${host.port}",
+                                    host.transport.endpoint(host.username, host.host, host.port),
                                     style = typography.labelSmall,
                                     color = colors.textMuted,
                                 )
@@ -198,8 +198,8 @@ fun TerminalScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     openLocalShell: Boolean = false,
-    multiplexerSession: String? = null,
-    createMultiplexerSession: Boolean = false,
+    openTarget: String? = null,
+    createTarget: Boolean = false,
 ) {
     val sessionState by vm.sessionChrome.collectAsStateWithLifecycle()
     val hasSnapshot by vm.hasSnapshot.collectAsStateWithLifecycle()
@@ -218,7 +218,7 @@ fun TerminalScreen(
             }
         }
     val selectedTab by vm.selectedTab.collectAsStateWithLifecycle()
-    val filesSupported = activeTab?.spec?.transport != Transport.LocalShell
+    val filesSupported = activeTab?.spec?.transport?.supportsSftp ?: true
     val fileBrowserState by vm.fileBrowserState.collectAsStateWithLifecycle()
     val hostKeyPrompt by vm.hostKeyPrompt.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -505,29 +505,20 @@ fun TerminalScreen(
         )
     }
 
-    var multiplexerSessionHandled by rememberSaveable { mutableStateOf(false) }
+    var openTargetHandled by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(hostId, openLocalShell) {
         showPassphrasePrompt = false
         passphraseInput = ""
         pendingTabSpec = null
         passphraseFromPicker = false
         if (hostId == null || openLocalShell) return@LaunchedEffect
-        if (multiplexerSession != null) {
-            if (multiplexerSessionHandled) return@LaunchedEffect
-            multiplexerSessionHandled = true
-            if (!createMultiplexerSession && vm.selectMultiplexerTab(hostId, multiplexerSession) != null) {
-                return@LaunchedEffect
-            }
+        if (openTarget != null) {
+            if (openTargetHandled) return@LaunchedEffect
+            openTargetHandled = true
+            if (!createTarget && vm.selectTabForTarget(hostId, openTarget) != null) return@LaunchedEffect
             val prepared = vm.prepareTabOpenForHost(hostId) ?: return@LaunchedEffect
             vm.refreshTailscaleStatus()
-            openPreparedTab(
-                prepared.spec.copy(
-                    multiplexerSessionName = multiplexerSession,
-                    multiplexerCreateIfMissing = createMultiplexerSession,
-                ),
-                false,
-                false,
-            )
+            openPreparedTab(prepared.spec.withTarget(openTarget, createTarget), false, false)
             return@LaunchedEffect
         }
         val existing = vm.selectTabForHost(hostId)
@@ -653,8 +644,14 @@ fun TerminalScreen(
             Toast.makeText(context, preflightError, Toast.LENGTH_LONG).show()
         }
     }
+    // sessionState here leaves the snapshot out (see TerminalViewModel.sessionChrome).
+    val isReattaching = sessionState.status == SessionStatus.Connecting && hasSnapshot
     val displaySessionStatus =
-        if (multiplexerState.preflightLoading) SessionStatus.Connecting else sessionState.status
+        when {
+            multiplexerState.preflightLoading -> SessionStatus.Connecting
+            isReattaching -> SessionStatus.Connected
+            else -> sessionState.status
+        }
     val dismissMultiplexerLabel =
         if (multiplexerState.reconnectRecovery) {
             stringResource(R.string.action_dismiss)

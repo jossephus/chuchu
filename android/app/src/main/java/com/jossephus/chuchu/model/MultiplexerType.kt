@@ -1,19 +1,21 @@
 package com.jossephus.chuchu.model
 
-enum class MultiplexerType(
-    val id: String,
-    val label: String,
-    val runtimeSupported: Boolean,
-) {
-    Tmux("tmux", "tmux", true),
-    Zellij("zellij", "zellij", false),
-    Zmx("zmx", "zmx", true),
-    ;
+// Not an enum: plugins add multiplexers at runtime, and a host keeps its id while the plugin is missing.
+data class MultiplexerType(val id: String) {
+    val label: String
+        get() = id
 
     companion object {
-        val runtimeOptions: List<MultiplexerType> = entries.filter { it.runtimeSupported }
+        val Tmux = MultiplexerType("tmux")
+        val Default = Tmux
 
-        fun fromPersistedValue(value: String): MultiplexerType? =
-            entries.firstOrNull { it.id == value } ?: entries.firstOrNull { it.name == value }
+        // Early builds persisted enum constant names; map them to their ids.
+        private val legacyNames = mapOf("Tmux" to "tmux", "Zellij" to "zellij", "Zmx" to "zmx")
+
+        fun fromPersistedValue(value: String): MultiplexerType? {
+            val trimmed = value.trim()
+            if (trimmed.isEmpty()) return null
+            return MultiplexerType(legacyNames[trimmed] ?: trimmed)
+        }
     }
 }

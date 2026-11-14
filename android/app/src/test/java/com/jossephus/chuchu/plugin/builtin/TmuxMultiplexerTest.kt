@@ -1,5 +1,6 @@
-package com.jossephus.chuchu.service.multiplexer
+package com.jossephus.chuchu.plugin.builtin
 
+import com.jossephus.chuchu.plugin.api.RemoteMultiplexerSession
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -9,7 +10,6 @@ class TmuxMultiplexerTest {
         val command = TmuxMultiplexer.launchCommand(
             sessionName = "chuchu-1",
             createIfMissing = true,
-            trustedRemoteName = false,
         )
 
         assertEquals(
@@ -18,21 +18,11 @@ class TmuxMultiplexerTest {
         )
     }
 
-    @Test(expected = IllegalArgumentException::class)
-    fun launchRejectsUngeneratedUntrustedNames() {
-        TmuxMultiplexer.launchCommand(
-            sessionName = "work'space",
-            createIfMissing = true,
-            trustedRemoteName = false,
-        )
-    }
-
     @Test
-    fun launchQuotesTrustedRemoteNames() {
+    fun launchQuotesSessionNames() {
         val command = TmuxMultiplexer.launchCommand(
             sessionName = "work'space; rm -rf /",
             createIfMissing = true,
-            trustedRemoteName = true,
         )
 
         assertEquals(
@@ -46,7 +36,6 @@ class TmuxMultiplexerTest {
         val command = TmuxMultiplexer.launchCommand(
             sessionName = "chuchu-1",
             createIfMissing = false,
-            trustedRemoteName = true,
         )
 
         assertEquals(
@@ -58,11 +47,10 @@ class TmuxMultiplexerTest {
     }
 
     @Test
-    fun launchExistingQuotesTrustedRemoteNamesWithMetacharacters() {
+    fun launchExistingQuotesNamesWithMetacharacters() {
         val command = TmuxMultiplexer.launchCommand(
             sessionName = "main tab; printf 'x'",
             createIfMissing = false,
-            trustedRemoteName = true,
         )
 
         assertEquals(

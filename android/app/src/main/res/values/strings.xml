@@ -44,6 +44,13 @@
     <string name="section_authentication">AUTHENTICATION</string>
     <string name="section_session_persistence">SESSION PERSISTENCE</string>
     <string name="section_connect_via">CONNECT VIA</string>
+    <string name="add_server_pairing_invalid">That QR code is not a %1$s pairing code</string>
+    <string name="add_server_transport_unavailable">The \'%1$s\' transport plugin isn\'t available.</string>
+    <string name="add_server_scan_pairing">scan pairing qr code</string>
+    <string name="add_server_scan_again">scan again</string>
+    <string name="add_server_connects_to">connects to %1$s</string>
+    <string name="add_server_invalid_address">not a %1$s address</string>
+    <string name="add_server_multiplexer_missing">%1$s (missing)</string>
     <string name="section_port_forwarding">PORT FORWARDING</string>
 
     <!-- Shared option labels -->
@@ -277,6 +284,10 @@
     <string name="session_browser_retry">retry</string>
     <string name="session_browser_refresh">refresh</string>
     <string name="session_browser_host_missing">This server no longer exists</string>
+    <string name="session_browser_connect_failed">Could not connect</string>
+    <string name="session_browser_new_item">New pane in %1$s</string>
+    <string name="session_browser_expand">Expand %1$s</string>
+    <string name="session_browser_collapse">Collapse %1$s</string>
 
     <!-- Terminal session -->
     <string name="terminal_new_session_on">new session on %1$s</string>

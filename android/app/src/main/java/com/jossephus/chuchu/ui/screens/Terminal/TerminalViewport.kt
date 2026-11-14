@@ -34,6 +34,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.jossephus.chuchu.R
+import com.jossephus.chuchu.service.terminal.SessionStatus
 import com.jossephus.chuchu.data.repository.SettingsRepository
 import com.jossephus.chuchu.service.terminal.SessionState
 import com.jossephus.chuchu.service.terminal.TabSession
@@ -235,7 +236,10 @@ internal fun TerminalViewport(
             terminalHandle = sessionState.handle,
             modifier = Modifier.fillMaxSize(),
             onResize = vm::onCanvasSizeChanged,
-            onTap = requestInputFocus,
+            onTap = {
+                vm.onTerminalTap()
+                requestInputFocus()
+            },
             onPrimaryClick = vm::onPrimaryMouseClick,
             onAppSelectionDrag = vm::onAppSelectionDrag,
             onScroll = vm::onScroll,
@@ -244,6 +248,9 @@ internal fun TerminalViewport(
         )
 
         TerminalStatusBadges(
+            // A released tab reattaching keeps its last screen; say it is catching up.
+            // The viewport only draws once there is a snapshot, so Connecting here means reattaching.
+            isReattaching = liveState.status == SessionStatus.Connecting,
             isReconnecting = isReconnecting,
             reconnectAttempt = sessionState.reconnectAttempt,
             duplicateLoading = duplicateLoading,
@@ -333,6 +340,7 @@ internal fun TerminalViewport(
 
 @Composable
 internal fun TerminalStatusBadges(
+    isReattaching: Boolean,
     isReconnecting: Boolean,
     reconnectAttempt: Int,
     duplicateLoading: Boolean,
@@ -346,6 +354,13 @@ internal fun TerminalStatusBadges(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (isReattaching) {
+            ChuText(
+                text = stringResource(R.string.session_status_connecting),
+                style = typography.labelSmall,
+                color = colors.textMuted,
+            )
+        }
         if (isReconnecting) {
             ChuText(
                 text =
