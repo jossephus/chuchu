@@ -19,7 +19,7 @@ import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
 
 @Composable
-fun ProgramStatusMarker(status: ProgramStatus?) {
+fun ProgramStatusMarker(status: ProgramStatus?, showIcon: Boolean = true) {
     if (status == null) return
     val colors = ChuColors.current
     val (marker, color) =
@@ -31,7 +31,7 @@ fun ProgramStatusMarker(status: ProgramStatus?) {
             ProgramState.Idle -> return
         }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-        ProgramIcons.forName(status.app)?.let { icon ->
+        ProgramIcons.forName(status.app)?.takeIf { showIcon }?.let { icon ->
             Image(
                 painter = painterResource(icon.drawable),
                 contentDescription = null,
