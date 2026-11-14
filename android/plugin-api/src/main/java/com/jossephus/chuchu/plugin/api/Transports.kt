@@ -136,4 +136,5 @@ data class BrowserItem(
     val target: String,
     val title: String,
     val detail: String? = null,
+    val status: ProgramStatus? = null,
 )

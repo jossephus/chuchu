@@ -1,5 +1,7 @@
 package com.jossephus.chuchu.service.terminal
 
+import com.jossephus.chuchu.plugin.api.ProgramState
+import com.jossephus.chuchu.plugin.api.ProgramStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -121,6 +123,14 @@ class ProgramStatusRecordsTest {
         records.apply("working\u001fonly-two-fields\u001e".toByteArray() + report("sleeping"))
 
         assertNull(records.current)
+    }
+
+    @Test
+    fun hostStatesParseCaseInsensitivelyAndUnknownOnesReadAsIdle() {
+        assertEquals(ProgramState.Blocked, ProgramState.parse("blocked"))
+        assertEquals(ProgramState.Error, ProgramState.parse("ERROR"))
+        assertEquals(ProgramState.Idle, ProgramState.parse("paused"))
+        assertEquals(ProgramState.Idle, ProgramState.parse(null))
     }
 
     private fun report(

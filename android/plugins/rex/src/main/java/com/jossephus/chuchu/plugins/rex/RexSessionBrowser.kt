@@ -1,6 +1,9 @@
 package com.jossephus.chuchu.plugins.rex
 
 import android.util.Log
+import com.jossephus.chuchu.plugin.api.ProgramState
+import com.jossephus.chuchu.plugin.api.ProgramStatus
+import com.jossephus.chuchu.plugin.api.mostUrgent
 import java.io.Closeable
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
@@ -34,6 +37,7 @@ data class RexPaneSummary(
     val title: String?,
     val program: String?,
     val cwd: String?,
+    val status: ProgramStatus? = null,
 )
 
 data class RexSessionSummary(val sessionId: String, val label: String, val panes: List<RexPaneSummary>)
@@ -57,6 +61,7 @@ internal class RexSessionBrowser(private val server: RexServer) : Closeable {
     private val views = mutableMapOf<String, JSONObject>()
     private val processes = mutableMapOf<String, RexProcess>()
     private val titles = mutableMapOf<String, RexTitle>()
+    private val statuses = mutableMapOf<String, LinkedHashMap<String, ProgramStatus>>()
     private var home: String? = null
     private val _state = MutableStateFlow<RexBrowserState>(RexBrowserState.Connecting)
 
@@ -130,6 +135,18 @@ internal class RexSessionBrowser(private val server: RexServer) : Closeable {
                 when (block.optString("name")) {
                     "process_changed" -> processes[blockId] = RexProcess.from(data.optJSONObject("foreground") ?: return)
                     "title_changed" -> titles[blockId] = RexTitle.from(data)
+                    "program_status_changed" -> {
+                        val record = data.optJSONObject("record") ?: return
+                        val records = statuses.getOrPut(blockId, ::LinkedHashMap)
+                        val id = data.optString("id")
+                        records.remove(id)
+                        records[id] = programStatus(id, record)
+                    }
+                    "program_status_removed" -> {
+                        val ids = data.optJSONArray("ids") ?: return
+                        val records = statuses[blockId] ?: return
+                        for (i in 0 until ids.length()) records.remove(ids.optString(i))
+                    }
                     else -> return
                 }
                 publish()
@@ -188,10 +205,12 @@ internal class RexSessionBrowser(private val server: RexServer) : Closeable {
         try {
             coroutineScope {
                 val title = async { server.title(pane) }
+                val status = async { server.programStatus(pane) }
                 val result = server.process(pane)
                 result.stringOrNull("home")?.let { home = it }
                 processes[blockId] = result.optJSONObject("foreground")?.let(RexProcess::from) ?: RexProcess(null, null, null)
                 titles[blockId] = RexTitle.from(title.await())
+                statuses[blockId] = programStatuses(status.await())
             }
             publish()
         } catch (e: CancellationException) {
@@ -243,10 +262,33 @@ internal class RexSessionBrowser(private val server: RexServer) : Closeable {
                     title = titles[blockId]?.takeIf { it.isCurrent(process) }?.title,
                     program = detail?.name,
                     cwd = detail?.cwd?.let(::abbreviateHome),
+                    status = statuses[blockId]?.values?.mostUrgent(),
                 )
             }
         return RexSessionSummary(sessionId, labels[sessionId] ?: sessionId, panes)
     }
+
+    private fun programStatuses(result: JSONObject): LinkedHashMap<String, ProgramStatus> {
+        val records = LinkedHashMap<String, ProgramStatus>()
+        val list = result.optJSONArray("records") ?: return records
+        for (i in 0 until list.length()) {
+            val record = list.optJSONObject(i) ?: continue
+            val id = record.stringOrNull("id").orEmpty()
+            records[id] = programStatus(id, record)
+        }
+        return records
+    }
+
+    private fun programStatus(id: String, record: JSONObject): ProgramStatus =
+        ProgramStatus(
+            state = ProgramState.parse(record.stringOrNull("state")),
+            id = id,
+            app = record.stringOrNull("effective_app"),
+            kind = record.stringOrNull("kind"),
+            progress = if (record.isNull("progress")) null else record.optInt("progress", -1).takeIf { it in 0..100 },
+            title = record.stringOrNull("title"),
+            message = record.stringOrNull("msg"),
+        )
 
     private fun abbreviateHome(path: String): String {
         val homeDir = home?.trimEnd('/') ?: return path

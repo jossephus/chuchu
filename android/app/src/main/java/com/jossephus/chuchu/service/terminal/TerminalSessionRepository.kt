@@ -11,6 +11,8 @@ import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.plugin.PluginManager
 import com.jossephus.chuchu.plugin.api.BrowserGroup
 import com.jossephus.chuchu.plugin.api.HostBrowserState
+import com.jossephus.chuchu.plugin.api.ProgramState
+import com.jossephus.chuchu.plugin.api.ProgramStatus
 import com.jossephus.chuchu.plugin.api.RemoteMultiplexerSession
 import com.jossephus.chuchu.service.ssh.HostKeyStore
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
@@ -141,6 +143,7 @@ class TerminalSessionRepository private constructor(application: Application) {
     private var foregroundServiceRunning = false
     private var foregroundNotificationLabel: String? = null
     private var browserWatch: Pair<Long, Job>? = null
+    private var mirroredGroup: MirrorKey? = null
     private val programStatusNotifier = ProgramStatusNotifier(appContext)
     private val programStates = mutableMapOf<String, Pair<String, ProgramState>?>()
     private var visible = false
@@ -233,7 +236,7 @@ class TerminalSessionRepository private constructor(application: Application) {
     private fun TabSession.statusUpdates(): Flow<SessionStatus> = sessionState.map { it.status }.distinctUntilChanged()
 
     private fun TabSession.programStatusUpdates(): Flow<ProgramStatus?> =
-        sessionState.map { it.programStatus }.distinctUntilChanged { old, new -> old?.identity() == new?.identity() }
+        programStatus.distinctUntilChanged { old, new -> old?.identity() == new?.identity() }
 
     private fun ProgramStatus.identity(): Pair<String, ProgramState> = id to state
 
@@ -514,6 +517,15 @@ class TerminalSessionRepository private constructor(application: Application) {
 
     private fun mirrorBrowserGroup(hostId: Long, group: BrowserGroup) {
         val hostTabs = tabsForHost(hostId)
+        if (mirroredGroup == mirrorKey(hostId, group, hostTabs)) {
+            val byTarget = hostTabs.associateBy { it.target }
+            for (item in group.items) {
+                val tab = byTarget[item.target] ?: continue
+                tab.titleOverride.value = item.title
+                tab.showHostStatus(item.status)
+            }
+            return
+        }
         val template = hostTabs.firstOrNull()?.spec ?: return
         val activeId = _activeTabId.value
         val itemTargets = group.items.mapTo(HashSet()) { it.target }
@@ -538,12 +550,19 @@ class TerminalSessionRepository private constructor(application: Application) {
                             openTab(template.copy(transportTarget = TransportTarget(item.target)), select = false, connect = false)
                         }
                 tab?.titleOverride?.value = item.title
+                tab?.showHostStatus(item.status)
                 tab
             }
         arrangeHostTabs(hostId, ordered.map { it.id })
         // The mirrored tabs appear after the opened one, so its neighbours exist only now.
         activeTab.value?.takeIf { it.spec.hostId == hostId }?.let(::warmNeighbours)
+        mirroredGroup = mirrorKey(hostId, group, tabsForHost(hostId))
     }
+
+    private fun mirrorKey(hostId: Long, group: BrowserGroup, hostTabs: List<TabSession>): MirrorKey =
+        MirrorKey(hostId, group.items.map { it.target }, hostTabs.map { it.target })
+
+    private data class MirrorKey(val hostId: Long, val itemTargets: List<String>, val tabTargets: List<String?>)
 
     fun closeTab(id: String) = closeTabs(setOf(id))
 

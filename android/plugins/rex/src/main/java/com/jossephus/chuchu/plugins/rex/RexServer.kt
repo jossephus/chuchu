@@ -118,6 +118,8 @@ internal class RexServer private constructor(val endpoint: RexEndpoint) {
 
     suspend fun process(pane: RexAttachment): JSONObject = control.call(PROCESS_METHOD, pane.payload())
 
+    suspend fun programStatus(pane: RexAttachment): JSONObject = control.call(PROGRAM_STATUS_METHOD, pane.payload())
+
     private fun close() {
         browser.close()
         control.close()
@@ -185,6 +187,7 @@ internal class RexServer private constructor(val endpoint: RexEndpoint) {
         private const val TERMINAL_RESIZE = "com.superlogical.terminal.resize"
         private const val TITLE_METHOD = "com.superlogical.terminal.title"
         private const val PROCESS_METHOD = "com.superlogical.terminal.process"
+        private const val PROGRAM_STATUS_METHOD = "com.superlogical.terminal.program_status"
 
         private val entries = mutableMapOf<String, Entry>()
         private val poolScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

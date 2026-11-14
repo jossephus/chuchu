@@ -14,6 +14,7 @@ import com.jossephus.chuchu.service.mosh.MoshState
 import com.jossephus.chuchu.service.mosh.NativeMoshService
 import com.jossephus.chuchu.plugin.Registry
 import com.jossephus.chuchu.plugin.api.MultiplexerProvider
+import com.jossephus.chuchu.plugin.api.ProgramStatus
 import com.jossephus.chuchu.plugin.api.PtySize
 import com.jossephus.chuchu.plugin.api.RemoteMultiplexerSession
 import com.jossephus.chuchu.plugin.api.TransportConnectRequest
