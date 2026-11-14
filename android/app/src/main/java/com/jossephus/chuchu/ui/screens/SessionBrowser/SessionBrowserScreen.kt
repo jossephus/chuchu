@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -48,6 +50,9 @@ import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuCard
 import com.jossephus.chuchu.ui.components.ChuText
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.res.painterResource
+import com.jossephus.chuchu.service.terminal.ProgramIcons
 import com.jossephus.chuchu.ui.components.ProgramStatusMarker
 import com.jossephus.chuchu.ui.components.HostKeyPromptDialog
 import com.jossephus.chuchu.ui.theme.ChuColors
@@ -57,6 +62,7 @@ private val HEADER_ACTION_SIZE = 28.dp
 
 // Where a row separator starts: the row's padding plus the ">_" glyph and its gap.
 private val ROW_SEPARATOR_INSET = 44.dp
+private val ROW_GLYPH_WIDTH = 22.dp
 
 @Composable
 fun SessionBrowserScreen(
@@ -276,7 +282,20 @@ private fun ItemRow(item: BrowserItem, isOpen: Boolean, isFirst: Boolean, isLast
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ChuText(">_", style = typography.label, color = if (isOpen) colors.success else colors.textMuted)
+        val glyphColor = if (isOpen) colors.success else colors.textMuted
+        Box(Modifier.width(ROW_GLYPH_WIDTH), contentAlignment = Alignment.CenterStart) {
+            val icon = ProgramIcons.forName(item.program ?: item.status?.app)
+            if (icon != null) {
+                Image(
+                    painter = painterResource(icon.drawable),
+                    contentDescription = null,
+                    colorFilter = ColorFilter.tint(glyphColor),
+                    modifier = Modifier.size(16.dp),
+                )
+            } else {
+                ChuText(">_", style = typography.label, color = glyphColor)
+            }
+        }
         ChuText(
             item.title,
             style = typography.body,
@@ -294,7 +313,7 @@ private fun ItemRow(item: BrowserItem, isOpen: Boolean, isFirst: Boolean, isLast
                 modifier = Modifier.weight(1f, fill = false),
             )
         }
-        ProgramStatusMarker(item.status)
+        ProgramStatusMarker(item.status, showIcon = false)
         ChuText("›", style = typography.label, color = colors.textMuted)
     }
 }

@@ -27,3 +27,5 @@ fun Iterable<ProgramStatus>.mostUrgent(): ProgramStatus? {
     val urgency = maxOfOrNull { it.state.urgency } ?: return null
     return last { it.state.urgency == urgency }.takeIf { it.state != ProgramState.Idle }
 }
+
+fun Iterable<ProgramStatus>.reportingApp(): String? = mostUrgent()?.app ?: lastOrNull { it.app != null }?.app

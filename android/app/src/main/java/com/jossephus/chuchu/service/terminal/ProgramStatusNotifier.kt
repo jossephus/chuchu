@@ -31,10 +31,12 @@ class ProgramStatusNotifier(private val context: Context) {
                 tapIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
+        val icon = ProgramIcons.forName(status.app)
         val text = describe(status)
         val notification =
             NotificationCompat.Builder(context, CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_notification)
+                .setSmallIcon(icon?.drawable ?: R.drawable.ic_notification)
+                .apply { icon?.brandColor?.takeIf { it != BLACK }?.let { setColor(it.toInt()) } }
                 .setContentTitle(label)
                 .setContentText(text)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(text))
@@ -84,9 +86,10 @@ class ProgramStatusNotifier(private val context: Context) {
 
     private fun notificationId(tabId: String): Int = NOTIFICATION_ID_BASE + (tabId.hashCode() and 0xffff)
 
-    companion object {
+     companion object {
         const val EXTRA_TAB_ID = "com.jossephus.chuchu.extra.PROGRAM_STATUS_TAB"
         private const val CHANNEL_ID = "program_status"
         private const val NOTIFICATION_ID_BASE = 0x7501_0000
+        const val BLACK = 0xFF000000
     }
 }
