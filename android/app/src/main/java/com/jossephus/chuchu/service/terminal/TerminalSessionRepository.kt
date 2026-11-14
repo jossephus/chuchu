@@ -230,8 +230,14 @@ class TerminalSessionRepository private constructor(application: Application) {
                 continue
             }
             if (attachedClients > 0 && _activeTabId.value == tab.id) continue
-            programStatusNotifier.notify(tab.id, tab.spec.notificationLabel, status)
+            programStatusNotifier.notify(tab.id, tab.notificationTitle(), status)
         }
+    }
+
+    private fun TabSession.notificationTitle(): String {
+        val host = spec.tabLabel
+        val pane = titleOverride.value?.takeIf { it.isNotBlank() && it != host } ?: return host
+        return "$pane · $host"
     }
 
     private fun SessionStatus.isAlive(): Boolean =

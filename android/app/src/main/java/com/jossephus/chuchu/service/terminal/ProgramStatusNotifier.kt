@@ -28,11 +28,13 @@ class ProgramStatusNotifier(private val context: Context) {
                 tapIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
+        val text = describe(status)
         val notification =
             NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_notification)
                 .setContentTitle(label)
-                .setContentText(describe(status))
+                .setContentText(text)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(text))
                 .setAutoCancel(true)
                 .setCategory(if (status.state == ProgramState.Error) NotificationCompat.CATEGORY_ERROR else NotificationCompat.CATEGORY_STATUS)
                 .setContentIntent(tap)
