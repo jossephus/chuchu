@@ -30,9 +30,11 @@ class ProgramStatusNotifier(private val context: Context) {
                 tapIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
+        val icon = ProgramIcons.forName(status.app)
         val notification =
             NotificationCompat.Builder(context, CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_notification)
+                .setSmallIcon(icon?.drawable ?: R.drawable.ic_notification)
+                .apply { icon?.brandColor?.takeIf { it != BLACK }?.let { setColor(it.toInt()) } }
                 .setContentTitle(label)
                 .setContentText(describe(status))
                 .setAutoCancel(true)
@@ -84,5 +86,6 @@ class ProgramStatusNotifier(private val context: Context) {
     private companion object {
         const val CHANNEL_ID = "program_status"
         const val NOTIFICATION_ID_BASE = 0x7501_0000
+        const val BLACK = 0xFF000000
     }
 }
