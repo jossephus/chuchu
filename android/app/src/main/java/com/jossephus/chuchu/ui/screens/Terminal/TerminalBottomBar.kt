@@ -116,7 +116,18 @@ internal fun TerminalCommandPaletteSheet(
             val preDispatchModifierState = modifierState
             val result =
                 TerminalAccessoryDispatcher.dispatch(action, preDispatchModifierState)
-            onModifierStateChange(result.modifierState)
+            // Keys that only steer the palette never reach the terminal, so they leave one-shot modifiers armed.
+            val steersPalette =
+                when (result.specialKey) {
+                    TerminalSpecialKey.Left,
+                    TerminalSpecialKey.Up,
+                    TerminalSpecialKey.Right,
+                    TerminalSpecialKey.Down,
+                    TerminalSpecialKey.Enter,
+                    TerminalSpecialKey.Escape -> true
+                    else -> false
+                }
+            onModifierStateChange(if (steersPalette) preDispatchModifierState else result.modifierState)
 
             if (result.suppressImeInput) {
                 inputViewRef.value?.armInputSuppression(action.toString())

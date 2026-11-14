@@ -88,6 +88,8 @@ internal fun TerminalSettings(
     onAccessoryBarSingleRowChanged: (Boolean) -> Unit,
     accessoryBarOnlyWithKeyboard: Boolean = false,
     onAccessoryBarOnlyWithKeyboardChanged: (Boolean) -> Unit = {},
+    accessoryOneShotModifiers: Boolean = false,
+    onAccessoryOneShotModifiersChanged: (Boolean) -> Unit = {},
     currentTerminalFontSize: Float = 14f,
     onTerminalFontSizeChanged: (Float) -> Unit = {},
     currentTerminalCustomKeyGroups: List<TerminalCustomKeyGroup>,
@@ -408,6 +410,28 @@ internal fun TerminalSettings(
                     ChuSwitch(
                         checked = accessoryBarOnlyWithKeyboard,
                         onCheckedChange = onAccessoryBarOnlyWithKeyboardChanged,
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        ChuText(stringResource(R.string.settings_one_shot_modifiers), style = typography.label)
+                        ChuText(
+                            stringResource(R.string.settings_one_shot_modifiers_hint),
+                            style = typography.bodySmall,
+                            color = colors.textMuted,
+                        )
+                    }
+                    ChuSwitch(
+                        checked = accessoryOneShotModifiers,
+                        onCheckedChange = onAccessoryOneShotModifiersChanged,
                     )
                 }
 

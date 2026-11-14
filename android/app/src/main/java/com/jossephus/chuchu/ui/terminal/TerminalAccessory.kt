@@ -10,18 +10,39 @@ enum class TerminalModifier {
 /** Ghostty modifier bit for Shift, as used by [ModifierState.terminalMods]. */
 internal const val SHIFT_MOD = 1 shl 0
 
+/**
+ * Accessory-bar modifiers. By default a tapped modifier stays on until tapped again.
+ * With [oneShot], a tapped modifier applies to the next key only, and a long-pressed
+ * one is [locked] on until tapped again.
+ */
 data class ModifierState(
     val ctrl: Boolean = false,
     val alt: Boolean = false,
     val shift: Boolean = false,
     val cmd: Boolean = false,
+    val oneShot: Boolean = false,
+    val locked: Set<TerminalModifier> = emptySet(),
 ) {
-    fun toggle(modifier: TerminalModifier): ModifierState = when (modifier) {
-        TerminalModifier.Ctrl -> copy(ctrl = !ctrl)
-        TerminalModifier.Alt -> copy(alt = !alt)
-        TerminalModifier.Shift -> copy(shift = !shift)
-        TerminalModifier.Cmd -> copy(cmd = !cmd)
-    }
+    fun toggle(modifier: TerminalModifier): ModifierState =
+        if (isEnabled(modifier)) deactivate(modifier) else activate(modifier)
+
+    fun toggleLock(modifier: TerminalModifier): ModifierState =
+        if (modifier in locked) deactivate(modifier) else activate(modifier).copy(locked = locked + modifier)
+
+    fun isLocked(modifier: TerminalModifier): Boolean = modifier in locked
+
+    /** Drops the modifiers that applied to a single key; a no-op unless [oneShot]. */
+    fun consumeOneShot(): ModifierState =
+        if (!oneShot) {
+            this
+        } else {
+            copy(
+                ctrl = ctrl && TerminalModifier.Ctrl in locked,
+                alt = alt && TerminalModifier.Alt in locked,
+                shift = shift && TerminalModifier.Shift in locked,
+                cmd = cmd && TerminalModifier.Cmd in locked,
+            )
+        }
 
     fun isEnabled(modifier: TerminalModifier): Boolean = when (modifier) {
         TerminalModifier.Ctrl -> ctrl
@@ -47,6 +68,39 @@ data class ModifierState(
         val first = if (ctrl) ctrlModifiedChar(text[0]) else text[0].toString()
         val metaWrapped = if (alt) "\u001b$first" else first
         return metaWrapped + text.substring(1)
+    }
+
+    /**
+     * Pairs each part of an IME commit with the modifiers it gets. An IME can commit
+     * several characters at once (a suggestion, swipe typing, voice input), and an armed
+     * one-shot modifier belongs to the first of them only; locked modifiers cover all.
+     */
+    fun textRuns(text: String): List<Pair<String, ModifierState>> {
+        val afterFirstKey = consumeOneShot()
+        if (afterFirstKey == this || text.isEmpty()) return listOf(text to this)
+        val firstKeyEnd = text.offsetByCodePoints(0, 1)
+        if (firstKeyEnd == text.length) return listOf(text to this)
+        return listOf(
+            text.substring(0, firstKeyEnd) to this,
+            text.substring(firstKeyEnd) to afterFirstKey,
+        )
+    }
+
+    private fun activate(modifier: TerminalModifier): ModifierState = when (modifier) {
+        TerminalModifier.Ctrl -> copy(ctrl = true)
+        TerminalModifier.Alt -> copy(alt = true)
+        TerminalModifier.Shift -> copy(shift = true)
+        TerminalModifier.Cmd -> copy(cmd = true)
+    }
+
+    private fun deactivate(modifier: TerminalModifier): ModifierState {
+        val unlocked = locked - modifier
+        return when (modifier) {
+            TerminalModifier.Ctrl -> copy(ctrl = false, locked = unlocked)
+            TerminalModifier.Alt -> copy(alt = false, locked = unlocked)
+            TerminalModifier.Shift -> copy(shift = false, locked = unlocked)
+            TerminalModifier.Cmd -> copy(cmd = false, locked = unlocked)
+        }
     }
 
     private fun ctrlModifiedChar(char: Char): String {
@@ -100,6 +154,8 @@ enum class TerminalSpecialKey(
 
 sealed interface AccessoryAction {
     data class ToggleModifier(val modifier: TerminalModifier) : AccessoryAction
+
+    data class LockModifier(val modifier: TerminalModifier) : AccessoryAction
 
     /** [extraMods] are added to the active modifiers, e.g. Shift for Shift+Tab, without arming them. */
     data class SendSpecialKey(val key: TerminalSpecialKey, val extraMods: Int = 0) : AccessoryAction
@@ -155,15 +211,19 @@ object TerminalAccessoryDispatcher {
             modifierState = modifierState.toggle(action.modifier),
         )
 
+        is AccessoryAction.LockModifier -> AccessoryDispatchResult(
+            modifierState = modifierState.toggleLock(action.modifier),
+        )
+
         is AccessoryAction.SendSpecialKey -> AccessoryDispatchResult(
-            modifierState = modifierState,
+            modifierState = modifierState.consumeOneShot(),
             specialKey = action.key,
             specialKeyMods = modifierState.terminalMods() or action.extraMods,
             suppressImeInput = true,
         )
 
         is AccessoryAction.SendText -> AccessoryDispatchResult(
-            modifierState = modifierState,
+            modifierState = modifierState.consumeOneShot(),
             text = modifierState.applyToText(action.text),
         )
 
