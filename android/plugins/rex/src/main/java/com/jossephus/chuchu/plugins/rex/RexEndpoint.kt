@@ -17,8 +17,7 @@ data class RexEndpoint(
     private val authority: String
         get() {
             val hostPart = if (':' in host) "[$host]" else host
-            val defaultPort = if (secure) HTTPS_PORT else PLAIN_PORT
-            return if (port == defaultPort) hostPart else "$hostPart:$port"
+            return if (secure && port == HTTPS_PORT) hostPart else "$hostPart:$port"
         }
 
     companion object {
