@@ -140,6 +140,7 @@ class TerminalSessionRepository private constructor(application: Application) {
     private var foregroundServiceRunning = false
     private var foregroundNotificationLabel: String? = null
     private var browserWatch: Pair<Long, Job>? = null
+    private var mirroredGroup: MirrorKey? = null
     private val programStatusNotifier = ProgramStatusNotifier(appContext)
     private val programStates = mutableMapOf<String, ProgramState?>()
 
@@ -495,6 +496,15 @@ class TerminalSessionRepository private constructor(application: Application) {
 
     private fun mirrorBrowserGroup(hostId: Long, group: BrowserGroup) {
         val hostTabs = tabsForHost(hostId)
+        if (mirroredGroup == mirrorKey(hostId, group, hostTabs)) {
+            val byTarget = hostTabs.associateBy { it.target }
+            for (item in group.items) {
+                val tab = byTarget[item.target] ?: continue
+                tab.titleOverride.value = item.title
+                tab.showHostStatus(item.status)
+            }
+            return
+        }
         val template = hostTabs.firstOrNull()?.spec ?: return
         val activeId = _activeTabId.value
         val itemTargets = group.items.mapTo(HashSet()) { it.target }
@@ -525,7 +535,13 @@ class TerminalSessionRepository private constructor(application: Application) {
         arrangeHostTabs(hostId, ordered.map { it.id })
         // The mirrored tabs appear after the opened one, so its neighbours exist only now.
         activeTab.value?.takeIf { it.spec.hostId == hostId }?.let(::warmNeighbours)
+        mirroredGroup = mirrorKey(hostId, group, tabsForHost(hostId))
     }
+
+    private fun mirrorKey(hostId: Long, group: BrowserGroup, hostTabs: List<TabSession>): MirrorKey =
+        MirrorKey(hostId, group.items.map { it.target }, hostTabs.map { it.target })
+
+    private data class MirrorKey(val hostId: Long, val itemTargets: List<String>, val tabTargets: List<String?>)
 
     fun closeTab(id: String) = closeTabs(setOf(id))
 
