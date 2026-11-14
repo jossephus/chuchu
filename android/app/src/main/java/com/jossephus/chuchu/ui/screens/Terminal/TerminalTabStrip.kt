@@ -31,7 +31,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jossephus.chuchu.R
+import com.jossephus.chuchu.service.terminal.ProgramState
+import com.jossephus.chuchu.service.terminal.ProgramStatus
 import com.jossephus.chuchu.service.terminal.SessionStatus
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlin.math.roundToInt
 import com.jossephus.chuchu.service.terminal.TabSession
@@ -87,6 +90,12 @@ fun TerminalTabStrip(
         override?.takeIf(String::isNotBlank)
     }
     val titles = tabs.indices.map { overrides[it] ?: terminalTitles[it] }
+    val programStatuses = tabs.map { tab ->
+        val status by remember(tab) {
+            tab.sessionState.map { it.programStatus }.distinctUntilChanged()
+        }.collectAsStateWithLifecycle(initialValue = null)
+        status
+    }
     val titlePrefixCounts = titles
         .filterNotNull()
         .groupingBy { it.take(TAB_TITLE_COLLISION_PREFIX_LENGTH) }
@@ -130,6 +139,8 @@ fun TerminalTabStrip(
                     }
                     else -> "$alias · $title"
                 }
+                val programStatus = programStatuses[index]
+                val description = programStatusDescription(programStatus)?.let { "$label, $it" } ?: label
 
                 Box(
                     modifier = Modifier
@@ -137,7 +148,7 @@ fun TerminalTabStrip(
                             val start = coords.positionInParent().x.roundToInt()
                             tabBounds[tab.id] = start until start + coords.size.width
                         }
-                        .semantics { contentDescription = label }
+                        .semantics { contentDescription = description }
                         .defaultMinSize(minHeight = 32.dp)
                         .widthIn(min = 44.dp, max = 160.dp)
                         .clip(androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
@@ -149,13 +160,19 @@ fun TerminalTabStrip(
                         .padding(horizontal = 8.dp, vertical = 3.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    ChuText(
-                        text = label,
-                        style = typography.labelSmall,
-                        color = if (isActive) colors.accent else colors.textSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        ProgramStatusMarker(programStatus)
+                        ChuText(
+                            text = label,
+                            style = typography.labelSmall,
+                            color = if (isActive) colors.accent else colors.textSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                     if (isActive) {
                         Box(
                             modifier = Modifier
@@ -212,4 +229,29 @@ internal fun scrollToReveal(bounds: IntRange, scroll: Int, viewport: Int): Int? 
         bounds.first < scroll -> bounds.first
         bounds.last + 1 > scroll + viewport -> bounds.last + 1 - viewport
         else -> null
+    }
+
+@Composable
+private fun ProgramStatusMarker(status: ProgramStatus?) {
+    if (status == null) return
+    val colors = ChuColors.current
+    val (marker, color) =
+        when (status.state) {
+            ProgramState.Working -> (status.progress?.let { "$it%" } ?: "●") to colors.accent
+            ProgramState.Blocked -> "!" to colors.warning
+            ProgramState.Error -> "✗" to colors.error
+            ProgramState.Done -> "✓" to colors.success
+            ProgramState.Idle -> return
+        }
+    ChuText(marker, style = ChuTypography.current.labelSmall, color = color, maxLines = 1)
+}
+
+@Composable
+private fun programStatusDescription(status: ProgramStatus?): String? =
+    when (status?.state) {
+        ProgramState.Working -> stringResource(R.string.program_status_a11y_working)
+        ProgramState.Blocked -> stringResource(R.string.program_status_a11y_blocked)
+        ProgramState.Error -> stringResource(R.string.program_status_a11y_error)
+        ProgramState.Done -> stringResource(R.string.program_status_a11y_done)
+        ProgramState.Idle, null -> null
     }

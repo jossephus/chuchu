@@ -33,6 +33,7 @@ class GhosttyBridge {
     external fun nativePollPwd(handle: Long): String?
     external fun nativePollClipboard(handle: Long): ByteArray?
     external fun nativeDrainBellCount(handle: Long): Int
+    external fun nativeDrainProgramStatus(handle: Long): ByteArray?
     external fun nativeRenderHoldActive(handle: Long): Boolean
     external fun nativeSetColorScheme(handle: Long, scheme: Int)
     external fun nativeSetDefaultColors(

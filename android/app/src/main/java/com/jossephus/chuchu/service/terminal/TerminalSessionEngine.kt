@@ -63,6 +63,7 @@ data class SessionState(
     val title: String? = null,
     val pwd: String? = null,
     val bellCount: Int = 0,
+    val programStatus: ProgramStatus? = null,
     val nativeVersion: String? = null,
     val reconnectAttempt: Int = 0,
     val error: String? = null,
@@ -142,6 +143,7 @@ class TerminalSessionEngine(
     private var renderHoldJob: Job? = null
     private var title: String? = null
     private var pwd: String? = null
+    private val programStatus = ProgramStatusRecords()
     private var images: List<ImagePlacement> = emptyList()
     private var pendingColorScheme: Int? = null
     private var pendingDefaultColors: DefaultColors? = null
@@ -679,6 +681,7 @@ class TerminalSessionEngine(
             renderHold.release()
             title = null
             pwd = null
+            programStatus.clear()
             images = emptyList()
             _state.value =
                 SessionState(
@@ -989,6 +992,7 @@ class TerminalSessionEngine(
         localShellService.close()
         closePluginConnection()
         handle = bridge.nativeCreate(cols, rows, 1000)
+        programStatus.clear()
         applyTerminalOptions()
 
         when (params.transport) {
@@ -1521,6 +1525,7 @@ class TerminalSessionEngine(
             val nextPwd = bridge.nativePollPwd(handle)
             val nextClipboard = bridge.nativePollClipboard(handle)
             val bellCount = bridge.nativeDrainBellCount(handle)
+            bridge.nativeDrainProgramStatus(handle)?.let(programStatus::apply)
             if (nextTitle != null) {
                 title = nextTitle
             }
@@ -1536,6 +1541,7 @@ class TerminalSessionEngine(
                     title = title,
                     pwd = pwd,
                     bellCount = bellCount,
+                    programStatus = programStatus.current,
                     nativeVersion = nativeVersion,
                     handle = handle,
                 )
