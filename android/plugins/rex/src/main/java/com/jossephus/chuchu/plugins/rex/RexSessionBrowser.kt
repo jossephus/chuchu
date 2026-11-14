@@ -4,6 +4,7 @@ import android.util.Log
 import com.jossephus.chuchu.plugin.api.ProgramState
 import com.jossephus.chuchu.plugin.api.ProgramStatus
 import com.jossephus.chuchu.plugin.api.mostUrgent
+import com.jossephus.chuchu.plugin.api.reportingApp
 import java.io.Closeable
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
@@ -38,6 +39,7 @@ data class RexPaneSummary(
     val program: String?,
     val cwd: String?,
     val status: ProgramStatus? = null,
+    val app: String? = null,
 )
 
 data class RexSessionSummary(val sessionId: String, val label: String, val panes: List<RexPaneSummary>)
@@ -263,6 +265,7 @@ internal class RexSessionBrowser(private val server: RexServer) : Closeable {
                     program = detail?.name,
                     cwd = detail?.cwd?.let(::abbreviateHome),
                     status = statuses[blockId]?.values?.mostUrgent(),
+                    app = statuses[blockId]?.values?.reportingApp(),
                 )
             }
         return RexSessionSummary(sessionId, labels[sessionId] ?: sessionId, panes)

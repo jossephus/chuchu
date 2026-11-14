@@ -126,6 +126,7 @@ private class RexHostBrowser(endpoint: RexEndpoint) : HostBrowser {
                         title = paneName(pane),
                         detail = pane.cwd?.let(::folderName),
                         status = pane.status,
+                        program = pane.app,
                     )
                 },
             newItemTarget = RexTargets.newWindow(session.sessionId),

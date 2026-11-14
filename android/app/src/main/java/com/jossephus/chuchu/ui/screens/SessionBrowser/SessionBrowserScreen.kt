@@ -284,7 +284,7 @@ private fun ItemRow(item: BrowserItem, isOpen: Boolean, isFirst: Boolean, isLast
     ) {
         val glyphColor = if (isOpen) colors.success else colors.textMuted
         Box(Modifier.width(ROW_GLYPH_WIDTH), contentAlignment = Alignment.CenterStart) {
-            val icon = ProgramIcons.forName(item.status?.app)
+            val icon = ProgramIcons.forName(item.program ?: item.status?.app)
             if (icon != null) {
                 Image(
                     painter = painterResource(icon.drawable),
