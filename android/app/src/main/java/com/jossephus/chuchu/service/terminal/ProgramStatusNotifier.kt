@@ -10,6 +10,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.jossephus.chuchu.MainActivity
 import com.jossephus.chuchu.R
+import com.jossephus.chuchu.plugin.api.ProgramState
+import com.jossephus.chuchu.plugin.api.ProgramStatus
 
 class ProgramStatusNotifier(private val context: Context) {
     private val manager = NotificationManagerCompat.from(context)

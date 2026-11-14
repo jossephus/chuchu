@@ -48,6 +48,7 @@ import com.jossephus.chuchu.ui.components.ChuButton
 import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuCard
 import com.jossephus.chuchu.ui.components.ChuText
+import com.jossephus.chuchu.ui.components.ProgramStatusMarker
 import com.jossephus.chuchu.ui.components.HostKeyPromptDialog
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
@@ -293,6 +294,7 @@ private fun ItemRow(item: BrowserItem, isOpen: Boolean, isFirst: Boolean, isLast
                 modifier = Modifier.weight(1f, fill = false),
             )
         }
+        ProgramStatusMarker(item.status)
         ChuText("›", style = typography.label, color = colors.textMuted)
     }
 }

@@ -11,6 +11,8 @@ import com.jossephus.chuchu.model.Transport
 import com.jossephus.chuchu.plugin.PluginManager
 import com.jossephus.chuchu.plugin.api.BrowserGroup
 import com.jossephus.chuchu.plugin.api.HostBrowserState
+import com.jossephus.chuchu.plugin.api.ProgramState
+import com.jossephus.chuchu.plugin.api.ProgramStatus
 import com.jossephus.chuchu.plugin.api.RemoteMultiplexerSession
 import com.jossephus.chuchu.service.ssh.HostKeyStore
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
@@ -214,7 +216,7 @@ class TerminalSessionRepository private constructor(application: Application) {
     private fun TabSession.statusUpdates(): Flow<SessionStatus> = sessionState.map { it.status }.distinctUntilChanged()
 
     private fun TabSession.programStatusUpdates(): Flow<ProgramStatus?> =
-        sessionState.map { it.programStatus }.distinctUntilChanged { old, new -> old?.state == new?.state }
+        programStatus.distinctUntilChanged { old, new -> old?.state == new?.state }
 
     private fun notifyProgramStatus(tabs: List<Pair<TabSession, ProgramStatus?>>) {
         val open = tabs.map { it.first.id }.toSet()
@@ -511,6 +513,7 @@ class TerminalSessionRepository private constructor(application: Application) {
                             openTab(template.copy(transportTarget = TransportTarget(item.target)), select = false, connect = false)
                         }
                 tab?.titleOverride?.value = item.title
+                tab?.showHostStatus(item.status)
                 tab
             }
         arrangeHostTabs(hostId, ordered.map { it.id })

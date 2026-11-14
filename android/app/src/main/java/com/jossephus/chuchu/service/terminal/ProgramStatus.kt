@@ -1,31 +1,15 @@
 package com.jossephus.chuchu.service.terminal
 
-enum class ProgramState(val urgency: Int) {
-    Idle(0),
-    Done(1),
-    Working(2),
-    Error(3),
-    Blocked(4),
-}
-
-data class ProgramStatus(
-    val state: ProgramState,
-    val id: String = "",
-    val app: String? = null,
-    val kind: String? = null,
-    val progress: Int? = null,
-    val title: String? = null,
-    val message: String? = null,
-)
+import com.jossephus.chuchu.plugin.api.ProgramState
+import com.jossephus.chuchu.plugin.api.ProgramStatus
+import com.jossephus.chuchu.plugin.api.mostUrgent
 
 class ProgramStatusRecords {
     private val records = LinkedHashMap<String, ProgramStatus>()
 
     val current: ProgramStatus?
         get() {
-            val urgency = records.values.maxOfOrNull { it.state.urgency } ?: return null
-            val top = records.values.last { it.state.urgency == urgency }
-            if (top.state == ProgramState.Idle) return null
+            val top = records.values.mostUrgent() ?: return null
             return if (top.app != null) top else top.copy(app = inheritedApp(top.id))
         }
 
