@@ -47,6 +47,8 @@ const MAX_OSC52_CLIPBOARD_BYTES = 1024 * 1024;
 const MAX_PROGRAM_STATUS_BYTES = 64 * 1024;
 const PROGRAM_STATUS_FIELD_SEPARATOR = 0x1f;
 const PROGRAM_STATUS_RECORD_SEPARATOR = 0x1e;
+const PROGRAM_STATUS_CLEAR_ALL = "clear\x1f\x1f\x1f\x1f\x1f\x1f\x1e";
+const PROGRAM_STATUS_PROMPT = "prompt\x1f\x1f\x1f\x1f\x1f\x1f\x1e";
 const MAX_OSC7_PWD_BYTES = 4096;
 const KITTY_IMAGE_STORAGE_LIMIT = 64 * 1024 * 1024;
 const MAX_SNAPSHOT_CONTINUATION_BYTES = 1024 * 1024;
@@ -419,9 +421,20 @@ fn chuchuProgramStatus(handler: *ghostty.TerminalStream.Handler, report: ghostty
     var line_buf: [ghostty.osc.program_status.max_sequence_bytes]u8 = undefined;
     var writer: std.Io.Writer = .fixed(&line_buf);
     writeProgramStatus(&writer, report) catch return;
-    const line = writer.buffered();
+    queueProgramStatus(terminal, writer.buffered());
+}
+
+fn chuchuSemanticPrompt(handler: *ghostty.TerminalStream.Handler, event: ghostty.TerminalStream.Handler.SemanticPrompt) void {
+    if (event.kind != .prompt_start or event.prompt_kind != .primary) return;
+    queueProgramStatus(terminalFromHandler(handler), PROGRAM_STATUS_PROMPT);
+}
+
+fn queueProgramStatus(terminal: *ChuchuTerminal, line: []const u8) void {
     const reports = &terminal.program_status_reports;
-    if (reports.items.len + line.len > MAX_PROGRAM_STATUS_BYTES) reports.clearRetainingCapacity();
+    if (reports.items.len + line.len > MAX_PROGRAM_STATUS_BYTES) {
+        reports.clearRetainingCapacity();
+        reports.appendSlice(allocator, PROGRAM_STATUS_CLEAR_ALL) catch return;
+    }
     reports.appendSlice(allocator, line) catch return;
 }
 
@@ -569,6 +582,7 @@ fn attachStream(terminal: *ChuchuTerminal) void {
     handler.effects.render_hold = chuchuRenderHold;
     handler.effects.xtversion = chuchuXtversion;
     handler.effects.program_status = chuchuProgramStatus;
+    handler.effects.semantic_prompt = chuchuSemanticPrompt;
     terminal.stream_handler = .{
         .owner = terminal,
         .inner = handler,

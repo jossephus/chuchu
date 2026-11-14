@@ -72,6 +72,36 @@ class ProgramStatusRecordsTest {
     }
 
     @Test
+    fun aNewPromptDropsWorkingAndBlockedRecordsButKeepsResults() {
+        val records = ProgramStatusRecords()
+        records.apply(
+            report("blocked", id = "a") +
+                report("working", id = "b") +
+                report("done", id = "c") +
+                report("error", id = "d"),
+        )
+        records.apply(report("prompt"))
+
+        assertEquals("d", records.current?.id)
+        records.apply(report("clear", id = "d"))
+        assertEquals("c", records.current?.id)
+    }
+
+    @Test
+    fun theLeastRecentlyUpdatedRecordIsEvictedPastTheCap() {
+        val records = ProgramStatusRecords()
+        records.apply(report("blocked", id = "first"))
+        (1..255).forEach { records.apply(report("working", id = "r$it")) }
+        records.apply(report("blocked", id = "first"))
+        records.apply(report("working", id = "r256"))
+        assertEquals("first", records.current?.id)
+
+        records.apply(report("done", id = "r257"))
+        records.apply(report("clear", id = "first"))
+        assertEquals(ProgramState.Working, records.current?.state)
+    }
+
+    @Test
     fun idleRecordsShowNothing() {
         val records = ProgramStatusRecords()
         records.apply(report("idle", app = "claude-code"))
