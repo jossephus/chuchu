@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,7 +18,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -52,6 +53,9 @@ import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
 
 private val HEADER_ACTION_SIZE = 28.dp
+
+// Where a row separator starts: the row's padding plus the ">_" glyph and its gap.
+private val ROW_SEPARATOR_INSET = 44.dp
 
 @Composable
 fun SessionBrowserScreen(
@@ -129,7 +133,7 @@ fun SessionBrowserScreen(
         }
 
         if (state.loaded) {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyColumn {
                 if (state.groups.all { it.items.isEmpty() }) {
                     item(key = "empty") {
                         ChuText(
@@ -139,7 +143,7 @@ fun SessionBrowserScreen(
                         )
                     }
                 }
-                state.groups.forEach { group ->
+                state.groups.forEachIndexed { index, group ->
                     val collapsed = group.id in collapsedGroups
                     if (group.label.isNotBlank()) {
                         item(key = "group:${group.id}") {
@@ -156,14 +160,17 @@ fun SessionBrowserScreen(
                         }
                     }
                     if (!collapsed) {
-                        items(group.items, key = { "item:${group.id}:${it.target}" }) { item ->
-                            ItemCard(
+                        itemsIndexed(group.items, key = { _, it -> "item:${group.id}:${it.target}" }) { i, item ->
+                            ItemRow(
                                 item = item,
                                 isOpen = item.target in openTargets,
+                                isFirst = i == 0,
+                                isLast = i == group.items.lastIndex,
                                 onClick = { onOpen(item.target, false) },
                             )
                         }
                     }
+                    if (index < state.groups.lastIndex) item(key = "gap:${group.id}") { Spacer(Modifier.height(8.dp)) }
                 }
                 val newGroupTarget = state.newGroupTarget
                 if (newGroupTarget != null) {
@@ -191,7 +198,7 @@ private fun GroupHeader(
     val colors = ChuColors.current
     val typography = ChuTypography.current
     Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -235,40 +242,58 @@ private fun GroupHeader(
     }
 }
 
+/**
+ * One row of a group's card. Rows are drawn as segments of a single bordered card
+ * (outer edges on the first and last row, inset separators between) rather than a
+ * card per row, so a session with many windows reads as one unit and stays lazy.
+ */
 @Composable
-private fun ItemCard(item: BrowserItem, isOpen: Boolean, onClick: () -> Unit) {
+private fun ItemRow(item: BrowserItem, isOpen: Boolean, isFirst: Boolean, isLast: Boolean, onClick: () -> Unit) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
-    ChuCard(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        background = colors.surfaceVariant,
-        border = if (isOpen) colors.success else colors.border,
+    val border = colors.border
+    Row(
+        modifier =
+            Modifier.fillMaxWidth()
+                .background(colors.surfaceVariant)
+                .drawBehind {
+                    val stroke = 1.dp.toPx()
+                    val half = stroke / 2
+                    drawLine(border, Offset(half, 0f), Offset(half, size.height), stroke)
+                    drawLine(border, Offset(size.width - half, 0f), Offset(size.width - half, size.height), stroke)
+                    if (isFirst) drawLine(border, Offset(0f, half), Offset(size.width, half), stroke)
+                    if (isLast) {
+                        drawLine(border, Offset(0f, size.height - half), Offset(size.width, size.height - half), stroke)
+                    }
+                    if (!isFirst) {
+                        // Inset past the prompt glyph, like a grouped list's separator.
+                        drawLine(border, Offset(ROW_SEPARATOR_INSET.toPx(), 0f), Offset(size.width, 0f), stroke)
+                    }
+                }
+                .clickable(onClick = onClick)
+                .padding(horizontal = 12.dp, vertical = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ChuText(">_", style = typography.label, color = colors.success)
+        ChuText(">_", style = typography.label, color = if (isOpen) colors.success else colors.textMuted)
+        ChuText(
+            item.title,
+            style = typography.body,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        item.detail?.let { detail ->
             ChuText(
-                item.title,
-                style = typography.body,
+                detail,
+                style = typography.bodySmall,
+                color = colors.textMuted,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f, fill = false),
             )
-            item.detail?.let { detail ->
-                ChuText(
-                    detail,
-                    style = typography.bodySmall,
-                    color = colors.textMuted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-            }
-            ChuText("›", style = typography.label, color = colors.textMuted)
         }
+        ChuText("›", style = typography.label, color = colors.textMuted)
     }
 }
 

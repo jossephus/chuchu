@@ -32,7 +32,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jossephus.chuchu.R
 import com.jossephus.chuchu.service.terminal.SessionStatus
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlin.math.roundToInt
 import com.jossephus.chuchu.service.terminal.TabSession
@@ -77,14 +76,17 @@ fun TerminalTabStrip(
     val scrollState = rememberScrollState()
     val trailingActionWidth = if (tabs.isNotEmpty()) 72.dp else 40.dp
     val tabBounds = remember { mutableStateMapOf<String, IntRange>() }
-    val titles = tabs.map { tab ->
+    val terminalTitles = tabs.map { tab ->
         val title by remember(tab) {
-            combine(tab.sessionState.map { it.title?.takeIf(String::isNotBlank) }, tab.titleOverride) { terminal, override ->
-                override?.takeIf(String::isNotBlank) ?: terminal
-            }
+            tab.sessionState.map { it.title?.takeIf(String::isNotBlank) }
         }.collectAsStateWithLifecycle(initialValue = null)
         title
     }
+    val overrides = tabs.map { tab ->
+        val override by tab.titleOverride.collectAsStateWithLifecycle()
+        override?.takeIf(String::isNotBlank)
+    }
+    val titles = tabs.indices.map { overrides[it] ?: terminalTitles[it] }
     val titlePrefixCounts = titles
         .filterNotNull()
         .groupingBy { it.take(TAB_TITLE_COLLISION_PREFIX_LENGTH) }
@@ -119,6 +121,13 @@ fun TerminalTabStrip(
                 val label = when {
                     title == null -> alias
                     titlePrefixCounts.getValue(title.take(TAB_TITLE_COLLISION_PREFIX_LENGTH)) == 1 -> title
+                    // A browser-named tab's alias is that same name (e.g. two panes of one Rex
+                    // window). Number them: the terminal's own title can be stale, left behind
+                    // by a program that has since exited.
+                    overrides[index] != null -> {
+                        val position = overrides.take(index + 1).count { it == title }
+                        if (position > 1) "$title · $position" else title
+                    }
                     else -> "$alias · $title"
                 }
 

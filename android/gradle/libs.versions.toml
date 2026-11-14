@@ -15,6 +15,7 @@ kotlinxSerialization = "1.7.3"
 kotlinxCoroutines = "1.7.3"
 robolectric = "4.16"
 roborazzi = "1.50.0"
+okhttp = "4.12.0"
 camerax = "1.4.2"
 zxing = "3.5.3"
 
@@ -44,6 +45,7 @@ roborazzi-compose = { module = "io.github.takahirom.roborazzi:roborazzi-compose"
 navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigation" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
+okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 androidx-camera-camera2 = { module = "androidx.camera:camera-camera2", version.ref = "camerax" }
 androidx-camera-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "camerax" }
 androidx-camera-view = { module = "androidx.camera:camera-view", version.ref = "camerax" }
