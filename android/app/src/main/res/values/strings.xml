@@ -344,6 +344,20 @@
     <string name="notification_title">Chuchu connected</string>
     <string name="notification_default_label">Active session</string>
     <string name="notification_action_disconnect">Disconnect</string>
+    <string name="program_status_channel_name">Program status</string>
+    <string name="program_status_channel_description">Tells you when a program in another tab finishes, fails or needs you</string>
+    <string name="program_status_default_program">A program</string>
+    <string name="program_status_needs_permission">%1$s needs your permission</string>
+    <string name="program_status_has_question">%1$s has a question</string>
+    <string name="program_status_needs_sign_in">%1$s needs you to sign in</string>
+    <string name="program_status_needs_input">%1$s is waiting for you</string>
+    <string name="program_status_done">%1$s finished</string>
+    <string name="program_status_failed">%1$s failed</string>
+    <string name="program_status_working">%1$s is working</string>
+    <string name="program_status_a11y_working">working</string>
+    <string name="program_status_a11y_blocked">waiting for you</string>
+    <string name="program_status_a11y_done">finished</string>
+    <string name="program_status_a11y_error">failed</string>
 
     <!-- Backup / key errors surfaced from view models -->
     <string name="add_server_key_generation_failed">Key generation failed</string>

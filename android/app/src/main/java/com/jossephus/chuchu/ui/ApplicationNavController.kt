@@ -8,6 +8,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
@@ -67,6 +68,26 @@ fun ApplicationNavController() {
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    val sessionRepository = remember(application) { TerminalSessionRepository.getInstance(application) }
+    val tabToShow by sessionRepository.tabToShow.collectAsStateWithLifecycle()
+    LaunchedEffect(tabToShow) {
+        val tab = tabToShow ?: return@LaunchedEffect
+        sessionRepository.tabShown()
+        val hostId = tab.spec.hostId
+        val current = navController.currentBackStackEntry
+        val showing =
+            if (hostId == null) {
+                current?.destination?.route == "terminal/local"
+            } else {
+                current?.destination?.route?.startsWith("terminal/{id}") == true && current.arguments?.getLong("id") == hostId
+            }
+        if (!showing) {
+            navController.navigate(if (hostId == null) "terminal/local" else "terminal/$hostId") {
+                popUpTo("servers")
+            }
+        }
     }
 
     NavHost(navController = navController, startDestination = "servers") {

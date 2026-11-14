@@ -333,6 +333,20 @@
     <string name="notification_title">Chuchu 已连接</string>
     <string name="notification_default_label">活动中的会话</string>
     <string name="notification_action_disconnect">断开</string>
+    <string name="program_status_channel_name">程序状态</string>
+    <string name="program_status_channel_description">其他标签页中的程序完成、失败或需要你处理时通知你</string>
+    <string name="program_status_default_program">程序</string>
+    <string name="program_status_needs_permission">%1$s 需要你的授权</string>
+    <string name="program_status_has_question">%1$s 有一个问题</string>
+    <string name="program_status_needs_sign_in">%1$s 需要你登录</string>
+    <string name="program_status_needs_input">%1$s 正在等你</string>
+    <string name="program_status_done">%1$s 已完成</string>
+    <string name="program_status_failed">%1$s 失败了</string>
+    <string name="program_status_working">%1$s 正在运行</string>
+    <string name="program_status_a11y_working">运行中</string>
+    <string name="program_status_a11y_blocked">等待你处理</string>
+    <string name="program_status_a11y_done">已完成</string>
+    <string name="program_status_a11y_error">失败</string>
 
     <!-- Backup / key errors surfaced from view models -->
     <string name="add_server_key_generation_failed">密钥生成失败</string>

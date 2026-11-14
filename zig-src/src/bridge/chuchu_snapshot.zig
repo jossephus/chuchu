@@ -44,6 +44,11 @@ const CELL_FLAG_SPACER: u8 = 1 << 7;
 const IMAGE_HEADER_BYTES = 52;
 const MAX_KITTY_IMAGES = 64;
 const MAX_OSC52_CLIPBOARD_BYTES = 1024 * 1024;
+const MAX_PROGRAM_STATUS_BYTES = 64 * 1024;
+const PROGRAM_STATUS_FIELD_SEPARATOR = 0x1f;
+const PROGRAM_STATUS_RECORD_SEPARATOR = 0x1e;
+const PROGRAM_STATUS_CLEAR_ALL = "clear\x1f\x1f\x1f\x1f\x1f\x1f\x1e";
+const PROGRAM_STATUS_PROMPT = "prompt\x1f\x1f\x1f\x1f\x1f\x1f\x1e";
 const MAX_OSC7_PWD_BYTES = 4096;
 const KITTY_IMAGE_STORAGE_LIMIT = 64 * 1024 * 1024;
 const MAX_SNAPSHOT_CONTINUATION_BYTES = 1024 * 1024;
@@ -136,6 +141,7 @@ const ChuchuTerminal = struct {
     clipboard_len: usize = 0,
     clipboard_dirty: bool = false,
     bell_count: u32 = 0,
+    program_status_reports: std.ArrayList(u8) = .empty,
     snapshot_buffer: std.ArrayList(u8) = .empty,
     snapshot_extras_scratch: std.ArrayList(u32) = .empty,
     image_snapshot_buffer: std.ArrayList(u8) = .empty,
@@ -410,6 +416,45 @@ fn chuchuBell(handler: *ghostty.TerminalStream.Handler) void {
     if (terminal.bell_count < std.math.maxInt(u32)) terminal.bell_count += 1;
 }
 
+fn chuchuProgramStatus(handler: *ghostty.TerminalStream.Handler, report: ghostty.osc.Command.ProgramStatus.Report) void {
+    const terminal = terminalFromHandler(handler);
+    var line_buf: [ghostty.osc.program_status.max_sequence_bytes]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&line_buf);
+    writeProgramStatus(&writer, report) catch return;
+    queueProgramStatus(terminal, writer.buffered());
+}
+
+fn chuchuSemanticPrompt(handler: *ghostty.TerminalStream.Handler, event: ghostty.TerminalStream.Handler.SemanticPrompt) void {
+    if (event.kind != .prompt_start or event.prompt_kind != .primary) return;
+    queueProgramStatus(terminalFromHandler(handler), PROGRAM_STATUS_PROMPT);
+}
+
+fn queueProgramStatus(terminal: *ChuchuTerminal, line: []const u8) void {
+    const reports = &terminal.program_status_reports;
+    if (reports.items.len + line.len > MAX_PROGRAM_STATUS_BYTES) {
+        reports.clearRetainingCapacity();
+        reports.appendSlice(allocator, PROGRAM_STATUS_CLEAR_ALL) catch return;
+    }
+    reports.appendSlice(allocator, line) catch return;
+}
+
+fn writeProgramStatus(writer: *std.Io.Writer, report: ghostty.osc.Command.ProgramStatus.Report) std.Io.Writer.Error!void {
+    try writer.writeAll(@tagName(report.state));
+    try writer.writeByte(PROGRAM_STATUS_FIELD_SEPARATOR);
+    try writer.writeAll(report.readOption(.id) orelse "");
+    try writer.writeByte(PROGRAM_STATUS_FIELD_SEPARATOR);
+    try writer.writeAll(report.readOption(.app) orelse "");
+    try writer.writeByte(PROGRAM_STATUS_FIELD_SEPARATOR);
+    if (report.readOption(.kind)) |kind| try writer.writeAll(@tagName(kind));
+    try writer.writeByte(PROGRAM_STATUS_FIELD_SEPARATOR);
+    if (report.readOption(.progress)) |progress| try writer.print("{d}", .{progress});
+    try writer.writeByte(PROGRAM_STATUS_FIELD_SEPARATOR);
+    try report.writeText(.title, writer);
+    try writer.writeByte(PROGRAM_STATUS_FIELD_SEPARATOR);
+    try report.writeText(.msg, writer);
+    try writer.writeByte(PROGRAM_STATUS_RECORD_SEPARATOR);
+}
+
 fn chuchuTitleChanged(handler: *ghostty.TerminalStream.Handler) void {
     updateMetadata(terminalFromHandler(handler));
 }
@@ -536,6 +581,8 @@ fn attachStream(terminal: *ChuchuTerminal) void {
     handler.effects.title_changed = chuchuTitleChanged;
     handler.effects.render_hold = chuchuRenderHold;
     handler.effects.xtversion = chuchuXtversion;
+    handler.effects.program_status = chuchuProgramStatus;
+    handler.effects.semantic_prompt = chuchuSemanticPrompt;
     terminal.stream_handler = .{
         .owner = terminal,
         .inner = handler,
@@ -582,6 +629,7 @@ export fn chuchu_destroy_terminal(handle: c.jlong) callconv(.c) void {
     terminal.snapshot_extras_scratch.deinit(allocator);
     terminal.image_snapshot_buffer.deinit(allocator);
     terminal.pty_write_buffer.deinit(allocator);
+    terminal.program_status_reports.deinit(allocator);
     if (terminal.title) |buf| allocator.free(buf);
     if (terminal.pwd) |buf| allocator.free(buf);
     if (terminal.clipboard) |buf| allocator.free(buf);
@@ -711,6 +759,15 @@ export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeDrainBe
     _ = env;
     _ = thiz;
     return chuchu_drain_bell_count(handle);
+}
+
+export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeDrainProgramStatus(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong) callconv(.c) c.jbyteArray {
+    _ = thiz;
+    const terminal = chuchuFromHandle(handle) orelse return null;
+    const reports = &terminal.program_status_reports;
+    if (reports.items.len == 0) return null;
+    defer reports.clearRetainingCapacity();
+    return jniByteArrayFromBytes(env, reports.items);
 }
 
 export fn Java_com_jossephus_chuchu_service_terminal_GhosttyBridge_nativeRenderHoldActive(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong) callconv(.c) c.jboolean {
