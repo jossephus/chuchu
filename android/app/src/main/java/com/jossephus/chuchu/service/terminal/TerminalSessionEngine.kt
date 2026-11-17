@@ -122,7 +122,6 @@ class TerminalSessionEngine(
     private val moshService = NativeMoshService()
     private var pluginConnection: TransportConnection? = null
     private var pluginProvider: TransportProvider? = null
-    private var typedMultiplexerCommand: String? = null
     private class PinnedTarget(val value: String?)
     @Volatile private var pinnedTarget: PinnedTarget? = null
     private val _attachedTarget = MutableStateFlow<String?>(null)
@@ -999,7 +998,6 @@ class TerminalSessionEngine(
         programStatus.clear()
         _state.value = _state.value.copy(programStatus = null)
         applyTerminalOptions()
-        typedMultiplexerCommand = null
 
         when (params.transport) {
             Transport.Mosh -> establishMoshConnection(params, username)
@@ -1060,7 +1058,7 @@ class TerminalSessionEngine(
             nativeSsh.openShell(cols, rows, ptyWidthPx(), ptyHeightPx())
         } else if (SshServerBanner.isWindowsOpenSsh(nativeSsh.serverBanner())) {
             nativeSsh.openShell(cols, rows, ptyWidthPx(), ptyHeightPx())
-            typedMultiplexerCommand = startupCommand
+            nativeSsh.write("$startupCommand\n".toByteArray(Charsets.UTF_8))
         } else {
             nativeSsh.openExecPty(startupCommand, cols, rows, ptyWidthPx(), ptyHeightPx())
         }
@@ -1377,10 +1375,6 @@ class TerminalSessionEngine(
     private suspend fun sendStartupCommand(params: ConnectionParams) {
         // Multiplexer startup is dispatched through openExecPty before this runs. Later writes on
         // that PTY follow the exec request, so the command is consumed by the attached session.
-        typedMultiplexerCommand?.let { command ->
-            typedMultiplexerCommand = null
-            sendInteractiveCommand(command, "multiplexer launch")
-        }
         sendPostConnectCommand(params.postConnectCommand)
     }
 
