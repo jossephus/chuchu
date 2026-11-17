@@ -276,6 +276,11 @@ class NativeSshService(
         }
     }
 
+    fun serverBanner(): String? {
+        if (handle == 0L) return null
+        return bridge.nativeGetServerBanner(handle)
+    }
+
     fun openExec(command: String): Boolean {
         check(handle != 0L) { "Not connected" }
         return bridge.nativeOpenExec(handle, command)
