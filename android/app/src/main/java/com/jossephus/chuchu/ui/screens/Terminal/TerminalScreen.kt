@@ -247,6 +247,8 @@ fun TerminalScreen(
     val useSingleRowAccessoryBar by settingsRepo.accessoryBarSingleRow.collectAsStateWithLifecycle()
     val accessoryBarOnlyWithKeyboard by
         settingsRepo.accessoryBarOnlyWithKeyboard.collectAsStateWithLifecycle()
+    val accessoryOneShotModifiers by
+        settingsRepo.accessoryOneShotModifiers.collectAsStateWithLifecycle()
     val currentTerminalCustomKeyGroups by
         settingsRepo.terminalCustomKeyGroups.collectAsStateWithLifecycle()
     val settingsFontSize by settingsRepo.terminalFontSize.collectAsStateWithLifecycle()
@@ -719,6 +721,7 @@ fun TerminalScreen(
                     accessoryLayout = accessoryLayout,
                     useSingleRowAccessoryBar = useSingleRowAccessoryBar,
                     accessoryBarOnlyWithKeyboard = accessoryBarOnlyWithKeyboard,
+                    oneShotModifiers = accessoryOneShotModifiers,
                     customKeyGroups = currentTerminalCustomKeyGroups,
                     showCustomActionsFab = showCustomActionsFab,
                     disableAutocorrect = disableAutocorrect,

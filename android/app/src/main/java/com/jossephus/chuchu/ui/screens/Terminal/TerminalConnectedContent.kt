@@ -63,6 +63,7 @@ internal fun TerminalConnectedContent(
     accessoryLayout: List<ResolvedAccessoryEntry>,
     useSingleRowAccessoryBar: Boolean,
     accessoryBarOnlyWithKeyboard: Boolean,
+    oneShotModifiers: Boolean,
     customKeyGroups: List<TerminalCustomKeyGroup>,
     showCustomActionsFab: Boolean,
     disableAutocorrect: Boolean,
@@ -78,7 +79,7 @@ internal fun TerminalConnectedContent(
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
     val colors = ChuColors.current
-    var modifierState by remember { mutableStateOf(ModifierState()) }
+    var modifierState by remember(oneShotModifiers) { mutableStateOf(ModifierState(oneShot = oneShotModifiers)) }
     val inputViewRef = remember { mutableStateOf<TerminalInputView?>(null) }
     var menuSize by remember { mutableStateOf(IntSize.Zero) }
     val clipboard = remember {
@@ -97,6 +98,7 @@ internal fun TerminalConnectedContent(
         val text = clip.getItemAt(0).coerceToText(context).toString()
         if (text.isNotEmpty()) {
             vm.onPasteText(modifierState.applyToText(text))
+            modifierState = modifierState.consumeOneShot()
             ui.clearSelection()
             return true
         }
@@ -246,7 +248,8 @@ internal fun TerminalConnectedContent(
                     tabsForHost = tabsForHost,
                     tabMode = tabMode,
                     chuchuKeys = chuchuKeys,
-                    modifierState = modifierState,
+                    currentModifierState = { modifierState },
+                    onModifierUsed = { modifierState = modifierState.consumeOneShot() },
                     inputViewRef = inputViewRef,
                     inputMethodManager = inputMethodManager,
                     disableAutocorrect = disableAutocorrect,

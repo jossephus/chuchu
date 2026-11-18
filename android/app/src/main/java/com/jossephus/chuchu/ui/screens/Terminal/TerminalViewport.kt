@@ -44,6 +44,7 @@ import com.jossephus.chuchu.ui.components.ChuButtonVariant
 import com.jossephus.chuchu.ui.components.ChuText
 import com.jossephus.chuchu.ui.terminal.ChuchuKeyBindings
 import com.jossephus.chuchu.ui.terminal.CustomActionModifier
+import com.jossephus.chuchu.ui.terminal.GhosttyKeyAction
 import com.jossephus.chuchu.ui.terminal.ModifierState
 import com.jossephus.chuchu.ui.terminal.TerminalCanvas
 import com.jossephus.chuchu.ui.terminal.TerminalCustomAction
@@ -197,7 +198,9 @@ internal fun TerminalViewport(
     tabsForHost: List<TabSession>,
     tabMode: TerminalTabMode,
     chuchuKeys: ChuchuKeyBindings,
-    modifierState: ModifierState,
+    // Read on each event: several key or text events can arrive within one frame, before recomposition.
+    currentModifierState: () -> ModifierState,
+    onModifierUsed: () -> Unit,
     inputViewRef: MutableState<TerminalInputView?>,
     inputMethodManager: InputMethodManager?,
     disableAutocorrect: Boolean,
@@ -277,24 +280,31 @@ internal fun TerminalViewport(
             disableAutocorrect = disableAutocorrect,
             onText = { text ->
                 if (!chuchuKeys.handleText(text)) {
-                    vm.dispatchTextWithModifierState(text, modifierState)
+                    for ((run, runModifierState) in currentModifierState().textRuns(text)) {
+                        vm.dispatchTextWithModifierState(run, runModifierState)
+                    }
+                    onModifierUsed()
                 }
             },
             onKey = { key, codepoint, mods, action, charCode ->
-                handleTerminalKey(
-                    key,
-                    codepoint,
-                    mods,
-                    action,
-                    charCode,
-                    ui,
-                    tabs,
-                    tabsForHost,
-                    tabMode,
-                    chuchuKeys,
-                    modifierState,
-                    vm,
-                )
+                val forwarded =
+                    handleTerminalKey(
+                        key,
+                        codepoint,
+                        mods,
+                        action,
+                        charCode,
+                        ui,
+                        tabs,
+                        tabsForHost,
+                        tabMode,
+                        chuchuKeys,
+                        currentModifierState(),
+                        vm,
+                    )
+                if (forwarded && action == GhosttyKeyAction.Press) {
+                    onModifierUsed()
+                }
             },
             onFocusChanged = vm::onFocusChanged,
             modifier = Modifier.align(Alignment.BottomStart).size(1.dp).alpha(0f),
