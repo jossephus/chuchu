@@ -29,6 +29,7 @@ import com.jossephus.chuchu.service.ssh.HostKeyCheck
 import com.jossephus.chuchu.service.ssh.HostKeyStore
 import com.jossephus.chuchu.service.ssh.NativeSshService
 import com.jossephus.chuchu.service.ssh.SshJumpHost
+import com.jossephus.chuchu.service.ssh.SshServerBanner
 import com.jossephus.chuchu.service.ssh.TailscaleStatusChecker
 import java.util.concurrent.Executors
 import kotlinx.coroutines.CancellationException
@@ -1053,10 +1054,13 @@ class TerminalSessionEngine(
             jumpHost = params.jumpHost,
         )
         val startupCommand = multiplexerStartupCommand(params)?.trim().orEmpty()
-        if (startupCommand.isNotEmpty()) {
-            nativeSsh.openExecPty(startupCommand, cols, rows, ptyWidthPx(), ptyHeightPx())
-        } else {
+        if (startupCommand.isEmpty()) {
             nativeSsh.openShell(cols, rows, ptyWidthPx(), ptyHeightPx())
+        } else if (SshServerBanner.isWindowsOpenSsh(nativeSsh.serverBanner())) {
+            nativeSsh.openShell(cols, rows, ptyWidthPx(), ptyHeightPx())
+            nativeSsh.write("$startupCommand\n".toByteArray(Charsets.UTF_8))
+        } else {
+            nativeSsh.openExecPty(startupCommand, cols, rows, ptyWidthPx(), ptyHeightPx())
         }
     }
 

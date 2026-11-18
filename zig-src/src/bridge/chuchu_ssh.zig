@@ -775,6 +775,14 @@ export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeConnectVia
     return if (handshakeOnSocket(session, fd)) c.JNI_TRUE else c.JNI_FALSE;
 }
 
+export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeGetServerBanner(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong) callconv(.c) c.jstring {
+    _ = thiz;
+    const session = sessionFromHandle(handle) orelse return null;
+    const ssh_session = session.session orelse return null;
+    const banner = c.libssh2_session_banner_get(ssh_session) orelse return null;
+    return jniNewStringOrNull(env, std.mem.span(banner));
+}
+
 export fn Java_com_jossephus_chuchu_service_ssh_NativeSshBridge_nativeAuthenticateNone(env: *c.JNIEnv, thiz: c.jobject, handle: c.jlong) callconv(.c) c.jboolean {
     _ = env;
     _ = thiz;
