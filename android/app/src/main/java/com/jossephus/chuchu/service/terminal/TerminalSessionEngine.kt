@@ -1058,7 +1058,7 @@ class TerminalSessionEngine(
             nativeSsh.openShell(cols, rows, ptyWidthPx(), ptyHeightPx())
         } else if (SshServerBanner.isWindowsOpenSsh(nativeSsh.serverBanner())) {
             nativeSsh.openShell(cols, rows, ptyWidthPx(), ptyHeightPx())
-            nativeSsh.write("$startupCommand\n".toByteArray(Charsets.UTF_8))
+            nativeSsh.write("$startupCommand\r".toByteArray(Charsets.UTF_8))
         } else {
             nativeSsh.openExecPty(startupCommand, cols, rows, ptyWidthPx(), ptyHeightPx())
         }
