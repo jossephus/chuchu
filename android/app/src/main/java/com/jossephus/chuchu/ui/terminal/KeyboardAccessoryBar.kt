@@ -38,6 +38,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
@@ -360,7 +361,14 @@ private fun AccessoryButton(
         ToggleButton(
             label = item.label,
             enabled = modifierState.isEnabled(toggleModifier),
+            locked = modifierState.isLocked(toggleModifier),
             onClick = { onAction(item.action) },
+            onLongClick =
+                if (modifierState.oneShot) {
+                    { onAction(AccessoryAction.LockModifier(toggleModifier)) }
+                } else {
+                    null
+                },
             modifier = Modifier.height(buttonHeight),
             contentPadding = buttonPadding,
         )
@@ -514,22 +522,32 @@ private fun RepeatableAccessoryButton(
 private fun ToggleButton(
     label: String,
     enabled: Boolean,
+    locked: Boolean,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)?,
     modifier: Modifier,
     contentPadding: PaddingValues,
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
+    val haptics = LocalHapticFeedback.current
     val activeLabel = if (enabled) "• $label" else label
     ChuButton(
         onClick = onClick,
+        onLongClick =
+            onLongClick?.let { lock ->
+                {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    lock()
+                }
+            },
         modifier = modifier,
         contentPadding = contentPadding,
         variant = if (enabled) ChuButtonVariant.Filled else ChuButtonVariant.Outlined,
     ) {
         ChuText(
             activeLabel,
-            style = typography.label,
+            style = if (locked) typography.label.copy(textDecoration = TextDecoration.Underline) else typography.label,
             color = if (enabled) colors.onAccent else colors.textSecondary,
         )
     }

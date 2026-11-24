@@ -49,6 +49,10 @@ class SettingsRepository(context: Context) {
         MutableStateFlow(prefs.getBoolean(KEY_ACCESSORY_BAR_ONLY_WITH_KEYBOARD, false))
     val accessoryBarOnlyWithKeyboard: StateFlow<Boolean> = _accessoryBarOnlyWithKeyboard.asStateFlow()
 
+    private val _accessoryOneShotModifiers =
+        MutableStateFlow(prefs.getBoolean(KEY_ACCESSORY_ONE_SHOT_MODIFIERS, false))
+    val accessoryOneShotModifiers: StateFlow<Boolean> = _accessoryOneShotModifiers.asStateFlow()
+
     private val _appLockEnabled = MutableStateFlow(prefs.getBoolean(KEY_APP_LOCK_ENABLED, false))
     val appLockEnabled: StateFlow<Boolean> = _appLockEnabled.asStateFlow()
 
@@ -139,6 +143,11 @@ class SettingsRepository(context: Context) {
     fun setAccessoryBarOnlyWithKeyboard(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_ACCESSORY_BAR_ONLY_WITH_KEYBOARD, enabled).apply()
         _accessoryBarOnlyWithKeyboard.value = enabled
+    }
+
+    fun setAccessoryOneShotModifiers(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_ACCESSORY_ONE_SHOT_MODIFIERS, enabled).apply()
+        _accessoryOneShotModifiers.value = enabled
     }
 
     fun setTerminalTabMode(mode: TerminalTabMode) {
@@ -250,6 +259,7 @@ class SettingsRepository(context: Context) {
         private const val KEY_BUILTIN_SHORTCUTS = "builtin_shortcuts"
         private const val KEY_ACCESSORY_BAR_SINGLE_ROW = "terminal_accessory_bar_single_row"
         private const val KEY_ACCESSORY_BAR_ONLY_WITH_KEYBOARD = "terminal_accessory_bar_only_with_keyboard"
+        private const val KEY_ACCESSORY_ONE_SHOT_MODIFIERS = "terminal_accessory_one_shot_modifiers"
         private const val KEY_TAB_MODE = "terminal_tab_mode"
         private const val KEY_SESSION_PICKER_STYLE = "session_picker_style"
         private const val KEY_APP_LOCK_ENABLED = "app_lock_enabled"
