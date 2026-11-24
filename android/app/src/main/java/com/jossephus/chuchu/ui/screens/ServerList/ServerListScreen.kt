@@ -69,6 +69,9 @@ import com.jossephus.chuchu.ui.components.TuiBadge
 import com.jossephus.chuchu.ui.theme.ChuColors
 import com.jossephus.chuchu.ui.theme.ChuTypography
 
+/** Button height (44dp), its 16dp margin and a 12dp gap: the last card stops above the FAB. */
+private val FloatingActionInset = 72.dp
+
 @Composable
 fun ServerListScreen(
     hosts: List<HostProfile>,
@@ -143,7 +146,7 @@ fun ServerListScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.safeDrawing)
-                .padding(12.dp),
+                .padding(start = 12.dp, top = 12.dp, end = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(
@@ -202,7 +205,12 @@ fun ServerListScreen(
 
             SectionHeader(stringResource(R.string.server_list_header_hosts))
 
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                // The column used to pad its own bottom, which left a strip under the list that
+                // could not scroll away and still put the last card behind the add-server button.
+                contentPadding = PaddingValues(bottom = FloatingActionInset),
+            ) {
                 if (localShellEnabled) {
                     item(key = "local-shell") {
                         LocalShellCard(
