@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -40,6 +41,8 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -208,6 +211,7 @@ internal fun SshBackupSheet(
                         onClick = {},
                     )
                     .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .imePadding()
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
@@ -264,58 +268,15 @@ internal fun SshBackupSheet(
                             passphraseConfirm = exportPassphraseConfirm,
                             onPassphraseChange = viewModel::updateExportPassphrase,
                             onPassphraseConfirmChange = viewModel::updateExportPassphraseConfirm,
-                            valid = viewModel.exportPassphraseValid(),
-                            busy = isBusy,
-                            onExport = {
-                                requireUserVerification(
-                                    context = context,
-                                    title = context.getString(R.string.verification_export_title),
-                                    subtitle = context.getString(R.string.verification_export_subtitle),
-                                ) { result ->
-                                    if (result == VerificationResult.Success || result == VerificationResult.Unavailable) {
-                                        exportLauncher.launch(defaultBackupFileName())
-                                    }
-                                    // On Failed, stay on the same step
-                                }
-                            },
-                            onCancel = {
-                                viewModel.updateExportPassphrase("")
-                                viewModel.updateExportPassphraseConfirm("")
-                                localStep = SheetStep.Overview
-                            },
                         )
 
                         is SheetStep.ImportPassphrase -> ImportPassphraseContent(
                             passphrase = importPassphrase,
                             onPassphraseChange = viewModel::updateImportPassphrase,
-                            valid = viewModel.importPassphraseValid(),
-                            busy = isBusy,
-                            onImport = {
-                                requireUserVerification(
-                                    context = context,
-                                    title = context.getString(R.string.verification_import_title),
-                                    subtitle = context.getString(R.string.verification_import_subtitle),
-                                ) { result ->
-                                    if (result == VerificationResult.Success || result == VerificationResult.Unavailable) {
-                                        importLauncher.launch(arrayOf(CHUCHU_BACKUP_MIME_TYPE, "*/*"))
-                                    }
-                                    // On Failed, stay on the same step
-                                }
-                            },
-                            onCancel = {
-                                viewModel.updateImportPassphrase("")
-                                localStep = SheetStep.Overview
-                            },
                         )
 
                         is SheetStep.ImportPreview -> ImportPreviewContent(
                             plan = effectiveStep.plan,
-                            busy = isBusy,
-                            onConfirm = viewModel::confirmImport,
-                            onCancel = {
-                                viewModel.cancelImport()
-                                localStep = SheetStep.Overview
-                            },
                         )
 
                     }
@@ -353,6 +314,68 @@ internal fun SshBackupSheet(
                             )
                         }
                     }
+                }
+
+                // ── Sticky action row ───────────────────────────────────
+                // Lives outside the scroll area so the keyboard cannot hide it.
+                when (val step = effectiveStep) {
+                    is SheetStep.ExportPassphrase -> BackupActionRow(
+                        confirmLabel = R.string.action_export,
+                        busy = isBusy,
+                        confirmEnabled = viewModel.exportPassphraseValid(),
+                        onConfirm = {
+                            requireUserVerification(
+                                context = context,
+                                title = context.getString(R.string.verification_export_title),
+                                subtitle = context.getString(R.string.verification_export_subtitle),
+                            ) { result ->
+                                if (result == VerificationResult.Success || result == VerificationResult.Unavailable) {
+                                    exportLauncher.launch(defaultBackupFileName())
+                                }
+                                // On Failed, stay on the same step
+                            }
+                        },
+                        onCancel = {
+                            viewModel.updateExportPassphrase("")
+                            viewModel.updateExportPassphraseConfirm("")
+                            localStep = SheetStep.Overview
+                        },
+                    )
+
+                    is SheetStep.ImportPassphrase -> BackupActionRow(
+                        confirmLabel = R.string.action_import,
+                        busy = isBusy,
+                        confirmEnabled = viewModel.importPassphraseValid(),
+                        onConfirm = {
+                            requireUserVerification(
+                                context = context,
+                                title = context.getString(R.string.verification_import_title),
+                                subtitle = context.getString(R.string.verification_import_subtitle),
+                            ) { result ->
+                                if (result == VerificationResult.Success || result == VerificationResult.Unavailable) {
+                                    importLauncher.launch(arrayOf(CHUCHU_BACKUP_MIME_TYPE, "*/*"))
+                                }
+                                // On Failed, stay on the same step
+                            }
+                        },
+                        onCancel = {
+                            viewModel.updateImportPassphrase("")
+                            localStep = SheetStep.Overview
+                        },
+                    )
+
+                    is SheetStep.ImportPreview -> BackupActionRow(
+                        confirmLabel = R.string.action_confirm_import,
+                        busy = isBusy,
+                        confirmEnabled = step.plan.keyInsertCount > 0 || step.plan.hostActions.isNotEmpty(),
+                        onConfirm = { viewModel.confirmImport() },
+                        onCancel = {
+                            viewModel.cancelImport()
+                            localStep = SheetStep.Overview
+                        },
+                    )
+
+                    is SheetStep.Overview -> Unit
                 }
 
                 // ── Bottom action (only for overview) ──────────────────────
@@ -602,13 +625,11 @@ private fun ExportPassphraseContent(
     passphraseConfirm: String,
     onPassphraseChange: (String) -> Unit,
     onPassphraseConfirmChange: (String) -> Unit,
-    valid: Boolean,
-    busy: Boolean,
-    onExport: () -> Unit,
-    onCancel: () -> Unit,
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
+    // Same rule the action row applies, so the mismatch hint and the button agree.
+    val valid = passphrase.length >= BACKUP_MIN_PASSPHRASE_LENGTH && passphrase == passphraseConfirm
 
     ChuCard(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -626,7 +647,9 @@ private fun ExportPassphraseContent(
                     ),
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
-                autoFocus = true,
+                // No autofocus: the IME would cover the action row below the sheet content.
+                autoFocus = false,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
             )
             ChuTextField(
                 value = passphraseConfirm,
@@ -636,6 +659,7 @@ private fun ExportPassphraseContent(
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 autoFocus = false,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
             )
             if (passphrase.length in 1 until BACKUP_MIN_PASSPHRASE_LENGTH) {
                 ChuText(
@@ -645,7 +669,9 @@ private fun ExportPassphraseContent(
                             BACKUP_MIN_PASSPHRASE_LENGTH,
                         ),
                     style = typography.bodySmall,
-                    color = colors.textMuted,
+                    // An error colour, not the muted hint colour: this line is the only reason the
+                    // export button below does nothing, so it has to look like a problem.
+                    color = colors.error,
                 )
             } else if (passphrase.length >= BACKUP_MIN_PASSPHRASE_LENGTH && !valid) {
                 ChuText(
@@ -662,38 +688,6 @@ private fun ExportPassphraseContent(
         }
     }
 
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        ChuButton(
-            onClick = onCancel,
-            variant = ChuButtonVariant.Ghost,
-            bracketed = true,
-            borderColor = colors.textMuted,
-            modifier = Modifier.weight(1f),
-        ) {
-            ChuText(
-                stringResource(R.string.action_cancel),
-                style = typography.label,
-                color = colors.textMuted,
-            )
-        }
-        ChuButton(
-            onClick = onExport,
-            enabled = !busy && valid,
-            variant = ChuButtonVariant.Outlined,
-            bracketed = true,
-            borderColor = colors.accent,
-            modifier = Modifier.weight(1f),
-        ) {
-            ChuText(
-                stringResource(R.string.action_export),
-                style = typography.label,
-                color = colors.accent,
-            )
-        }
-    }
 }
 
 // ── Import passphrase content ───────────────────────────────────────────────────
@@ -702,10 +696,6 @@ private fun ExportPassphraseContent(
 private fun ImportPassphraseContent(
     passphrase: String,
     onPassphraseChange: (String) -> Unit,
-    valid: Boolean,
-    busy: Boolean,
-    onImport: () -> Unit,
-    onCancel: () -> Unit,
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
@@ -722,7 +712,8 @@ private fun ImportPassphraseContent(
                 placeholder = stringResource(R.string.backup_import_passphrase_placeholder),
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
-                autoFocus = true,
+                autoFocus = false,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
             )
             ChuText(
                 text = stringResource(R.string.backup_import_hint),
@@ -732,38 +723,6 @@ private fun ImportPassphraseContent(
         }
     }
 
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        ChuButton(
-            onClick = onCancel,
-            variant = ChuButtonVariant.Ghost,
-            bracketed = true,
-            borderColor = colors.textMuted,
-            modifier = Modifier.weight(1f),
-        ) {
-            ChuText(
-                stringResource(R.string.action_cancel),
-                style = typography.label,
-                color = colors.textMuted,
-            )
-        }
-        ChuButton(
-            onClick = onImport,
-            enabled = !busy && valid,
-            variant = ChuButtonVariant.Outlined,
-            bracketed = true,
-            borderColor = colors.accent,
-            modifier = Modifier.weight(1f),
-        ) {
-            ChuText(
-                stringResource(R.string.action_import),
-                style = typography.label,
-                color = colors.accent,
-            )
-        }
-    }
 }
 
 // ── Import preview content ─────────────────────────────────────────────────────
@@ -771,9 +730,6 @@ private fun ImportPassphraseContent(
 @Composable
 private fun ImportPreviewContent(
     plan: BackupImportPlan,
-    busy: Boolean,
-    onConfirm: () -> Unit,
-    onCancel: () -> Unit,
 ) {
     val colors = ChuColors.current
     val typography = ChuTypography.current
@@ -918,6 +874,25 @@ private fun ImportPreviewContent(
         }
     }
 
+}
+
+/**
+ * Shared cancel/confirm row for the backup sheet steps. It is rendered by the panel instead of
+ * the step content so it stays anchored while the content scrolls and while the keyboard is open —
+ * with the row inside the scroll area, the IME covered it and the buttons looked unresponsive.
+ */
+@Composable
+private fun BackupActionRow(
+    confirmLabel: Int,
+    busy: Boolean,
+    confirmEnabled: Boolean,
+    onConfirm: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    val colors = ChuColors.current
+    val typography = ChuTypography.current
+    val actionable = !busy && confirmEnabled
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -937,13 +912,17 @@ private fun ImportPreviewContent(
         }
         ChuButton(
             onClick = onConfirm,
-            enabled = !busy && (plan.keyInsertCount > 0 || plan.hostActions.isNotEmpty()),
+            enabled = actionable,
             variant = ChuButtonVariant.Outlined,
             bracketed = true,
-            borderColor = colors.accent,
+            borderColor = if (actionable) colors.accent else colors.border,
             modifier = Modifier.weight(1f),
         ) {
-            ChuText(stringResource(R.string.action_confirm_import), style = typography.label, color = colors.accent)
+            ChuText(
+                stringResource(confirmLabel),
+                style = typography.label,
+                color = if (actionable) colors.accent else colors.textMuted,
+            )
         }
     }
 }
